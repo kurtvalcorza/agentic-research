@@ -156,8 +156,8 @@ After approval, Phase 2 (Extraction) will process the [N] approved papers.
 
 ### Handles Well
 - Standard PDF formats with extractable text
-- **Markdown files (.md)** with standard Obsidian formatting
-- **Obsidian notes** with frontmatter metadata (YAML)
+- **Markdown files (.md)** with standard Markdown formatting
+- **Markdown notes** with frontmatter metadata (YAML)
 - Common academic publication structures
 - Multiple languages (if specified in criteria)
 - Large corpora (50-500 papers)

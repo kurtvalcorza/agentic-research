@@ -9,7 +9,7 @@ source-section: "AI Research Provenance"
 
 When AI agents perform substantive steps of a literature review or research synthesis — screening, extraction, appraisal, drafting, citation handling — the output is only trustworthy and reproducible if **how the AI was used is recorded**. Model behaviour changes across versions; a review run on one model/prompt may not replicate on another. Reporting standards now require this: **PRISMA-trAIce (2025)** is a 14-item checklist for AI-in-systematic-reviews, and ICMJE/COPE require disclosing substantive AI assistance (and never listing AI as an author).
 
-This convention applies to every research-suite skill (`orchestrate-research`, `screen-literature`, `extract-synthesis`, `validate-*`, `write-manuscript`, `verify-sources`, etc.). It is **not** a literature standard the vault invented — it operationalizes external requirements for an AI-assisted pipeline.
+This convention applies to every research-suite skill (`orchestrate-research`, `screen-literature`, `extract-synthesis`, `validate-*`, `write-manuscript`, `verify-sources`, etc.). It is **not** a literature standard this pipeline invented — it operationalizes external requirements for an AI-assisted pipeline.
 
 ## Two requirements
 
@@ -73,7 +73,7 @@ the final content.
 ## Disclosure threshold (per ICMJE/COPE)
 
 - **Routine language polishing** (grammar, flow) — generally does not require disclosure, but check the target venue.
-- **Substantive assistance** (screening, extraction, appraisal, synthesis, drafting, citation handling) — **must** be disclosed. The vault's research pipeline is substantive by definition, so `ai-disclosure.md` is mandatory for any output intended for submission or external sharing.
+- **Substantive assistance** (screening, extraction, appraisal, synthesis, drafting, citation handling) — **must** be disclosed. This research pipeline is substantive by definition, so `ai-disclosure.md` is mandatory for any output intended for submission or external sharing.
 - **Never** list an AI tool as an author. The human author is accountable.
 
 ## Gate-override logging

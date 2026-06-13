@@ -6,11 +6,11 @@
   "status": "pending",
 
   "paths": {
-    "research_question": "01_Projects/Research/outputs/literature-reviews/general/settings/research-question.md",
-    "screening_criteria": "01_Projects/Research/outputs/literature-reviews/general/settings/screening-criteria.md",
-    "corpus_candidates": "01_Projects/Research/outputs/literature-reviews/general/corpus/candidates",
-    "corpus_approved": "01_Projects/Research/outputs/literature-reviews/general/corpus/approved",
-    "outputs": "01_Projects/Research/outputs/literature-reviews/general/outputs"
+    "research_question": "outputs/literature-reviews/general/settings/research-question.md",
+    "screening_criteria": "outputs/literature-reviews/general/settings/screening-criteria.md",
+    "corpus_candidates": "outputs/literature-reviews/general/corpus/candidates",
+    "corpus_approved": "outputs/literature-reviews/general/corpus/approved",
+    "outputs": "outputs/literature-reviews/general/outputs"
   },
 
   "phases": {

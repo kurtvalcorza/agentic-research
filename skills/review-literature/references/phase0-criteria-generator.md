@@ -177,15 +177,15 @@ Tell me what boundaries make sense for "{{research question}}"
 
 **File formats:**
 - [ ] PDFs only (traditional)
-- [ ] Markdown files only (Obsidian notes, web clippings)
-- [ ] Mixed (both PDFs and MD files) (Recommended for Obsidian)
+- [ ] Markdown files only (Markdown notes, web clippings)
+- [ ] Mixed (both PDFs and MD files) (Recommended)
 
 My recommendation: {{AI suggests based on purpose from Question 2}}
 ```
 
 **Parse response and:**
 - Default to English only + peer-reviewed if user unsure
-- Suggest including MD files if using Obsidian
+- Suggest including MD files if using a Markdown note app
 - Warn if excluding conference proceedings in fast-moving fields
 
 ### Step 7: Quality Thresholds (Optional)
@@ -270,7 +270,7 @@ Based on your responses, here's your screening criteria draft:
 ### File Format
 - **Accept PDFs:** Yes
 - **Accept Markdown:** {{From Question 6}}
-- **Reason:** {{Obsidian integration or PDF-only}}
+- **Reason:** {{Markdown-notes integration or PDF-only}}
 
 ## Exclusion Criteria
 
@@ -451,7 +451,7 @@ The reusable prompt for this phase is defined inline in this agent file (see the
 - Initial Phase 0 criteria generator
 - Interactive 8-question dialogue
 - Draft generation and iteration support
-- Obsidian-specific file format support
+- Markdown file-format support
 
 ## Related
 

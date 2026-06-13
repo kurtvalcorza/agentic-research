@@ -36,7 +36,7 @@ Example: How do AI-powered tutoring systems impact student learning outcomes in 
 
 ### File Format
 - **Accept PDFs:** [Yes/No]
-- **Accept Markdown:** [Yes/No - useful for Obsidian notes, web clippings, curated summaries]
+- **Accept Markdown:** [Yes/No - useful for Markdown notes, web clippings, curated summaries]
 - **Reason:** [e.g., "Include both PDFs and MD files for comprehensive corpus"]
 
 ## Exclusion Criteria

@@ -65,9 +65,9 @@ Council Mode is an opt-in extension of Interrogation Mode that fans the adversar
 - **Tools for Thought:** Provokes deeper thinking about meetings (what it means)
 
 ### Other Exclusions
-- **Simple summaries** → Use `summarize-meeting` or `synthesize-meetings`
-- **Factual extraction** → Use `extract-event-brief-pack`
-- **Quick note capture** → Use `write-note` or `quick-capture`
+- **Simple summaries** → Use a dedicated meeting-summary or report-synthesis skill
+- **Factual extraction** → Use a dedicated extraction skill
+- **Quick note capture** → Use a dedicated note-capture skill
 
 ---
 

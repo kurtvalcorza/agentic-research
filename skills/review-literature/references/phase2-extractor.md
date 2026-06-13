@@ -38,7 +38,7 @@ For each file (PDF or MD) in `corpus/approved/`:
      - Main claims or arguments
      - Evidence or supporting material
      - Conclusions or takeaways
-     - Links to original sources (if Obsidian WikiLinks present)
+     - Links to original sources (if WikiLinks present)
 
 2. **Tag claims and evidence:**
    - **Claim:** Statement the paper makes (e.g., "AI tutoring improves test scores")

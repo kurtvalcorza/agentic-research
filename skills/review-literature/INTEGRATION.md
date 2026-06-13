@@ -403,7 +403,7 @@ This hybrid workflow applies Enhance Writing principles:
 
 **The handoff point (Phase 3→4) is the critical design decision** that preserves cognitive work while eliminating mechanical drudgery.
 
-### Integration with Existing Vault Workflow
+### Integration with an Existing Review Workflow
 
 This skill extends your existing Enhance Writing skill:
 

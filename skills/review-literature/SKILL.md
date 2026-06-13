@@ -76,7 +76,7 @@ research
 - **Screening Criteria:** Inclusion/exclusion criteria for corpus selection (see `assets/screening-criteria-template.md`)
 - **Corpus Files:** Research papers in PDF or Markdown format placed in `corpus/candidates/` directory
   - **PDFs:** Academic papers, published articles
-  - **Markdown:** Obsidian notes, web clippings, curated summaries with frontmatter metadata
+  - **Markdown:** Markdown notes, web clippings, curated summaries with frontmatter metadata
 
 ### Optional
 - **Execution Context:** JSON configuration for advanced orchestrator settings (see `assets/execution-context-template.json`)

@@ -17,18 +17,22 @@ The PRISMA 2020 flow diagram is the single visual audit trail of a review's sele
 
 ## Procedure
 
-Collect the real counts from the run into a JSON object (see the input schema in `scripts/prisma_flow.py`): identification per database + other methods, duplicates removed, records screened, excluded at title/abstract, reports sought / not retrieved / assessed, reports excluded **with reasons**, studies included.
+Collect the real counts from the run into a JSON object (full schema in `scripts/prisma_flow.py`). PRISMA 2020 has two identification arms and the script renders whichever the counts describe:
+
+- **Databases & registers** (left column): identification per database/register, duplicates removed, records screened, excluded at title/abstract, reports sought / not retrieved / assessed, reports excluded **with reasons**, studies included.
+- **Other methods** (right column, optional): records identified via citation searching / websites / organisations, then their own sought / not retrieved / assessed / excluded chain — these reports enter at the report level, *not* title/abstract screening.
+
+The two arms reconcile **independently** and merge at *studies included in review*. Omit the other-methods fields for a databases-only (Template 1) flow. Registers belong in the databases/registers arm, not "other methods".
 
 ```
 python scripts/prisma_flow.py counts.json            # renders Mermaid + reconciliation
 python scripts/prisma_flow.py counts.json --strict   # exit 1 if counts do not reconcile
 ```
 
-The script renders a Mermaid flowchart (GitHub/Obsidian-renderable) and runs a **reconciliation check**:
-- databases identified − duplicates removed = records screened
-- screened − excluded(title/abstract) = reports sought
-- sought − not retrieved = reports assessed
-- assessed − excluded(full-text) = studies included
+The script renders a Mermaid flowchart (GitHub/Markdown-renderable) and runs a **reconciliation check** on each arm:
+- *Databases/registers:* identified − duplicates removed = screened; screened − excluded(title/abstract) = sought; sought − not retrieved = assessed; assessed − excluded(full-text) = studies included (databases).
+- *Other methods:* identified = sought; sought − not retrieved = assessed; assessed − excluded = studies included (other).
+- *Merge:* studies included (databases) + studies included (other) = studies included in review.
 
 Any break is reported with the exact discrepancy. Fix the counts (usually a miscount or a stage where records were silently dropped) before publishing — a flow diagram that does not reconcile is the classic reviewer red flag.
 
@@ -40,7 +44,7 @@ Any break is reported with the exact discrepancy. Fix the counts (usually a misc
 ## Boundaries
 
 - This reports the flow; it does not produce the counts — they come from the upstream pipeline skills. If a count is missing, get it from the stage that owns it, don't invent it.
-- Use the PRISMA 2020 *new-review* structure here; for an updated review, adapt to the updated-review template.
+- The script auto-selects PRISMA 2020 Template 1 (databases/registers only) or Template 2 (with the other-methods arm) from the counts. This is the *new-review* structure; for an updated review, adapt to the updated-review template.
 - Scoping reviews use PRISMA-ScR (same flow shape, no certainty assessment).
 
 ## Related

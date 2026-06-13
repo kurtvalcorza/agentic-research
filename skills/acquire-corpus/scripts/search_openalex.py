@@ -40,7 +40,7 @@ from __future__ import annotations
 import argparse, json, sys, time, urllib.parse, urllib.request
 
 BASE = "https://api.openalex.org/works"
-UA = "acquire-corpus/1.0 (Obsidian agentic-vault; mailto:{})"
+UA = "acquire-corpus/1.0 (agentic-research; mailto:{})"
 
 
 def _get(url: str, mailto: str, timeout: int = 30):

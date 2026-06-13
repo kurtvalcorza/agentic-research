@@ -48,7 +48,7 @@
         -OutFile ".agent/outputs/2026-05-30_council-reads.md"
 
 .NOTES
-    Part of the Example Org vault agent tooling (tools-for-thought skill).
+    Part of the agentic-research agent tooling (tools-for-thought skill).
 
     Runner invocation quirks (learned from prototyping — do not "simplify" away):
       gemini  : prompt passed as -p argument. Emits noisy stderr (local Gemma

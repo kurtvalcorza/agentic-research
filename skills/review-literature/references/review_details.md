@@ -38,7 +38,7 @@ Writing a literature review for an Example Research Institute Project Atlas proj
 ### Handles Well
 - Large corpora (50-500 papers) via context isolation per phase
 - **Mixed formats** (PDFs + Markdown files in same corpus)
-- **Obsidian notes** with WikiLinks and frontmatter metadata
+- **Markdown notes** with WikiLinks and frontmatter metadata
 - Multilingual papers (if specified)
 - Contradictory findings (surfaces tensions in Phase 2)
 

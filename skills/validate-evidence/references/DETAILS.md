@@ -92,12 +92,13 @@
 **Consensus:** MODERATE CONSENSUS (barriers identified: cost [4/5], workflow [5/5], training [3/5])
 
 **GRADE Decision:**
-- Starting point: HIGH (some RCT evidence)
-- Downgrade for risk of bias? YES (-1) (2/5 studies moderate risk)
-- Downgrade for inconsistency? MINOR (-0.5) (barrier rankings vary)
-- Downgrade for indirectness? YES (-0.5) (self-reported, not measured)
-- Downgrade for imprecision? NO (adequate sample sizes)
-- **Final Grade: MODERATE ⊕⊕⊕◯**
+- Starting point: HIGH (RCT evidence present)
+- Risk of bias? NOT SERIOUS (0) — most studies low risk; 2/5 moderate does not dominate the body
+- Inconsistency? NOT SERIOUS (0) — barrier rankings vary in degree, not direction
+- Indirectness? SERIOUS (-1) — barriers are self-reported, an indirect proxy for actual workflow impact
+- Imprecision? NOT SERIOUS (0) — adequate sample sizes
+- Publication bias? NOT SERIOUS (0)
+- **Final Grade: MODERATE ⊕⊕⊕◯** (HIGH − 1)
 
 **Certainty Statement:**
 "We are moderately confident in the effect estimate. The true effect is likely close to the estimate, but may be substantially different. Implementation barriers (cost, workflow integration) are consistently reported, though their relative impact varies by context."
@@ -105,7 +106,7 @@
 ---
 
 ### Theme C: Long-Term Outcomes
-**Evidence Grade:** LOW (⊕⊕◯◯)
+**Evidence Grade:** VERY LOW (⊕◯◯◯)
 
 **Justification:**
 - Only 2/2 papers report long-term outcomes (>12 months)
@@ -124,12 +125,14 @@
 
 **GRADE Decision:**
 - Starting point: LOW (observational evidence only, no RCTs)
-- Downgrade for risk of bias? YES (-1) (high attrition, selection bias)
-- Downgrade for inconsistency? YES (-1) (contradictory findings)
-- Downgrade for indirectness? MINOR (-0.5) (surrogate outcomes used)
-- Downgrade for imprecision? YES (-1) (small samples, wide confidence intervals)
-- **Final Grade: VERY LOW ⊕◯◯◯** (initially calculated), **upgraded to LOW** due to importance of findings
-- **Final Grade: LOW ⊕⊕◯◯**
+- Risk of bias? SERIOUS (-1) — high attrition (30-40% dropout), selection bias
+- Inconsistency? SERIOUS (-1) — contradictory findings across the two studies
+- Indirectness? SERIOUS (-1) — surrogate outcomes stand in for long-term patient-important outcomes
+- Imprecision? SERIOUS (-1) — small samples (combined n=380), wide confidence intervals
+- Upgrades? NONE — the three GRADE upgrade reasons (large effect, dose-response, plausible
+  confounding opposing the effect) do not apply, and "importance of findings" is NOT a GRADE
+  upgrade criterion. Certainty is not raised because a result is important.
+- **Final Grade: VERY LOW ⊕◯◯◯** (LOW − 4, capped at the floor)
 
 **Certainty Statement:**
 "We have very limited confidence in the effect estimate. The true effect may be substantially different from the estimate. Long-term sustainability of AI diagnostic accuracy improvements remains uncertain due to limited longitudinal evidence."
@@ -145,9 +148,9 @@
 Weighted average across themes:
 - Theme A (HIGH, 7 papers): 4.0 × 7 = 28.0
 - Theme B (MODERATE, 5 papers): 3.0 × 5 = 15.0
-- Theme C (LOW, 2 papers): 2.0 × 2 = 4.0
+- Theme C (VERY LOW, 2 papers): 1.0 × 2 = 2.0
 
-Total: 47.0 / 14 papers = 3.36 ≈ MODERATE (⊕⊕⊕◯)
+Total: 45.0 / 14 papers = 3.21 ≈ MODERATE (⊕⊕⊕◯)
 ```
 
 **Interpretation:**
@@ -162,7 +165,7 @@ Total: 47.0 / 14 papers = 3.36 ≈ MODERATE (⊕⊕⊕◯)
 ### For Clinicians
 ✅ **Adopt with Confidence:** AI diagnostics in controlled settings (HIGH evidence)
 ⚠️ **Prepare for Barriers:** Workflow integration challenges are real (MODERATE evidence)
-❓ **Monitor Long-Term:** Evidence for sustained accuracy beyond 12 months is limited (LOW evidence)
+❓ **Monitor Long-Term:** Evidence for sustained accuracy beyond 12 months is limited (VERY LOW evidence)
 
 ### For Policymakers
 ✅ **Support Deployment:** Evidence supports piloting AI diagnostics in controlled clinical contexts
@@ -171,7 +174,7 @@ Total: 47.0 / 14 papers = 3.36 ≈ MODERATE (⊕⊕⊕◯)
 
 ### For Researchers
 🔬 **Priority Research Needed:**
-1. Long-term RCTs (>24 months follow-up) to address LOW evidence for Theme C
+1. Long-term RCTs (>24 months follow-up) to address VERY LOW evidence for Theme C
 2. Implementation science studies to quantify barrier impact (upgrade Theme B to HIGH)
 3. Real-world effectiveness studies (non-controlled settings)
 
@@ -181,7 +184,7 @@ Total: 47.0 / 14 papers = 3.36 ≈ MODERATE (⊕⊕⊕◯)
 
 ### Critical Gaps (LOW/VERY LOW Evidence)
 1. **Long-term accuracy sustainability** (Theme C)
-   - Current: 2 papers, LOW evidence
+   - Current: 2 papers, VERY LOW evidence
    - Needed: 5+ RCTs with ≥24 month follow-up
 
 2. **Real-world effectiveness** (not yet synthesized as theme)
@@ -227,7 +230,7 @@ Total: 47.0 / 14 papers = 3.36 ≈ MODERATE (⊕⊕⊕◯)
 |-------|-------|-------------|------------|
 | A: Diagnostic Accuracy | HIGH (⊕⊕⊕⊕) | Level 1a (Systematic review of RCTs) | ✅ YES |
 | B: Implementation Barriers | MODERATE (⊕⊕⊕◯) | Level 2b (Individual cohort studies) | ⚠️ PARTIAL |
-| C: Long-Term Outcomes | LOW (⊕⊕◯◯) | Level 4 (Case series) | ✅ YES |
+| C: Long-Term Outcomes | VERY LOW (⊕◯◯◯) | Level 4 (Case series) | ✅ YES |
 
 **Interpretation:** High agreement (2/3 themes) - Both frameworks converge on evidence quality assessment.
 
@@ -236,7 +239,7 @@ Total: 47.0 / 14 papers = 3.36 ≈ MODERATE (⊕⊕⊕◯)
 ## Next Steps
 
 1. **Acknowledge Evidence Limitations** in manuscript (Section 6: Limitations)
-   - Explicitly state Theme C has LOW evidence
+   - Explicitly state Theme C has VERY LOW evidence
    - Note insufficient evidence for long-term outcomes
 
 2. **Moderate Language Accordingly**
@@ -356,7 +359,7 @@ def calculate_grade(theme):
   #   and HUMAN-CONFIRMED. Map each instrument's overall judgment to High/Moderate/Low:
   #     RoB 2:        High -> High | Some concerns -> Moderate | Low -> Low
   #     ROBINS-I:     Critical/Serious -> High | Moderate -> Moderate | Low -> Low
-  #     Newcastle-Ottawa: <=4 stars -> High | 5-6 -> Moderate | 7-9 -> Low (study-area dependent)
+  #     Newcastle-Ottawa: 0-3 stars -> High | 4-6 -> Moderate | 7-9 -> Low (poor/fair/good; study-area dependent)
   #     QUADAS-2:     any domain High -> High | any Unclear -> Moderate | all Low -> Low
   #   Only if appraise-risk-of-bias output is unavailable, fall back to the heuristic
   #   (Step 1) estimate and FLAG the resulting RoB downgrade as provisional.
@@ -369,32 +372,46 @@ def calculate_grade(theme):
   moderate_bias_count = sum(1 for p in papers if risk_of_bias_of(p) == "Moderate")
 
   IF high_bias_count >= len(papers) / 2:
-    starting_grade -= 2  # Serious bias
+    starting_grade -= 2  # very serious risk of bias
   ELIF moderate_bias_count >= len(papers) / 2:
-    starting_grade -= 1  # Some bias
+    starting_grade -= 1  # serious risk of bias
 
-  # 2b. Inconsistency
+  # GRADE rates EACH domain not serious (0) | serious (-1) | very serious (-2).
+  # There are NO half-step downgrades; a single "serious" concern moves one full level.
+
+  # 2b. Inconsistency (unexplained heterogeneity / opposing directions of effect)
   findings = [paper_inventory[p]["finding"] for p in papers]
   IF findings_are_contradictory(findings):
-    starting_grade -= 1  # Serious inconsistency
-  ELIF findings_are_heterogeneous(findings):
-    starting_grade -= 0.5  # Some inconsistency
+    starting_grade -= 1  # serious (-2 only if heterogeneity is extreme AND unexplained)
+  # Minor or explained heterogeneity is NOT serious -> no downgrade (flag borderline for human review).
 
-  # 2c. Indirectness
+  # 2c. Indirectness (population / intervention / comparator / outcome mismatch)
   outcomes = [paper_inventory[p]["outcome_type"] for p in papers]
   IF any(o == "surrogate" for o in outcomes):
-    starting_grade -= 0.5  # Indirect outcomes
+    starting_grade -= 1  # serious indirectness (surrogate stands in for the patient-important outcome)
 
-  # 2d. Imprecision
-  total_sample_size = sum(paper_inventory[p]["sample_size"] for p in papers)
-  IF total_sample_size < 400:
-    starting_grade -= 1  # Serious imprecision
-  ELIF total_sample_size < 1000:
-    starting_grade -= 0.5  # Some imprecision
+  # 2d. Imprecision -- judge PRIMARILY on the confidence interval around the pooled
+  #     estimate relative to the decision threshold, and on the Optimal Information
+  #     Size (OIS): does total N reach what a single adequately powered trial needs?
+  #     Downgrade -1 if the CI spans both appreciable benefit and appreciable harm,
+  #     or N is well short of the OIS (-2 if very serious). The absolute-N rule below
+  #     is ONLY a crude fallback when CI/OIS data are unavailable.
+  IF confidence_interval_crosses_decision_threshold OR total_sample_size < optimal_information_size:
+    starting_grade -= 1  # serious imprecision
+  ELIF (no CI/OIS available) AND total_sample_size < 400:   # fallback heuristic only
+    starting_grade -= 1
 
   # 2e. Publication Bias
   IF corpus_search_was_limited OR funnel_plot_asymmetry:
-    starting_grade -= 1  # Likely publication bias
+    starting_grade -= 1  # likely publication bias
+
+  # 2f. UPGRADE (observational evidence only; rarely applies, and NOT when serious
+  #     downgrades remain). The ONLY valid GRADE upgrade reasons are: a large effect,
+  #     a dose-response gradient, and plausible residual confounding that would REDUCE
+  #     the observed effect. "Importance of the findings" is NOT a GRADE criterion and
+  #     must never raise certainty.
+  IF no_downgrades_applied AND (large_effect OR dose_response OR opposing_confounding):
+    starting_grade += 1  # (+2 for a very large effect)
 
   # Step 3: Cap at valid range [1, 4]
   final_grade = max(1, min(4, starting_grade))

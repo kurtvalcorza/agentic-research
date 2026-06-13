@@ -111,12 +111,11 @@ Content creation partner using "AI as Tool for Thought" paradigm. Provocation, n
 - `write-manuscript` - Uses this for research synthesis
 - `synthesize-research` - Applies provocation to claims
 - `frame-contributions` - Deep mode of this skill for research
-- `sop-creator` - Uses refinement mode for clarity
+- `tools-for-thought` - Companion adversarial-review skill
 
 ## Foundational Role
 
 This is a **foundational skill** used by many others:
 - `write-manuscript` (Phase 4 enhancement)
-- `synthesize-meetings` (executive brief refinement)
 - `frame-contributions` (contribution provocation)
-- `presentation-studio` (narrative strengthening)
+- `draft-section` (section-level strengthening)

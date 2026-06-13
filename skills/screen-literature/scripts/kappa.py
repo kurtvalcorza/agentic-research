@@ -42,10 +42,14 @@ def load(path: str):
             rows = list(csv.DictReader(f))
     else:
         src = open(path, encoding="utf-8") if path else sys.stdin
-        for ln in src:
+        for n, ln in enumerate(src, 1):
             ln = ln.strip()
-            if ln:
+            if not ln:
+                continue
+            try:
                 rows.append(json.loads(ln))
+            except json.JSONDecodeError as e:
+                sys.stderr.write(f"[kappa] skipping malformed line {n}: {e}\n")
     return rows
 
 
@@ -79,6 +83,13 @@ def interpret(k: float) -> str:
     if k < 0.60: return "moderate"
     if k < 0.80: return "substantial"
     return "almost perfect"
+
+
+def _md(x, pct: bool = False) -> str:
+    """Format a metric for markdown, rendering NaN/inf as 'n/a' (never a literal 'nan')."""
+    if not (isinstance(x, (int, float)) and math.isfinite(x)):
+        return "n/a"
+    return f"{x:.1%}" if pct else f"{x:.3f}"
 
 
 def vs_reference(rater: list[str], ref: list[str], uncertain_include: bool) -> dict:
@@ -154,8 +165,8 @@ def main() -> int:
     else:
         print("# Dual-reviewer screening agreement\n")
         print(f"- Records double-screened: **{result['n']}**")
-        kdisp = "n/a" if kappa != kappa else f"{kappa:.3f}"
-        print(f"- Cohen's kappa: **{kdisp}** ({result['interpretation']})  ·  observed agreement: {po:.1%}")
+        kdisp = _md(kappa)
+        print(f"- Cohen's kappa: **{kdisp}** ({result['interpretation']})  ·  observed agreement: {_md(po, pct=True)}")
         print(f"- Disagreements to adjudicate (3rd reviewer/human): **{len(disagreements)}**")
         if kappa == kappa and kappa < 0.60:
             print("\n> ⚠️ Kappa below 0.60 (moderate) — the criteria may be ambiguous. Pilot/refine criteria and re-screen before trusting the split.")
@@ -164,7 +175,7 @@ def main() -> int:
             print("| Rater | Sensitivity/recall | Specificity | Precision | MCC |")
             print("|:--|:--|:--|:--|:--|")
             for k, m in ref_metrics.items():
-                print(f"| {k} | {m['sensitivity_recall']:.3f} | {m['specificity']:.3f} | {m['precision']:.3f} | {m['mcc']:.3f} |")
+                print(f"| {k} | {_md(m['sensitivity_recall'])} | {_md(m['specificity'])} | {_md(m['precision'])} | {_md(m['mcc'])} |")
             print("\n> Recall is the metric that matters for screening — a missed include is the costly error. Report it (and the chance-corrected MCC), not raw accuracy, which class imbalance inflates.")
         if disagreements:
             print("\n## Disagreements (adjudicate these)\n")

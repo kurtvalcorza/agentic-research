@@ -58,6 +58,14 @@ def first_surname(authors) -> str:
     return (a.strip().split()[-1] if a.strip() else "").lower()
 
 
+def _year(v):
+    """Parse a year to int (first 4 chars), or None if unparseable — never raises."""
+    try:
+        return int(str(v)[:4])
+    except (TypeError, ValueError):
+        return None
+
+
 def is_preprint(rec) -> bool:
     doi = norm_doi(rec.get("doi"))
     typ = (rec.get("type") or "").lower()
@@ -88,7 +96,8 @@ def dedupe(records: list[dict], threshold: float) -> tuple[list[dict], dict]:
                 cnt, cyr, csn = norm_title(c.get("title")), c.get("year"), first_surname(c.get("authors"))
                 if not nt or not cnt:
                     continue
-                year_ok = (not yr or not cyr) or abs(int(yr) - int(cyr)) <= 1
+                yi, cyi = _year(yr), _year(cyr)
+                year_ok = (yi is None or cyi is None) or abs(yi - cyi) <= 1
                 author_ok = (not sn or not csn) or sn == csn
                 if year_ok and author_ok and SequenceMatcher(None, nt, cnt).ratio() >= threshold:
                     g.append(rec)
@@ -111,8 +120,9 @@ def dedupe(records: list[dict], threshold: float) -> tuple[list[dict], dict]:
         winner = (published or g)
         # among candidates, prefer the one with a DOI, then most-cited
         winner = sorted(winner, key=lambda r: (bool(norm_doi(r.get("doi"))), r.get("cited_by_count") or 0), reverse=True)[0]
+        dup_ids = [rec_id(r) for r in g if r is not winner]   # against the ORIGINAL winner, before copy
         winner = dict(winner)
-        winner["duplicate_of"] = [rec_id(r) for r in g if r is not winner]
+        winner["duplicate_of"] = dup_ids
         canon.append(winner)
         dup_removed += len(g) - 1
 
@@ -129,7 +139,14 @@ def main() -> int:
     args = ap.parse_args()
 
     src = open(args.infile, encoding="utf-8") if args.infile else sys.stdin
-    records = [json.loads(ln) for ln in src if ln.strip()]
+    records = []
+    for i, ln in enumerate(src, 1):
+        if not ln.strip():
+            continue
+        try:
+            records.append(json.loads(ln))
+        except json.JSONDecodeError as e:
+            sys.stderr.write(f"[dedupe] skipping malformed line {i}: {e}\n")
     canon, rep = dedupe(records, args.threshold)
 
     try:

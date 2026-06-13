@@ -34,4 +34,4 @@ Simply point to your corpus directory or provide paper files. The skill will:
 
 - `synthesize-research` - Generate manuscripts from review outputs
 - `validate-evidence` - Deep validation of research claims
-- `write-note` - Capture individual research insights
+- `verify-sources` - External citation verification for the draft

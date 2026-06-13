@@ -5,7 +5,7 @@ These are **agent skills** — Markdown instruction files an AI coding agent rea
 ## Requirements
 
 - An AI agent harness that supports skills (e.g. **Claude Code**).
-- **Python 3.9+** for the runnable backends (standard library only — no `pip install` needed).
+- **Python 3.9+** for the runnable backends (standard library only — no `pip install` needed). On Linux/macOS where `python` is absent or points to Python 2, use `python3` in the commands below.
 - Optional: the **scite MCP** server for richer citation verification (paid; the skills work without it).
 
 ## Option A — Claude Code
@@ -41,8 +41,11 @@ Point the agent's skills directory at `skills/` the same way (copy or symlink/ju
 Every `SKILL.md` is a self-contained, human-readable methodology. You can use them as checklists and run the Python scripts directly without any agent:
 
 ```bash
-python skills/acquire-corpus/scripts/search_openalex.py search --query "AI tutoring K-12" --max 50 --mailto you@example.com
+# 1. search -> save the corpus as JSONL:
+python skills/acquire-corpus/scripts/search_openalex.py search --query "AI tutoring K-12" --max 50 --mailto you@example.com > corpus.jsonl
+# 2. dedupe the corpus you just built:
 python skills/dedupe-records/scripts/dedupe_records.py corpus.jsonl --report
+# 3. reconcile a PRISMA flow (create counts.json from the schema in prisma_flow.py's docstring):
 python skills/prisma-flow/scripts/prisma_flow.py counts.json --strict
 ```
 

@@ -4,7 +4,7 @@
 
 ## Why this exists
 
-AI-assisted writing fabricates or distorts citations at alarming rates (studies report 14% to >90% depending on model and task). The vault's `validate-citations` skill checks whether a citation in your draft matches your own extraction matrix — but a fabricated source can be *consistently* fabricated across both. This skill closes that hole by checking against the outside world.
+AI-assisted writing fabricates or distorts citations at alarming rates (studies report 14% to >90% depending on model and task). The companion `validate-citations` skill checks whether a citation in your draft matches your own extraction matrix — but a fabricated source can be *consistently* fabricated across both. This skill closes that hole by checking against the outside world.
 
 It is the most important guardrail in the research pipeline: **a single retracted or hallucinated citation can invalidate an entire review.**
 

@@ -430,7 +430,7 @@ Outcomes:
 **Tools:**
 - Write Manuscript Slide Deck (this skill)
 - Marp (markdown-to-slides)
-- Obsidian Canvas (visual planning)
+- a visual canvas tool (visual planning)
 
 ---
 

@@ -638,7 +638,7 @@ ls research-folder/synthesis-matrix_project.md
 **Scenario:** Review Literature's synthesis is 90% correct, but one theme is misclassified.
 
 **Workflow:**
-1. Open `synthesis-matrix_project.md` in Obsidian
+1. Open `synthesis-matrix_project.md` in your Markdown editor
 2. Edit the "Theme" section (move papers, rephrase argument)
 3. Tell Agent: "Re-run Write Manuscript Slide Deck using the updated synthesis-matrix_project.md"
 

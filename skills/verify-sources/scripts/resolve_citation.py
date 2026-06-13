@@ -32,7 +32,7 @@ EXIT CODE
 from __future__ import annotations
 import argparse, json, sys, time, urllib.parse, urllib.request
 
-UA_BASE = "verify-sources/1.0 (Obsidian agentic-vault; mailto:{})"
+UA_BASE = "verify-sources/1.0 (agentic-research; mailto:{})"
 
 
 def _get(url: str, mailto: str, timeout: int = 20):
@@ -50,8 +50,18 @@ def _openalex_authors(work) -> list[str]:
     return [a.get("author", {}).get("display_name", "") for a in (work.get("authorships") or [])][:5]
 
 
+def _clean_doi(doi: str) -> str:
+    """Strip a leading doi.org URL or 'doi:' PREFIX (not a character set) and normalize."""
+    doi = (doi or "").strip()
+    low = doi.lower()
+    for p in ("https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/", "doi:"):
+        if low.startswith(p):
+            return doi[len(p):].strip()
+    return doi
+
+
 def resolve_doi(doi: str, mailto: str) -> dict:
-    doi = doi.strip().lstrip("https://doi.org/").lstrip("doi:").strip()
+    doi = _clean_doi(doi)
     out = {"doi": doi, "status": "UNVERIFIED", "resolved_title": None, "authors": [],
            "year": None, "journal": None, "is_retracted": False, "retraction_source": None, "backend": None, "note": ""}
 
@@ -100,7 +110,7 @@ def reverse_lookup(title: str, author: str, year, mailto: str) -> dict:
             wy = w.get("publication_year")
             wa = " ".join(_openalex_authors(w)).lower()
             if (not year or (wy and abs(int(wy) - int(year)) <= 1)) and (not author or author.lower() in wa):
-                doi = (w.get("doi") or "").replace("https://doi.org/", "")
+                doi = _clean_doi(w.get("doi") or "")
                 if doi:
                     res = resolve_doi(doi, mailto)
                     res["note"] = "matched via title reverse-lookup"

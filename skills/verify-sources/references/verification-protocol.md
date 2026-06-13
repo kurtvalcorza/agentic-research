@@ -4,7 +4,7 @@ This reference gives per-backend specifics for resolving and checking a citation
 
 ## Backend 1 — scite MCP (preferred, but often off)
 
-> **Availability:** scite is a paid subscription the vault owner toggles on/off. If `mcp__scite__search_literature` is not in the available tool set, skip this backend entirely and use Backend 2/3 (the keyless `scripts/resolve_citation.py`). Never block or prompt to enable it — degrade per the SKILL.md "Backend availability & graceful degradation" section.
+> **Availability:** scite is a paid subscription the operator toggles on/off. If `mcp__scite__search_literature` is not in the available tool set, skip this backend entirely and use Backend 2/3 (the keyless `scripts/resolve_citation.py`). Never block or prompt to enable it — degrade per the SKILL.md "Backend availability & graceful degradation" section.
 
 **Tool:** `mcp__scite__search_literature`
 

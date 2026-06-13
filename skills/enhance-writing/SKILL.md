@@ -31,9 +31,9 @@ description: "Transform AI-assisted content creation from task completion to cog
 - None required (Conversational)
 
 ### Related Workflows
-- **[[../summarize-meeting/SKILL|Summarize Meeting]]** - Often hands off to Enhance Writing for analysis
-- **[[../generate-slides/SKILL|Generate Slides]]** - Uses Enhance Writing for Phase 2 interrogation
 - **[[../review-literature/SKILL|Review Literature]]** - Uses Enhance Writing for Phase 4 synthesis
+- **[[../write-manuscript/SKILL|Write Manuscript]]** - Uses Enhance Writing to strengthen drafted sections
+- **[[../tools-for-thought/SKILL|Tools for Thought]]** - The adversarial-review companion to Enhance Writing
 
 ---
 

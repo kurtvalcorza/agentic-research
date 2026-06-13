@@ -8,9 +8,9 @@ The PRISMA flow diagram is the audit trail of how studies were selected. Reviewe
 
 ## What it does
 
-- Renders a Mermaid PRISMA 2020 flow diagram (GitHub/Obsidian-renderable).
+- Renders a Mermaid PRISMA 2020 flow diagram (GitHub/Markdown-renderable) — the databases/registers arm and, when present, a parallel other-methods arm that merges at *studies included*.
 - Tabulates full-text exclusions with reasons (a PRISMA requirement).
-- Reconciles: identified − duplicates = screened; screened − excluded = sought; sought − not-retrieved = assessed; assessed − excluded = included. Reports any break with the exact discrepancy.
+- Reconciles each arm independently (identified − duplicates = screened; screened − excluded = sought; sought − not-retrieved = assessed; assessed − excluded = included), then the merge. Reports any break with the exact discrepancy.
 
 Standard-library only, no dependencies.
 
