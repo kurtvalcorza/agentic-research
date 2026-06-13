@@ -50,7 +50,7 @@ python skills/prisma-flow/scripts/prisma_flow.py counts.json --strict
 
 ```bash
 # Should print a RETRACTED verdict for the Wakefield 1998 paper (keyless):
-python skills/verify-sources/scripts/resolve_citation.py --mailto you@example.com 10.1016/S0140-6736(97)11096-0
+python skills/verify-sources/scripts/resolve_citation.py --mailto you@example.com "10.1016/S0140-6736(97)11096-0"
 ```
 
 ## Then just ask

@@ -105,6 +105,17 @@ def vs_reference(rater: list[str], ref: list[str], uncertain_include: bool) -> d
             "specificity": spec, "precision": prec, "mcc": mcc}
 
 
+def _json_safe(obj):
+    """Recursively replace non-finite floats (NaN/inf) with None so json.dumps emits valid JSON."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Dual-reviewer agreement (Cohen's kappa) + reference metrics.")
     ap.add_argument("infile", nargs="?")
@@ -139,7 +150,7 @@ def main() -> int:
         pass
 
     if args.json:
-        print(json.dumps(result, indent=2))
+        print(json.dumps(_json_safe(result), indent=2, allow_nan=False))
     else:
         print("# Dual-reviewer screening agreement\n")
         print(f"- Records double-screened: **{result['n']}**")

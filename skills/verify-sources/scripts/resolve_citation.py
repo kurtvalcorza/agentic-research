@@ -13,7 +13,7 @@ integrity for any user/agent.
 
 USAGE
   # Resolve DOIs (args or stdin, one per line):
-  python resolve_citation.py 10.1038/s41586-020-2649-2 10.1016/S0140-6736(97)11096-0
+  python resolve_citation.py 10.1038/s41586-020-2649-2 "10.1016/S0140-6736(97)11096-0"
   echo "10.1038/s41586-020-2649-2" | python resolve_citation.py
 
   # Reverse-lookup by title (quote it):

@@ -45,10 +45,12 @@ def reconcile(c: dict) -> list[str]:
     id_ot = _sum(c.get("identified_other"))
     dup = int(c.get("duplicates_removed", 0)) + int(c.get("removed_other_reasons", 0))
     screened = int(c.get("records_screened", 0))
-    # identification - duplicates = screened  (other-method records often join at screening or later;
-    # PRISMA allows other-methods as a parallel arm — we check the database arm strictly and note the other arm)
-    if id_db and screened and (id_db - dup) != screened:
-        errs.append(f"identification: databases {id_db} - removed {dup} = {id_db - dup}, but records_screened = {screened}")
+    # identification - duplicates = screened. This pipeline pools other-method records
+    # (snowball/registers from acquire-corpus) into the same dedup + title/abstract screening
+    # stream, so both arms count toward records_screened — a valid PRISMA 2020 single-column flow.
+    identified = id_db + id_ot
+    if identified and screened and (identified - dup) != screened:
+        errs.append(f"identification: identified {identified} (databases {id_db} + other {id_ot}) - removed {dup} = {identified - dup}, but records_screened = {screened}")
     ex_ta = int(c.get("records_excluded_title_abstract", 0))
     sought = int(c.get("reports_sought", 0))
     if screened and sought and (screened - ex_ta) != sought:
@@ -89,13 +91,14 @@ def mermaid(c: dict) -> str:
         f'  INC["Studies included: n={c.get("studies_included",0)}"]',
         "  ID --> DUP",
         "  ID --> SCR",
+        "  IDO -.snowball/registers.-> DUP",
+        "  IDO -.snowball/registers.-> SCR",
         "  SCR --> EXTA",
         "  SCR --> SOU",
         "  SOU --> NR",
         "  SOU --> ASS",
         "  ASS --> EXFT",
         "  ASS --> INC",
-        "  IDO -.snowball/registers.-> ASS",
         "```",
     ]
     return "\n".join(L)

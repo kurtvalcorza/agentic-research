@@ -78,7 +78,7 @@ Several skills ship a standard-library Python script so they *run*, not just des
 
 ```bash
 # e.g. confirm a citation is real and not retracted — no key needed:
-python skills/verify-sources/scripts/resolve_citation.py 10.1016/S0140-6736(97)11096-0
+python skills/verify-sources/scripts/resolve_citation.py "10.1016/S0140-6736(97)11096-0"
 # -> ⛔ RETRACTED
 ```
 
@@ -119,4 +119,4 @@ See **[INSTALL.md](INSTALL.md)**. In short: point your agent at `skills/`, then 
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Built with AI.
