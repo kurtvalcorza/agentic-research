@@ -1,0 +1,120 @@
+{
+  "review_id": "YYYY-MM-DD_topic-slug",
+  "project": "general",
+  "created": "YYYY-MM-DDTHH:MM:SSZ",
+  "last_updated": "YYYY-MM-DDTHH:MM:SSZ",
+  "status": "pending",
+
+  "paths": {
+    "research_question": "01_Projects/Research/outputs/literature-reviews/general/settings/research-question.md",
+    "screening_criteria": "01_Projects/Research/outputs/literature-reviews/general/settings/screening-criteria.md",
+    "corpus_candidates": "01_Projects/Research/outputs/literature-reviews/general/corpus/candidates",
+    "corpus_approved": "01_Projects/Research/outputs/literature-reviews/general/corpus/approved",
+    "outputs": "01_Projects/Research/outputs/literature-reviews/general/outputs"
+  },
+
+  "phases": {
+    "phase1": {
+      "name": "Screening",
+      "status": "pending",
+      "checkpoint": true,
+      "agent": "screener",
+      "started": null,
+      "completed": null,
+      "agent_id": null,
+      "checkpoint_approved": null,
+      "outputs": []
+    },
+    "phase2": {
+      "name": "Extraction",
+      "status": "pending",
+      "checkpoint": false,
+      "agent": "extractor",
+      "started": null,
+      "completed": null,
+      "agent_id": null,
+      "outputs": []
+    },
+    "phase3": {
+      "name": "Structuring",
+      "status": "pending",
+      "checkpoint": true,
+      "agent": "structurer",
+      "started": null,
+      "completed": null,
+      "agent_id": null,
+      "checkpoint_approved": null,
+      "outputs": []
+    },
+    "phase4": {
+      "name": "Drafting",
+      "status": "pending",
+      "checkpoint": true,
+      "mode": "hybrid",
+      "agent": "drafter-support",
+      "started": null,
+      "completed": null,
+      "notes": "Human-led with AI provocations (Enhance Writing mode)",
+      "outputs": []
+    },
+    "phase5": {
+      "name": "Validation",
+      "status": "pending",
+      "checkpoint": false,
+      "agent": "validator",
+      "started": null,
+      "completed": null,
+      "agent_id": null,
+      "outputs": []
+    },
+    "phase6": {
+      "name": "Framing",
+      "status": "pending",
+      "checkpoint": true,
+      "agent": "framer",
+      "started": null,
+      "completed": null,
+      "agent_id": null,
+      "checkpoint_approved": null,
+      "chosen_framing": null,
+      "outputs": []
+    },
+    "phase7": {
+      "name": "Consistency",
+      "status": "pending",
+      "checkpoint": true,
+      "agent": "consistency",
+      "started": null,
+      "completed": null,
+      "agent_id": null,
+      "checkpoint_approved": null,
+      "consistency_score": null,
+      "outputs": []
+    }
+  },
+
+  "config": {
+    "thoroughness": "medium",
+    "checkpoint_mode": "strict",
+    "phase_selection": "all",
+    "auto_move_approved_pdfs": false
+  },
+
+  "metadata": {
+    "vault_path": "<vault-root>",
+    "skill_version": "1.0",
+    "codex_model": "claude-sonnet-4-5",
+    "notes": ""
+  }
+}
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,19 @@
+# OS / editor cruft
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Agent/run scratch (skills write their outputs into the consuming project, not here)
+corpus/
+appraisal/
+validation/
+verification/
+*.jsonl
+ai-disclosure.md
+prisma-flow.md
