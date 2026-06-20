@@ -94,7 +94,7 @@ When this is a registrable/systematic review, the orchestrator routes to **`desi
   - its **search plan** feeds `acquire-corpus` (which executes it), and
   - its **appraisal plan** feeds `appraise-risk-of-bias` (which instrument applies to which study design).
 
-**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and uses the acquisition front-end (or a bring-your-own corpus) directly.
+**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and uses the acquisition front-end (or a bring-your-own corpus) directly.
 
 See **[[references/detailed-guide|Implementation Details & Templates]]** for the protocol-branch wiring.
 
@@ -125,7 +125,7 @@ User provides input
 2. **`dedupe-records`** — record-level dedup run AFTER acquisition and BEFORE screening: DOI-exact + fuzzy-title (year/author guarded) + preprint-vs-published reconciliation. Emits the **duplicates-removed** count that the PRISMA flow needs.
 3. **Hand off to screening** — the deduped candidate set feeds the existing Phase 1 screening exactly as a bring-your-own corpus would. Everything downstream (extraction, synthesis, drafting, validation) is unchanged.
 
-**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → prisma-flow (reporting)`. The identification counts (from `acquire-corpus`) and duplicates-removed count (from `dedupe-records`) are carried forward to the reporting phase so `prisma-flow` can build a REAL PRISMA 2020 diagram (see below).
+**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The identification counts (from `acquire-corpus`) and duplicates-removed count (from `dedupe-records`) are carried forward to the reporting phase so `prisma-flow` can build a REAL PRISMA 2020 diagram (see below).
 
 See **[[references/detailed-guide|Implementation Details & Templates]]** for the acquisition-branch wiring and count hand-off.
 
@@ -143,6 +143,16 @@ Alongside the existing internal validation skills (`validate-citations`, `valida
 - **`verify-sources`** — EXTERNAL verification: resolves each citation against bibliographic databases (scite MCP preferred, else CrossRef/OpenAlex API), confirms DOI existence and author/year match, checks for retraction/correction/expression-of-concern, and tests claim-vs-source fidelity. It emits `verification/source-verification.md` with a per-citation status (VERIFIED / RETRACTED / UNVERIFIED / FLAGGED / MISMATCH) and a PASS/FAIL gate.
 
 **Gate rule:** A `verify-sources` **FAIL** (any RETRACTED or fabricated/UNVERIFIED citation, or an un-reviewed MISMATCH) **HALTS** the workflow — the review cannot be marked `complete`. PASS requires zero RETRACTED, zero UNVERIFIED, and zero un-reviewed MISMATCH. This gate sits beside the Phase 5 citation-validation gate and the Phase 7 consistency-validation final gate. If the user overrides the gate to proceed, the override must be logged as a `human_override` provenance event (see below).
+
+### Validation phase: snapshot (`validate-*`) + loop (`verify-review`)
+
+The validation phase runs in **two complementary modes — both are used, neither replaces the other:**
+
+1. **Single-pass snapshot** — the existing `validate-citations` / `verify-sources` / `validate-consistency` / `validate-evidence` checks (batchable via `validate-manuscript`) produce a point-in-time gate result. This is the fast "where does the draft stand right now?" read, and it is what populates the Phase 5/5b/7 gates above.
+
+2. **Verified end-state loop** — the orchestrator then routes to **`verify-review`**, which re-runs those same checks on a **bounded self-correcting loop** against a mechanical *units-remaining* predicate: it repairs the highest-leverage defect (citation integrity weighted ×3), re-checks, and repeats until every in-scope auto-unit is 0 — then **stops and hands off to the human gates** (`appraise-risk-of-bias`, numeric verification, screening adjudication) rather than looping through them. It stops at `VERIFIED`, `BLOCKED_ON_HUMAN`, `PLATEAU`, or `CEILING`.
+
+**How they compose:** the single-pass snapshot establishes the baseline (it *is* `verify-review`'s cycle 0); `verify-review` then drives that baseline to closure. On a quick check the snapshot alone is enough; on a review intended to be *finished* (submission-ready), `verify-review` is what marks it `complete`. `verify-review` appends a `verification_units` history to the run's `manifest.json` (cycle, weighted total, per-unit, gates, outcome) — this doubles as the audit trail. See **[[.agent/skills/verify-review/SKILL|verify-review]]**.
 
 ### AI Disclosure & Per-Decision Provenance
 
@@ -198,6 +208,7 @@ The narrative/exploratory path does not require this stage; it is part of the re
 - **[[.agent/skills/verify-sources/SKILL|verify-sources]]** — external citation verification (DOI existence, retraction/correction, claim fidelity); the Phase 5+ external gate.
 - **[[.agent/skills/validate-citations/SKILL|validate-citations]]** — internal draft-vs-extraction-matrix consistency (complements, does not replace, `verify-sources`).
 - **[[.agent/skills/validate-consistency/SKILL|validate-consistency]]** — cross-artifact consistency final gate.
+- **[[.agent/skills/verify-review/SKILL|verify-review]]** — drives the validation phase to a verified end-state: a bounded units-remaining loop over the `validate-*`/`verify-sources` checks (citation integrity weighted ×3) that repairs → re-checks → repeats until every mechanical defect is 0, then hands off to the human gates. Used alongside the single-pass checks, not instead of them.
 - **[[.agent/skills/appraise-risk-of-bias/SKILL|appraise-risk-of-bias]]** — per-study risk-of-bias appraisal with the design-appropriate instrument (RoB 2 / ROBINS-I / Newcastle-Ottawa / QUADAS-2). HUMAN-GATED: the agent proposes a provisional rating, a human confirms/overrides. Runs AFTER extraction and BEFORE `validate-evidence`; its confirmed ratings feed the GRADE risk-of-bias domain.
 - **[[.agent/skills/validate-evidence/SKILL|validate-evidence]]** — GRADE / Oxford-CEBM evidence grading. Consumes the confirmed risk-of-bias ratings from `appraise-risk-of-bias` for its risk-of-bias domain.
 - **[[.agent/steering/ai-research-provenance|ai-research-provenance]]** — per-decision provenance stamping + mandatory `ai-disclosure.md` artifact.

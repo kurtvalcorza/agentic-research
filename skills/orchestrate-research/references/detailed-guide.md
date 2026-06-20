@@ -35,7 +35,7 @@ def run_protocol_frontend(research_intent, corpus_root):
   }
 ```
 
-**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and starts at acquisition (Phase -1) or a bring-your-own corpus (Step 0.1).
+**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and starts at acquisition (Phase -1) or a bring-your-own corpus (Step 0.1).
 
 ---
 
@@ -87,7 +87,7 @@ def run_acquisition_frontend(research_question, corpus_root):
   }
 ```
 
-**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → prisma-flow (reporting)`. The `identification_counts` and `duplicates_removed` values are persisted and carried to the reporting phase so `prisma-flow` builds a REAL PRISMA 2020 diagram from actual run data.
+**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The `identification_counts` and `duplicates_removed` values are persisted and carried to the reporting phase so `prisma-flow` builds a REAL PRISMA 2020 diagram from actual run data.
 
 ---
 
@@ -434,6 +434,15 @@ def select_workflow(corpus_analysis, project_context):
 - 🛑 EXTERNAL GATE: PASS requires zero RETRACTED, zero UNVERIFIED, zero un-reviewed MISMATCH. A FAIL (retracted/fabricated citation) HALTS — cannot mark `complete`.
 - Output: verification/source-verification.md
 
+### Phase 5c: Verified End-State Loop (AUTO - verify-review)
+- Phases 5/5b/7 are single-pass *snapshots*; `verify-review` drives them to *closure*. Both modes run — the snapshot establishes the baseline (it is verify-review's cycle 0), the loop finishes the job.
+- Bounded units-remaining loop over the same checks (`verify-sources` / `validate-citations` / `validate-consistency` / `validate-evidence` / `prisma-flow`). Repairs the highest-leverage defect (citation integrity weighted ×3), re-checks, repeats.
+- Units-in-scope derived from review type (systematic = all; narrative = citation integrity + consistency floor).
+- 🛑 Stops at `VERIFIED` (every in-scope auto-unit 0 AND human gates confirmed AND `ai-disclosure.md` current) | `BLOCKED_ON_HUMAN` (mechanical defects cleared, human gates await — hands off, does not loop through) | `PLATEAU` (3 non-improving cycles) | `CEILING` (cycle 25; soft methodology advisory at cycle 10).
+- Appends a `verification_units` history to `manifest.json` (cycle, weighted_total, by_unit, gates, outcome) — the audit trail.
+- Runnable backend: `skills/verify-review/scripts/review_units.py` (verdict + exit-code gate). A review intended to be submission-ready is marked `complete` only on `VERIFIED`.
+- Output: verification/verify-review-report.md
+
 ### Phase 6: Contribution Framing (AUTO - 3 min)
 - 5 provocation questions
 - Overclaim detection
@@ -456,6 +465,7 @@ def select_workflow(corpus_analysis, project_context):
 ✅ Quality gates at 6 meta-merges (HALT on score <75)
 ✅ Citation validation gate (Phase 5)
 ✅ External source-verification gate (Phase 5b, verify-sources — HALT on RETRACTED/UNVERIFIED/un-reviewed MISMATCH)
+✅ Verified end-state loop (Phase 5c, verify-review — `complete` only on VERIFIED; hands off to human gates on BLOCKED_ON_HUMAN)
 ✅ Consistency validation gate (Phase 7)
 ✅ PRISMA flow reconciliation gate (prisma-flow — FAILS if identification/duplicates/screening counts do not reconcile)
 
