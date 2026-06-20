@@ -96,7 +96,7 @@ def compute(data, weights):
         if contributions[dominant] == 0:
             dominant = None
 
-    return weighted_total, auto_units_zero, gates_remaining, dominant, units
+    return weighted_total, auto_units_zero, gates_remaining, dominant, units, contributions
 
 
 def detect_plateau(history, current_total):
@@ -114,7 +114,7 @@ def detect_plateau(history, current_total):
 
 
 def verdict(data, weights, ceiling):
-    weighted_total, auto_zero, gates_remaining, dominant, units = compute(data, weights)
+    weighted_total, auto_zero, gates_remaining, dominant, units, contributions = compute(data, weights)
     cycle = int(data.get("cycle", 0))
     history = data.get("history", [])
 
@@ -141,7 +141,45 @@ def verdict(data, weights, ceiling):
         "ceiling": ceiling,
         "soft_advisory": advisory,
         "units_evaluated": {k: round(float(v), 3) for k, v in units.items()},
+        # weighted per-unit contribution — the manifest "by_unit" record
+        "by_unit": {k: round(float(v), 3) for k, v in contributions.items()},
     }
+
+
+def append_to_manifest(path, data, result):
+    """Append this cycle's record to manifest.json's verification_units array.
+
+    Makes the audit trail a *written artifact*, not a hand-maintained
+    convention — same spirit as kappa.py / prisma_flow.py emitting real files.
+    Creates the manifest (and the array) if absent; preserves any other keys.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        if not isinstance(manifest, dict):
+            raise ValueError("manifest root is not a JSON object")
+    except FileNotFoundError:
+        manifest = {}
+
+    record = {
+        "cycle": result["cycle"],
+        "state": result["state"],
+        "weighted_total": result["weighted_total"],
+        "by_unit": result["by_unit"],
+        "gates": {k: int(data.get("gates", {}).get(k, 0)) for k in GATE_KEYS},
+        # agent-supplied annotation (progressed/no-op/failed/blocked/baseline)
+        "outcome": data.get("outcome", "baseline" if result["cycle"] == 0 else ""),
+    }
+
+    history = manifest.setdefault("verification_units", [])
+    if not isinstance(history, list):
+        raise ValueError("manifest.verification_units exists but is not an array")
+    history.append(record)
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+        f.write("\n")
+    return record
 
 
 def main():
@@ -150,6 +188,9 @@ def main():
     ap.add_argument("--ceiling", type=int, default=CEILING, help="hard cycle ceiling")
     ap.add_argument("--strict", action="store_true",
                     help="exit non-zero unless VERIFIED (default behaviour anyway)")
+    ap.add_argument("--manifest", metavar="PATH",
+                    help="append this cycle's record to PATH's verification_units array "
+                         "(creates the file/array if absent)")
     args = ap.parse_args()
 
     raw = open(args.input).read() if args.input else sys.stdin.read()
@@ -160,6 +201,14 @@ def main():
         return 2
 
     result = verdict(data, DEFAULT_WEIGHTS, args.ceiling)
+
+    if args.manifest:
+        try:
+            result["manifest_record"] = append_to_manifest(args.manifest, data, result)
+        except (ValueError, OSError) as e:
+            print(json.dumps({"error": f"manifest write failed: {e}"}), file=sys.stderr)
+            return 2
+
     print(json.dumps(result, indent=2))
 
     return 0 if result["state"] == "VERIFIED" else 1

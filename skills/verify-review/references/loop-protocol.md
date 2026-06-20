@@ -91,17 +91,30 @@ are an operational failure to surface, not a `PLATEAU`.
 ## 5. `verification_units` manifest extension
 
 Append one record per cycle to the orchestrator's existing `manifest.json`
-(do **not** create a separate state file):
+(do **not** create a separate state file). This is **written by the backend**,
+not maintained by hand — `review_units.py --manifest <path>` appends the record
+it just computed, creating the file and the array if absent and leaving any other
+manifest keys untouched:
+
+```
+python scripts/review_units.py units.json --manifest manifest.json
+```
+
+The agent's per-cycle annotation rides in on the input `units.json` as
+`"outcome": "progressed: …"`; cycle 0 defaults to `"baseline"`. The written
+record is `{cycle, state, weighted_total, by_unit, gates, outcome}` (note
+`by_unit` is the **weighted** contribution per unit, so a count of 3 on the
+×3-weighted `U_cite_external` records as `9.0`):
 
 ```json
 "verification_units": [
-  { "cycle": 0, "weighted_total": 14.0,
+  { "cycle": 0, "state": "CONTINUE", "weighted_total": 14.0,
     "by_unit": {"U_cite_external": 9.0, "U_consistency": 4.0, "U_prisma": 1.0},
-    "gates": {"H_rob": 4, "H_cite_manual": 1},
+    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
     "outcome": "baseline" },
-  { "cycle": 1, "weighted_total": 11.0,
+  { "cycle": 1, "state": "CONTINUE", "weighted_total": 11.0,
     "by_unit": {"U_cite_external": 6.0, "U_consistency": 4.0, "U_prisma": 1.0},
-    "gates": {"H_rob": 4, "H_cite_manual": 1},
+    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
     "outcome": "progressed: verify-sources cleared 1 fabricated citation" }
 ]
 ```

@@ -279,6 +279,8 @@ verified across all verdict states). Registered in `SKILLS-REGISTRY.md` and `REA
 snapshot **and** the `verify-review` loop (new "Phase 5c: Verified End-State Loop"; canonical orders,
 related list, and QA gates updated).
 
-The `verification_units` manifest history is specified here and in `references/loop-protocol.md` as a
-**convention** the loop follows; consistent with the rest of the suite, it is prose/skill-driven, not
-a separate code-level manifest writer. A runnable manifest layer would be a distinct follow-up.
+The `verification_units` manifest history is **written by the runnable backend**:
+`review_units.py --manifest <path>` appends each cycle's computed record (`cycle`, `state`,
+`weighted_total`, `by_unit`, `gates`, `outcome`) to `manifest.json`, creating the file/array if
+absent and preserving other keys. So the audit trail is an enforced artifact, not a hand-maintained
+convention — same spirit as `kappa.py` / `prisma_flow.py` emitting real files.

@@ -135,7 +135,13 @@ A loop optimizing a scalar will "cheat" — drop a hard-to-verify citation, excl
 
 Reuse the orchestrator's existing `manifest.json` / `execution-log.json` — do **not** create a parallel state file.
 
-- Append each cycle to `verification_units: [{cycle, weighted_total, by_unit, gates, outcome}]` in the manifest. This history **is** the audit trail.
+- Append each cycle to `verification_units: [{cycle, state, weighted_total, by_unit, gates, outcome}]` in the manifest — **written by the backend, not by hand**: pass `--manifest <path>` and `review_units.py` appends the computed record (creating the file/array if absent). This history **is** the audit trail.
+
+  ```
+  python scripts/review_units.py units.json --manifest manifest.json
+  ```
+
+  Pass the agent's per-cycle annotation in `units.json` as `"outcome": "progressed: …"` (or `no-op` / `failed` / `blocked`); cycle 0 defaults to `"baseline"`.
 - Write a checkpoint on every stop state so partial progress is resumable.
 - Provenance-stamp each repair cycle's decisions (model, version, prompt, human_override) per `.agent/steering/ai-research-provenance.md` — the loop is a *producer* of those stamps.
 - On `VERIFIED`, refresh `ai-disclosure.md` — the verification activity is itself an AI-assisted step PRISMA-trAIce expects disclosed.
