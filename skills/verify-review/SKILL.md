@@ -85,6 +85,8 @@ Determine the review type (from the manifest if `orchestrate-research` set it; o
 ### Step 2 — Derive the predicate & confirm once
 State the success predicate, the units in scope, and **which human gates will fire**. Get one upfront confirmation. Catching a misclassification at cycle 0 is free; at cycle 15 it is not.
 
+> **`--dry-run`** — when invoked with `--dry-run`, stop here: print the derived review type, the success predicate, the units in scope, the human gates that will fire, and the ceiling (25) — then **execute nothing**. This is the cheap "what will this do before I spend compute?" preview; it runs no checks and writes no state. Drop the flag to run for real.
+
 ### Step 3 — Baseline (cycle 0)
 Run each in-scope check once. Assemble a `units.json` (see `references/loop-protocol.md` for the schema) and compute the baseline scalar:
 
