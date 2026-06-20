@@ -268,10 +268,17 @@ All five open questions are decided; the spec above reflects them.
 5. **Entry point → dedicated `verify-review` skill** (not a flag), invocable standalone or as a child
    hop from `orchestrate-research`'s validation phase. [§7]
 
-## 10. Next step (implementation — not yet started)
+## 10. Implementation status
 
-Build the `verify-review` skill: `SKILL.md` (classification + units-in-scope resolution + loop +
-STOP verdicts), the weighted-units config block, manifest `verification_units` history extension, and
-a `SKILLS-REGISTRY.md` entry. Re-point `orchestrate-research`'s validation phase to call it. Await
-go-ahead before writing code.
-```
+**Built (2026-06-20).** The `verify-review` skill ships at `skills/verify-review/`
+(`SKILL.md`, `README.md`, `references/loop-protocol.md`, and the stdlib backend
+`scripts/review_units.py` — classification + units-in-scope + weighted scalar + STOP verdicts,
+verified across all verdict states). Registered in `SKILLS-REGISTRY.md` and `README.md`.
+
+`orchestrate-research`'s validation phase was updated to run **both** the single-pass `validate-*`
+snapshot **and** the `verify-review` loop (new "Phase 5c: Verified End-State Loop"; canonical orders,
+related list, and QA gates updated).
+
+The `verification_units` manifest history is specified here and in `references/loop-protocol.md` as a
+**convention** the loop follows; consistent with the rest of the suite, it is prose/skill-driven, not
+a separate code-level manifest writer. A runnable manifest layer would be a distinct follow-up.
