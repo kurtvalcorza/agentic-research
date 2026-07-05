@@ -1473,6 +1473,7 @@ from skills.verify_review import verify_review
 verdict = verify_review(
   manifest_path=f"{project_context.output_root}/manifest.json",
   review_type=project_context.review_type,
+  units_in_scope=scope_for(project_context.review_type),  # frozen at classification (spec §3.3)
   snapshot_results={               # seed cycle 0 from the snapshots above (no re-run)
     "citation_score": citation_score,
     "verification": verification,

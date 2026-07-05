@@ -15,6 +15,7 @@ Assembled each cycle from the in-scope checks' outputs and passed to
 {
   "review_type": "systematic",
   "cycle": 3,
+  "units_in_scope": ["U_screen", "U_extract", "U_prisma", "U_grade"],
   "units": {
     "U_cite_external": 2,
     "U_cite_internal": 0,
@@ -37,6 +38,12 @@ Rules:
   is impossible while any floor unit is missing (`missing_units` lists them). An
   omitted *non-floor* unit is *absent* (a narrative review has no `U_prisma`), not
   zero-to-achieve; including it as `0` is also fine — it just contributes nothing.
+- `units_in_scope` (optional) is the **frozen in-scope set** resolved at
+  classification (spec §3.3). When present, every unit it lists — not just the
+  floor — must be present and `0` before `VERIFIED`, so a systematic run that
+  silently omits `U_prisma` is caught (`missing_units`) instead of passing. Omit
+  it and only the universal floor is enforced. The floor is always required,
+  whether or not it appears in the list.
   When a cycle re-runs only the checks whose inputs changed, **carry forward the
   last-known floor-unit values** into that cycle's `units.json` (and pass
   `consistency` with its score) so the floor stays present — otherwise the cycle

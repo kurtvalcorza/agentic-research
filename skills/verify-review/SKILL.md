@@ -80,7 +80,7 @@ The loop runs on **both** registrable/systematic reviews and the lighter narrati
 ## Procedure
 
 ### Step 1 — Classify & scope
-Determine the review type (from the manifest if `orchestrate-research` set it; otherwise classify from the draft + available artifacts). Resolve the in-scope unit set per the table above.
+Determine the review type (from the manifest if `orchestrate-research` set it; otherwise classify from the draft + available artifacts). Resolve the in-scope unit set per the table above, and pass it to the backend as `units_in_scope` in each cycle's `units.json` — the backend then requires every in-scope unit (not just the universal floor) to be present and 0 before `VERIFIED`, so a run that silently omits an in-scope check (e.g. a systematic review missing `U_prisma`) is caught rather than passed.
 
 ### Step 2 — Derive the predicate & confirm once
 State the success predicate, the units in scope, and **which human gates will fire**. Get one upfront confirmation. Catching a misclassification at cycle 0 is free; at cycle 15 it is not.

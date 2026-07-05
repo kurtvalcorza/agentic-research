@@ -18,6 +18,10 @@ INPUT (a JSON file, or stdin):
     "U_prisma": 0,
     "U_grade": 0
   },
+  "units_in_scope": ["U_screen", "U_prisma"],  # optional: the frozen in-scope set
+                                         #   (spec §3.3). Every listed unit must be
+                                         #   present+0 before VERIFIED; default is
+                                         #   the universal floor alone.
   "consistency": {"score": 71, "critical_breaks": 0},   # optional -> derives U_consistency
   "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},  # human-gate counts
   "history": [14, 11, 9],                # prior WEIGHTED totals, oldest first (optional)
@@ -30,7 +34,11 @@ Only pass the units that are IN SCOPE for the review type (see SKILL.md §
 "Units in scope"). Omitted units are treated as absent, not as zero-to-achieve.
 Citation integrity + consistency are the UNIVERSAL FLOOR: a VERIFIED verdict
 requires them to be present and zero for *every* review type — an empty or
-citation-less units map can never be VERIFIED (the gate fails closed).
+citation-less units map can never be VERIFIED (the gate fails closed). Declare
+`units_in_scope` to also require the review-type-specific units (screening,
+PRISMA, extraction, GRADE) be present+0, so an input that silently omits an
+in-scope check cannot reach VERIFIED. Malformed values (non-numeric or boolean
+counts, wrong field types) fail closed with an error verdict and non-zero exit.
 
 OUTPUT: a JSON verdict on stdout. Exit code 0 only when VERIFIED; non-zero
 otherwise (so it can gate a pipeline like `prisma_flow.py --strict`).
@@ -64,6 +72,31 @@ GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual")
 UNIVERSAL_FLOOR = ("U_cite_external", "U_cite_internal", "U_consistency")
 
 
+class InputError(ValueError):
+    """Malformed units.json — the gate fails closed (error verdict, non-zero exit)."""
+
+
+def _as_count(x, ctx):
+    """Coerce a JSON value to a numeric count, or fail closed.
+
+    Rejects booleans (JSON true/false would otherwise silently coerce to 1.0/0.0
+    via float() and a `false` could satisfy the all-zero predicate), null, and
+    non-numeric values. A malformed count raises InputError, which main() reports
+    as an error verdict with a non-zero exit — rather than crashing with a
+    traceback or letting a bad value slip through the gate.
+    """
+    if isinstance(x, bool):
+        raise InputError(f"{ctx}: boolean is not a valid count ({x!r})")
+    if isinstance(x, (int, float)):
+        return float(x)
+    if isinstance(x, str):
+        try:
+            return float(x)
+        except ValueError:
+            raise InputError(f"{ctx}: not a number ({x!r})")
+    raise InputError(f"{ctx}: expected a number, got {type(x).__name__}")
+
+
 def derive_consistency_unit(consistency):
     """Q2: graded gradient = critical_breaks + max(0, 75 - score).
 
@@ -74,15 +107,20 @@ def derive_consistency_unit(consistency):
     """
     if not consistency:
         return None
+    if not isinstance(consistency, dict):
+        raise InputError("consistency: expected an object")
     score = consistency.get("score")
     if score is None:
         return None
-    breaks = int(consistency.get("critical_breaks", 0))
-    return breaks + max(0, CONSISTENCY_GATE - float(score))
+    breaks = _as_count(consistency.get("critical_breaks", 0), "consistency.critical_breaks")
+    return breaks + max(0, CONSISTENCY_GATE - _as_count(score, "consistency.score"))
 
 
 def compute(data, weights):
-    units = dict(data.get("units", {}))
+    raw_units = data.get("units") or {}
+    if not isinstance(raw_units, dict):
+        raise InputError("units: expected an object")
+    units = {key: _as_count(count, f"units.{key}") for key, count in raw_units.items()}
 
     cu = derive_consistency_unit(data.get("consistency"))
     if cu is not None:
@@ -93,21 +131,29 @@ def compute(data, weights):
     contributions = {}
     for key, count in units.items():
         w = weights.get(key, 1)
-        contrib = w * float(count)
+        contrib = w * count
         contributions[key] = contrib
         weighted_total += contrib
 
-    # Fail closed: the universal-floor units must be PRESENT before the loop can
-    # call a review done. A missing floor unit is "not yet checked", not zero.
-    missing_units = [u for u in UNIVERSAL_FLOOR if u not in units]
+    # Required-present set: the units the caller declared in scope (frozen at
+    # classification, spec §3.3) UNION the always-required universal floor;
+    # default to the floor alone when no scope is declared. Fail closed — a
+    # required unit that is absent is "not yet checked", not zero, so an input
+    # that omits an in-scope check (e.g. a systematic review with no U_prisma)
+    # cannot reach a done verdict.
+    declared = data.get("units_in_scope") or []
+    if not isinstance(declared, list):
+        raise InputError("units_in_scope: expected an array of unit names")
+    required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
+    missing_units = [u for u in required if u not in units]
 
-    # predicate uses RAW counts: every in-scope unit present AND all == 0
-    auto_units_zero = (
-        not missing_units and all(float(c) == 0 for c in units.values())
-    )
+    # predicate uses RAW counts: every required unit present AND all == 0
+    auto_units_zero = not missing_units and all(c == 0 for c in units.values())
 
-    gates = data.get("gates", {})
-    gates_remaining = sum(int(gates.get(k, 0)) for k in GATE_KEYS)
+    raw_gates = data.get("gates") or {}
+    if not isinstance(raw_gates, dict):
+        raise InputError("gates: expected an object")
+    gates_remaining = sum(int(_as_count(raw_gates.get(k, 0), f"gates.{k}")) for k in GATE_KEYS)
 
     # dominant in-scope unit (for routing), highest weighted contribution
     dominant = None
@@ -147,8 +193,12 @@ def detect_plateau(history, current_total):
 def verdict(data, weights, ceiling):
     (weighted_total, auto_zero, gates_remaining, dominant, units,
      contributions, missing_units) = compute(data, weights)
-    cycle = int(data.get("cycle", 0))
-    history = data.get("history", [])
+    cycle = int(_as_count(data.get("cycle", 0), "cycle"))
+
+    raw_history = data.get("history") or []
+    if not isinstance(raw_history, list):
+        raise InputError("history: expected an array of weighted totals")
+    history = [_as_count(h, f"history[{i}]") for i, h in enumerate(raw_history)]
 
     advisory = cycle >= SOFT_ADVISORY_CYCLE
 
@@ -236,17 +286,21 @@ def append_to_manifest(path, data, result):
     if not isinstance(history, list):
         raise ValueError("manifest.verification_units exists but is not an array")
 
-    denominators = data.get("denominators", {})
-    prev_denoms = history[-1].get("denominators", {}) if history else {}
+    denominators = data.get("denominators") or {}
+    if not isinstance(denominators, dict):
+        raise InputError("denominators: expected an object")
+    prev = history[-1] if history and isinstance(history[-1], dict) else {}
+    prev_denoms = prev.get("denominators") if isinstance(prev.get("denominators"), dict) else {}
     guard = floor_guard_status(prev_denoms, denominators,
                                bool(data.get("exclusions_logged")))
 
+    gates_in = data.get("gates") or {}
     record = {
         "cycle": result["cycle"],
         "state": result["state"],
         "weighted_total": result["weighted_total"],
         "by_unit": result["by_unit"],
-        "gates": {k: int(data.get("gates", {}).get(k, 0)) for k in GATE_KEYS},
+        "gates": {k: int(_as_count(gates_in.get(k, 0), f"gates.{k}")) for k in GATE_KEYS},
         "denominators": denominators,
         "floor_guard": guard,
         # agent-supplied annotation (progressed/no-op/failed/blocked/baseline)
@@ -264,9 +318,10 @@ def append_to_manifest(path, data, result):
 def dry_run_preview(data, ceiling):
     """Preview what the loop will do without running or writing anything."""
     review_type = data.get("review_type", "unspecified")
-    gates = data.get("gates", {})
-    gates_will_fire = [k for k in GATE_KEYS if int(gates.get(k, 0)) > 0]
-    in_scope = sorted(set(data.get("units", {})) |
+    gates = data.get("gates") or {}
+    gates_will_fire = [k for k in GATE_KEYS if _as_count(gates.get(k, 0), f"gates.{k}") > 0]
+    declared = data.get("units_in_scope") or []
+    in_scope = sorted(set(data.get("units") or {}) | set(declared) |
                       ({"U_consistency"} if data.get("consistency") else set()))
     return {
         "dry_run": True,
@@ -301,19 +356,27 @@ def main():
     except json.JSONDecodeError as e:
         print(json.dumps({"error": f"invalid JSON: {e}"}), file=sys.stderr)
         return 2
+    if not isinstance(data, dict):
+        print(json.dumps({"error": "input must be a JSON object"}), file=sys.stderr)
+        return 2
 
-    if args.dry_run:
-        print(json.dumps(dry_run_preview(data, args.ceiling), indent=2))
-        return 0
+    # Malformed field types fail closed (error verdict + non-zero exit), never a
+    # spurious VERIFIED or an uncaught traceback.
+    try:
+        if args.dry_run:
+            print(json.dumps(dry_run_preview(data, args.ceiling), indent=2))
+            return 0
 
-    result = verdict(data, DEFAULT_WEIGHTS, args.ceiling)
+        result = verdict(data, DEFAULT_WEIGHTS, args.ceiling)
 
-    if args.manifest:
-        try:
+        if args.manifest:
             result["manifest_record"] = append_to_manifest(args.manifest, data, result)
-        except (ValueError, OSError) as e:
-            print(json.dumps({"error": f"manifest write failed: {e}"}), file=sys.stderr)
-            return 2
+    except InputError as e:
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        return 2
+    except (ValueError, OSError) as e:
+        print(json.dumps({"error": f"manifest error: {e}"}), file=sys.stderr)
+        return 2
 
     print(json.dumps(result, indent=2))
 
