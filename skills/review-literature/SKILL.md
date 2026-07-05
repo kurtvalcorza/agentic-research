@@ -94,6 +94,7 @@ research
 - **Phase 5 Output:** `citation-validation_project.md` - Citation accuracy verification
 - **Phase 6 Output:** `contribution-framing_project.md` - Positioning options for your contribution
 - **Phase 7 Output:** `consistency-report_project.md` - Final quality assurance check
+- **Optional verify-review Output:** `verification/verify-review-report.md` - verified-end-state verdict (`VERIFIED`/`BLOCKED_ON_HUMAN`) + cycle-by-cycle units history, for a submission-ready review
 
 ## Workflow
 
@@ -197,6 +198,11 @@ You receive:
    - Checks argument logical flow
    - **CHECKPOINT 4**: Final review before completion
    - Expected result: Consistency score (target: ≥75%)
+
+**Optional — Verified end-state ([[../verify-review/SKILL|verify-review]])**
+   - After Phase 7, for a review intended to be *submission-ready* (not just spot-checked), route the passing Phase 5/7 snapshot to `verify-review`.
+   - It treats that snapshot as its cycle 0 and drives the review to a *verified end-state* on a bounded units-remaining loop — repairing one defect at a time until every in-scope defect is 0, then handing off to the human gates.
+   - Verdict: `VERIFIED` (mark complete) · `BLOCKED_ON_HUMAN` (hand off RoB / manual-citation confirmation) · `PLATEAU`/`CEILING` (surface the stall). Does not renumber the workflow — the snapshot alone remains enough for a quick review.
 
 ## Usage & Strategic Context
 

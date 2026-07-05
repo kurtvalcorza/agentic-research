@@ -19,6 +19,7 @@ Full 7-phase literature review automation with hybrid human-AI collaboration. Au
 - **Phase 5**: Validate citations (automated check)
 - **Phase 6**: Frame contributions (AI provocation, human decides)
 - **Phase 7**: Validate consistency (automated quality check)
+- **Optional**: `verify-review` drives the Phase 5/7 snapshot to a *verified end-state* (`VERIFIED`/`BLOCKED_ON_HUMAN`) for a submission-ready review
 
 ## Execution Model
 
@@ -85,6 +86,7 @@ After each phase, you approve/reject before continuing:
 - `validate-citations` - Phase 5
 - `frame-contributions` - Phase 6
 - `validate-consistency` - Phase 7
+- `verify-review` - Optional verified-end-state loop after Phase 7 (submission-ready)
 - `recursive-lit-review` - For 50-500+ papers
 
 ## Typical Timeline

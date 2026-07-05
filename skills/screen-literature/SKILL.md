@@ -91,7 +91,7 @@ Combine these into the `counts.json` consumed by `prisma-flow` (schema in its `s
 - `dedupe-records` — runs between acquisition and this skill; produces the deduped corpus (`corpus/deduped.jsonl`) and the *duplicates-removed* count.
 - `appraise-risk-of-bias` — downstream of extraction; per-study RoB with the design-appropriate instrument (RoB 2 / ROBINS-I / Newcastle-Ottawa / QUADAS-2), **human-gated**. Like dual screening here, RoB appraisal benefits from dual review, but stays human-gated (LLM appraisal accuracy is the weakest link).
 - `prisma-flow` — downstream reporting; assembles the PRISMA 2020 flow diagram from this skill's screening/eligibility counts plus the upstream identification/duplicate counts.
-- Canonical order: `design-review-protocol` → `generate-screening-criteria` → `acquire-corpus` → `dedupe-records` → **`screen-literature`** (single-pass or DUAL) → extract/synthesize → `appraise-risk-of-bias` → `validate-evidence` (GRADE) / draft → `prisma-flow`.
+- Canonical order: `design-review-protocol` → `generate-screening-criteria` → `acquire-corpus` → `dedupe-records` → **`screen-literature`** (single-pass or DUAL) → extract/synthesize → `appraise-risk-of-bias` → `validate-evidence` (GRADE) / draft → `validate-*` + `verify-sources` → `verify-review` (loop to verified end-state) → `prisma-flow`.
 
 
 ## Internal Metadata
