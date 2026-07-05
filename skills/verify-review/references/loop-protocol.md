@@ -37,6 +37,10 @@ Rules:
   is impossible while any floor unit is missing (`missing_units` lists them). An
   omitted *non-floor* unit is *absent* (a narrative review has no `U_prisma`), not
   zero-to-achieve; including it as `0` is also fine — it just contributes nothing.
+  When a cycle re-runs only the checks whose inputs changed, **carry forward the
+  last-known floor-unit values** into that cycle's `units.json` (and pass
+  `consistency` with its score) so the floor stays present — otherwise the cycle
+  reports `missing_units` and cannot reach `VERIFIED`/`BLOCKED_ON_HUMAN`.
 - `denominators` (optional) are the current totals behind the units (citation
   count, study count, theme count …). `exclusions_logged` (optional) marks that a
   drop in a denominator this cycle is backed by a logged exclusion reason. Together
@@ -60,8 +64,8 @@ Rules:
   "cycle": 2,
   "ceiling": 25,
   "soft_advisory": false,
-  "units_evaluated": { "U_cite_external": 2.0, "U_screen": 3.0, "U_consistency": 4.0 },
-  "by_unit": { "U_cite_external": 6.0, "U_screen": 3.0, "U_consistency": 4.0 }
+  "units_evaluated": { "U_cite_external": 2.0, "U_cite_internal": 0.0, "U_screen": 3.0, "U_consistency": 4.0 },
+  "by_unit": { "U_cite_external": 6.0, "U_cite_internal": 0.0, "U_screen": 3.0, "U_consistency": 4.0 }
 }
 ```
 
@@ -96,15 +100,16 @@ human work waited — human-gate work is not a stall.
 
 ## 4. Plateau definition
 
-`PLATEAU` = **no new best** (no strict improvement below the best weighted total
-seen so far) in the last `PLATEAU_K = 3` cycles. Formally, over the window of the
-last `PLATEAU_K` totals, `min(recent) ≥ min(everything before the window)`; it
-needs `PLATEAU_K + 1` samples so there is a prior best to beat. This catches both
-true stalls (flat/worse, e.g. `10,10,10,10`) **and** thrash (oscillation that
-returns to a prior level without netting progress, e.g. `8,9,8,9,8` — no total
-ever drops below the earlier `8`), while a genuinely descending run
-(`14,11,9,7`) keeps setting new bests and never trips. A cycle whose units cannot
-be computed (a check crashed) should be
+`PLATEAU` = the weighted total was **flat or worse** (`total[i] ≥ total[i-1]`)
+for `PLATEAU_K = 3` consecutive cycles, counting backward from the current cycle;
+it needs `PLATEAU_K + 1` samples so there are `K` transitions to check. A single
+strict improvement breaks the run, so an **actively-descending** loop is never
+falsely stalled — even right after a mid-run rise in the scalar (new in-scope
+work discovered, then repaired back down, e.g. `3,10,9,8` keeps going). This
+catches genuine stalls (`10,10,10,10`); it does **not** early-stop pure
+oscillation that dips every other cycle (`8,9,8,9,8`) — that runs to the ceiling
+rather than risk aborting a loop that is in fact making progress. A cycle whose
+units cannot be computed (a check crashed) should be
 recorded as `unknown` and **excluded** from the history array, so it does not
 falsely trip or reset the plateau counter; repeated `unknown`s on the same unit
 are an operational failure to surface, not a `PLATEAU`.
@@ -133,10 +138,12 @@ so a count of 3 on the ×3-weighted `U_cite_external` records as `9.0`;
   { "cycle": 0, "state": "CONTINUE", "weighted_total": 14.0,
     "by_unit": {"U_cite_external": 9.0, "U_consistency": 4.0, "U_prisma": 1.0},
     "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
+    "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "baseline" },
   { "cycle": 1, "state": "CONTINUE", "weighted_total": 11.0,
     "by_unit": {"U_cite_external": 6.0, "U_consistency": 4.0, "U_prisma": 1.0},
     "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
+    "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "progressed: verify-sources cleared 1 fabricated citation" }
 ]
 ```

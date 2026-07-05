@@ -105,6 +105,7 @@ Each cycle:
    - `PLATEAU` (3 non-improving cycles) → stop; report the stall.
    - `CEILING` (cycle 25) → stop; this almost always means a methodology problem.
    - `CONTINUE` → route to the repair skill for the `dominant_unit`, run it, fold its report into the manifest, append the cycle to the units history.
+   - Non-empty `missing_units` → a universal-floor check has no value this cycle: **run those checks first** (or carry forward their last-known value) before routing — a missing floor unit blocks `VERIFIED`/`BLOCKED_ON_HUMAN`, so clear it before the loop can terminate cleanly.
 3. At **cycle 10**, emit the **soft advisory** (a high pass-count usually signals an upstream methodology issue, not a loop that needs more cycles) — then continue.
 
 **Routing (dominant unit → repair skill):**

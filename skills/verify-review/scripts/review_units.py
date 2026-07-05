@@ -52,7 +52,7 @@ DEFAULT_WEIGHTS = {
     "U_consistency": 1,
 }
 CONSISTENCY_GATE = 75      # validate-consistency pass threshold
-PLATEAU_K = 3              # consecutive non-improving cycles -> PLATEAU
+PLATEAU_K = 3              # consecutive flat-or-worse cycles -> PLATEAU
 SOFT_ADVISORY_CYCLE = 10   # advisory only; does NOT stop the loop
 CEILING = 25               # hard backstop
 
@@ -65,13 +65,19 @@ UNIVERSAL_FLOOR = ("U_cite_external", "U_cite_internal", "U_consistency")
 
 
 def derive_consistency_unit(consistency):
-    """Q2: graded gradient = critical_breaks + max(0, 75 - score)."""
+    """Q2: graded gradient = critical_breaks + max(0, 75 - score).
+
+    Returns None (unit absent) when there is no numeric score — a consistency
+    object without a real score means the check was not measured, so the floor
+    unit must stay absent (fail closed) rather than fabricate a present-and-zero
+    U_consistency that could satisfy the gate without a genuine >=75 result.
+    """
     if not consistency:
         return None
     score = consistency.get("score")
-    breaks = int(consistency.get("critical_breaks", 0))
     if score is None:
-        return breaks
+        return None
+    breaks = int(consistency.get("critical_breaks", 0))
     return breaks + max(0, CONSISTENCY_GATE - float(score))
 
 
@@ -118,19 +124,24 @@ def compute(data, weights):
 
 
 def detect_plateau(history, current_total):
-    """PLATEAU = no new best (strict improvement) in the last PLATEAU_K cycles.
+    """PLATEAU = PLATEAU_K consecutive flat-or-worse cycles (no decrease).
 
-    Catches both true stalls (flat/worse) and thrash (oscillation that returns
-    to a prior level without netting progress): if none of the last K weighted
-    totals dropped below the best seen before that window, the loop is not making
-    real progress. Needs PLATEAU_K + 1 samples so there is a prior best to beat.
+    Counts backward from the current cycle while each total is >= the one before
+    it, and trips once that run reaches PLATEAU_K. A single real improvement
+    (a strict decrease) breaks the run, so an actively-descending loop is never
+    flagged — even right after a mid-run rise in the scalar (e.g. new in-scope
+    work discovered). Needs PLATEAU_K + 1 samples so there are K transitions.
     """
     series = list(history) + [current_total]
     if len(series) < PLATEAU_K + 1:
         return False
-    recent = series[-PLATEAU_K:]           # the last K totals
-    prior_best = min(series[:-PLATEAU_K])   # best achieved before that window
-    return min(recent) >= prior_best        # nothing recent beat the prior best
+    non_improving = 0
+    for i in range(len(series) - 1, 0, -1):
+        if series[i] >= series[i - 1]:   # flat or worse
+            non_improving += 1
+        else:
+            break
+    return non_improving >= PLATEAU_K
 
 
 def verdict(data, weights, ceiling):
@@ -187,11 +198,17 @@ def floor_guard_status(prev_denoms, curr_denoms, exclusions_logged):
     if not curr_denoms or not prev_denoms:
         return "ok"
     drops = []
-    for key, curr in curr_denoms.items():
-        prev = prev_denoms.get(key)
-        c, p = _num(curr), _num(prev)
-        if c is not None and p is not None and c < p:
-            drops.append(f"{key} {prev}->{curr}")
+    # Union of keys: a denominator that *vanished* (key removed) is the biggest
+    # possible content removal, so it must be flagged too — not just a lower value.
+    for key in sorted(set(prev_denoms) | set(curr_denoms)):
+        p = _num(prev_denoms.get(key))
+        if p is None:
+            continue                       # no prior baseline for this key
+        c = _num(curr_denoms.get(key))
+        if c is None:                      # key removed this cycle (or non-numeric)
+            drops.append(f"{key} {prev_denoms.get(key)}->(removed)")
+        elif c < p:
+            drops.append(f"{key} {prev_denoms.get(key)}->{curr_denoms.get(key)}")
     if not drops:
         return "ok"
     tag = "logged-exclusion" if exclusions_logged else "UNLOGGED (no-op per §5)"

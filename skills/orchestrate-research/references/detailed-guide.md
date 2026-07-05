@@ -439,7 +439,7 @@ def select_workflow(corpus_analysis, project_context):
 - Bounded units-remaining loop over the same checks (`verify-sources` / `validate-citations` / `validate-consistency` / `validate-evidence` / `prisma-flow`). Repairs the highest-leverage defect (citation integrity weighted ×3), re-checks, repeats.
 - Units-in-scope derived from review type (systematic = all; narrative = citation integrity + consistency floor).
 - 🛑 Stops at `VERIFIED` (every in-scope auto-unit 0 AND human gates confirmed AND `ai-disclosure.md` current) | `BLOCKED_ON_HUMAN` (mechanical defects cleared, human gates await — hands off, does not loop through) | `PLATEAU` (3 non-improving cycles) | `CEILING` (cycle 25; soft methodology advisory at cycle 10).
-- Appends a `verification_units` history to `manifest.json` (cycle, weighted_total, by_unit, gates, outcome) — the audit trail.
+- Appends a `verification_units` history to `manifest.json` (cycle, state, weighted_total, by_unit, gates, denominators, floor_guard, outcome) — the audit trail.
 - Runnable backend: `skills/verify-review/scripts/review_units.py` (verdict + exit-code gate). A review intended to be submission-ready is marked `complete` only on `VERIFIED`.
 - Output: verification/verify-review-report.md
 
