@@ -1345,10 +1345,16 @@ At each phase checkpoint
       │  └─ Run frame-contributions (AUTO, provocation mode)
       │     Output: phase6-contribution-framing_project.md
       │
-      └─ Phase 6 complete?
-         └─ Run validate-consistency (AUTO FINAL GATE)
-            Score ≥75? → PASS (workflow COMPLETE ✅)
-            Score <75? → HALT (user fixes issues, re-validate)
+      ├─ Phase 6 complete?
+      │  └─ Run validate-consistency (AUTO FINAL GATE — single-pass snapshot)
+      │     Score ≥75? → PASS (continue to Phase 5c)
+      │     Score <75? → HALT (user fixes issues, re-validate)
+      │
+      └─ Snapshot gates passed (submission-ready review)?
+         └─ Run verify-review (AUTO — Verified End-State Loop; the snapshot above is its cycle 0)
+            VERIFIED (every in-scope auto-unit 0, human gates confirmed)? → workflow COMPLETE ✅
+            BLOCKED_ON_HUMAN? → emit human-handoff checklist (RoB / adjudication / manual citations); COMPLETE only after human confirms
+            PLATEAU / CEILING? → HALT (surface the stall — usually an upstream methodology issue)
 ```
 
 ---
@@ -1456,6 +1462,27 @@ consistency_score = validate_consistency(
   strictness="moderate",
   output_path=f"{project_context.output_root}/phase7-consistency-report_project.md"
 )
+
+# Phase 5c: Verified End-State Loop (auto-invoked). The single-pass snapshots above
+# (validate-citations / verify-sources / validate-consistency) are verify-review's
+# cycle 0 — both modes run, neither replaces the other. The loop repairs the
+# highest-leverage defect, re-checks, and repeats until every in-scope auto-unit is 0,
+# then hands off to the human gates. It gates `complete` for a submission-ready review.
+from skills.verify_review import verify_review
+
+verdict = verify_review(
+  manifest_path=f"{project_context.output_root}/manifest.json",
+  review_type=project_context.review_type,
+  snapshot_results={               # seed cycle 0 from the snapshots above (no re-run)
+    "citation_score": citation_score,
+    "verification": verification,
+    "consistency_score": consistency_score,
+  },
+  output_path=f"{project_context.output_root}/verification/verify-review-report.md"
+)
+# verdict["state"] == "VERIFIED"          → review may be marked complete
+# verdict["state"] == "BLOCKED_ON_HUMAN"  → emit handoff checklist; complete only after human sign-off
+# verdict["state"] in ("PLATEAU","CEILING") → HALT; surface the stall (methodology issue upstream)
 ```
 
 ---

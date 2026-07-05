@@ -25,14 +25,22 @@ Assembled each cycle from the in-scope checks' outputs and passed to
   },
   "consistency": { "score": 71, "critical_breaks": 0 },
   "gates": { "H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1 },
-  "history": [14, 11, 9]
+  "history": [14, 11, 9],
+  "denominators": { "citations": 40, "studies": 22, "themes": 8 },
+  "exclusions_logged": false
 }
 ```
 
 Rules:
-- **Only include in-scope units.** An omitted unit is *absent* (narrative review
-  has no `U_prisma`), not zero-to-achieve. Including it as `0` is also fine — it
-  just contributes nothing.
+- **Only include in-scope units**, but the **universal floor** (`U_cite_external`,
+  `U_cite_internal`, `U_consistency`) must always be present — a `VERIFIED` verdict
+  is impossible while any floor unit is missing (`missing_units` lists them). An
+  omitted *non-floor* unit is *absent* (a narrative review has no `U_prisma`), not
+  zero-to-achieve; including it as `0` is also fine — it just contributes nothing.
+- `denominators` (optional) are the current totals behind the units (citation
+  count, study count, theme count …). `exclusions_logged` (optional) marks that a
+  drop in a denominator this cycle is backed by a logged exclusion reason. Together
+  they drive the floor-guard check (§6).
 - `consistency` is optional; when present it derives `U_consistency =
   critical_breaks + max(0, 75 − score)` (graded gradient, Q2).
 - `history` is the list of prior **weighted totals**, oldest first, *excluding*
@@ -47,17 +55,25 @@ Rules:
   "weighted_total": 13.0,
   "auto_units_zero": false,
   "gates_remaining": 0,
+  "missing_units": [],
   "dominant_unit": "U_cite_external",
   "cycle": 2,
   "ceiling": 25,
   "soft_advisory": false,
-  "units_evaluated": { "U_cite_external": 2.0, "U_prisma": 3.0, "U_consistency": 4.0 }
+  "units_evaluated": { "U_cite_external": 2.0, "U_screen": 3.0, "U_consistency": 4.0 },
+  "by_unit": { "U_cite_external": 6.0, "U_screen": 3.0, "U_consistency": 4.0 }
 }
 ```
 
 - `state` ∈ {`VERIFIED`, `BLOCKED_ON_HUMAN`, `PLATEAU`, `CEILING`, `CONTINUE`}.
 - Exit code is `0` only for `VERIFIED`, non-zero otherwise — so it gates a
   pipeline like `prisma_flow.py --strict`.
+- `units_evaluated` are the **raw** in-scope counts; `by_unit` are the **weighted**
+  contributions (`weightᵢ × countᵢ`) that sum to `weighted_total`.
+- `missing_units` lists any **universal-floor** unit (`U_cite_external`,
+  `U_cite_internal`, `U_consistency`) absent from the input. It is **non-empty ⇒
+  never `VERIFIED`**: the floor units must be present and zero, so an empty or
+  citation-less `units.json` fails closed rather than reporting a spurious pass.
 - `dominant_unit` is populated only when `state == CONTINUE`; it is the in-scope
   unit with the largest **weighted** contribution (ties broken by weight, then
   name). This is the routing target.
@@ -80,10 +96,15 @@ human work waited — human-gate work is not a stall.
 
 ## 4. Plateau definition
 
-`PLATEAU` = the weighted total was **flat or worse** (`total[i] ≥ total[i-1]`)
-for `PLATEAU_K = 3` consecutive cycles, counting backward from the current cycle.
-This catches both true stalls (no progress) and thrash (oscillation that nets
-zero). A cycle whose units cannot be computed (a check crashed) should be
+`PLATEAU` = **no new best** (no strict improvement below the best weighted total
+seen so far) in the last `PLATEAU_K = 3` cycles. Formally, over the window of the
+last `PLATEAU_K` totals, `min(recent) ≥ min(everything before the window)`; it
+needs `PLATEAU_K + 1` samples so there is a prior best to beat. This catches both
+true stalls (flat/worse, e.g. `10,10,10,10`) **and** thrash (oscillation that
+returns to a prior level without netting progress, e.g. `8,9,8,9,8` — no total
+ever drops below the earlier `8`), while a genuinely descending run
+(`14,11,9,7`) keeps setting new bests and never trips. A cycle whose units cannot
+be computed (a check crashed) should be
 recorded as `unknown` and **excluded** from the history array, so it does not
 falsely trip or reset the plateau counter; repeated `unknown`s on the same unit
 are an operational failure to surface, not a `PLATEAU`.
@@ -102,9 +123,10 @@ python scripts/review_units.py units.json --manifest manifest.json
 
 The agent's per-cycle annotation rides in on the input `units.json` as
 `"outcome": "progressed: …"`; cycle 0 defaults to `"baseline"`. The written
-record is `{cycle, state, weighted_total, by_unit, gates, outcome}` (note
-`by_unit` is the **weighted** contribution per unit, so a count of 3 on the
-×3-weighted `U_cite_external` records as `9.0`):
+record is `{cycle, state, weighted_total, by_unit, gates, denominators,
+floor_guard, outcome}` (note `by_unit` is the **weighted** contribution per unit,
+so a count of 3 on the ×3-weighted `U_cite_external` records as `9.0`;
+`denominators`/`floor_guard` carry the anti-gaming trail from §6):
 
 ```json
 "verification_units": [
@@ -125,11 +147,19 @@ counter and the audit trail both see it.
 
 ## 6. Floor-guard accounting (worked)
 
-The floor-guard (`SKILL.md` § anti-gaming) is enforced at units-accounting time,
-not by the script:
+The floor-guard (`SKILL.md` § anti-gaming) is judged at units-accounting time —
+whether a removal is *legitimate* is a human/agent call — but the backend makes it
+**mechanically detectable** rather than trusting self-report. Pass per-cycle
+`denominators`; `review_units.py --manifest` records them and sets a `floor_guard`
+status on the record: a denominator that **fell** since the previous cycle is
+flagged `UNLOGGED (no-op per §5): citations 40->38` unless the input sets
+`exclusions_logged: true` (then `logged-exclusion: …`). Either way the drop is
+written into the audit trail, so a later reader can catch a content-removal that
+gamed a unit to zero:
 
 - If a cycle reduced `U_cite_external` by deleting a citation rather than
-  resolving it, record `outcome: "no-op: citation removed without logged
+  resolving it, the `citations` denominator falls and `floor_guard` flags it
+  `UNLOGGED`; record `outcome: "no-op: citation removed without logged
   exclusion reason"` and **do not** credit the reduction — recompute the unit as
   if the citation still needed resolution, or route it to `H_cite_manual`.
 - A citation the backend can only mark `UNVERIFIED (manual)` is moved from

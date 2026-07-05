@@ -1,6 +1,6 @@
 # Spec: Units-Driven Verification Loop for `orchestrate-research`
 
-**Status:** Draft for review — no implementation yet
+**Status:** Implemented — the `verify-review` skill and its `review_units.py` backend are shipped and registered (see §10)
 **Date:** 2026-06-20
 **Adapted from:** `autoresearch` (uditgoenka/autoresearch) orchestrator pattern — *mechanism only*
 **Author note:** This transfers autoresearch's *self-correcting loop with a mechanical success
@@ -191,6 +191,13 @@ For a methodology tool that is corruption, not progress. Rules:
 3. A regressing change (re-opening a previously reconciled PRISMA arm, dropping consistency below
    75) is **reverted**, mirroring autoresearch's keep/revert discipline.
 
+**Mechanical support (not just convention).** The judgment of whether a removal is legitimate stays
+with the human/agent, but the backend makes gaming *detectable* rather than trusting self-report: pass
+per-cycle `denominators` (e.g. `{citations, studies, themes}`) and `review_units.py --manifest` records
+them and computes a `floor_guard` status — a denominator that **fell** since the previous cycle is
+flagged `UNLOGGED (no-op per §5)` unless the input sets `exclusions_logged: true`. The drop is written
+into the audit trail either way, so a later reader can catch a content-removal that gamed a unit to zero.
+
 ---
 
 ## 6. State, checkpoints & provenance (reuse, don't bolt on)
@@ -198,8 +205,9 @@ For a methodology tool that is corruption, not progress. Rules:
 `orchestrate-research` already maintains `manifest.json` + `execution-log.json` and a resume mode.
 **Extend those**, do not introduce a parallel `orchestrator-state.json`:
 
-- Add `verification_units: [{cycle, U_total, by_unit:{...}, gates:{...}, outcome}]` to the manifest —
-  this history doubles as the **audit trail** the provenance convention wants.
+- Add `verification_units: [{cycle, state, weighted_total, by_unit:{...}, gates:{...}, denominators:{...},
+  floor_guard, outcome}]` to the manifest — this history doubles as the **audit trail** the provenance
+  convention wants (`denominators` + `floor_guard` make anti-gaming content removal auditable, per §5).
 - Write a checkpoint on every STOP (`VERIFIED` | `BLOCKED_ON_HUMAN` | `PLATEAU` | `CEILING`) so partial
   progress is resumable, consistent with the existing resume-from-last-phase behaviour.
 - Each repair cycle's decisions are provenance-stamped (model, version, prompt, human_override) per
@@ -225,8 +233,10 @@ The loop ships as a **dedicated skill, `verify-review`** — not a `--verify-loo
   match on, instead of being a hidden mode of another skill.
 
 **Integration points:**
-- `orchestrate-research` routes to `verify-review` at the end of the validation phase (replacing the
-  current single-pass `validate-*` fan-out) and folds its verdict/handoff back into the manifest.
+- `orchestrate-research` routes to `verify-review` at the end of the validation phase, **running after
+  — not replacing — the single-pass `validate-*` fan-out**: the snapshot is the loop's cycle-0 baseline
+  and both modes run (see `orchestrate-research` § "Validation phase: snapshot + loop"). `verify-review`
+  folds its verdict/handoff back into the manifest.
 - `verify-review` reads review type from the manifest when present; when invoked standalone it
   classifies from the draft + available artifacts, then resolves units-in-scope per §3.3.
 - It consumes the human gates' confirmed outputs; it never re-runs `appraise-risk-of-bias`'s
@@ -281,6 +291,6 @@ related list, and QA gates updated).
 
 The `verification_units` manifest history is **written by the runnable backend**:
 `review_units.py --manifest <path>` appends each cycle's computed record (`cycle`, `state`,
-`weighted_total`, `by_unit`, `gates`, `outcome`) to `manifest.json`, creating the file/array if
-absent and preserving other keys. So the audit trail is an enforced artifact, not a hand-maintained
+`weighted_total`, `by_unit`, `gates`, `denominators`, `floor_guard`, `outcome`) to `manifest.json`,
+creating the file/array if absent and preserving other keys. So the audit trail is an enforced artifact, not a hand-maintained
 convention — same spirit as `kappa.py` / `prisma_flow.py` emitting real files.

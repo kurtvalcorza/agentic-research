@@ -20,11 +20,17 @@ INPUT (a JSON file, or stdin):
   },
   "consistency": {"score": 71, "critical_breaks": 0},   # optional -> derives U_consistency
   "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},  # human-gate counts
-  "history": [14, 11, 9]                 # prior WEIGHTED totals, oldest first (optional)
+  "history": [14, 11, 9],                # prior WEIGHTED totals, oldest first (optional)
+  "denominators": {"citations": 40, "studies": 22, "themes": 8},  # optional, floor-guard
+  "exclusions_logged": false             # optional: a denominator drop is backed by a
+                                         #   logged eligibility/exclusion reason (§5)
 }
 
 Only pass the units that are IN SCOPE for the review type (see SKILL.md §
 "Units in scope"). Omitted units are treated as absent, not as zero-to-achieve.
+Citation integrity + consistency are the UNIVERSAL FLOOR: a VERIFIED verdict
+requires them to be present and zero for *every* review type — an empty or
+citation-less units map can never be VERIFIED (the gate fails closed).
 
 OUTPUT: a JSON verdict on stdout. Exit code 0 only when VERIFIED; non-zero
 otherwise (so it can gate a pipeline like `prisma_flow.py --strict`).
@@ -51,6 +57,11 @@ SOFT_ADVISORY_CYCLE = 10   # advisory only; does NOT stop the loop
 CEILING = 25               # hard backstop
 
 GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual")
+
+# Citation integrity + consistency are universal for EVERY review type (spec
+# §3.3): the floor the loop guarantees for any review. A VERIFIED verdict must
+# have these present and zero, so an empty/partial units map fails closed.
+UNIVERSAL_FLOOR = ("U_cite_external", "U_cite_internal", "U_consistency")
 
 
 def derive_consistency_unit(consistency):
@@ -80,8 +91,14 @@ def compute(data, weights):
         contributions[key] = contrib
         weighted_total += contrib
 
-    # predicate uses RAW counts: every in-scope unit must be 0
-    auto_units_zero = all(float(c) == 0 for c in units.values())
+    # Fail closed: the universal-floor units must be PRESENT before the loop can
+    # call a review done. A missing floor unit is "not yet checked", not zero.
+    missing_units = [u for u in UNIVERSAL_FLOOR if u not in units]
+
+    # predicate uses RAW counts: every in-scope unit present AND all == 0
+    auto_units_zero = (
+        not missing_units and all(float(c) == 0 for c in units.values())
+    )
 
     gates = data.get("gates", {})
     gates_remaining = sum(int(gates.get(k, 0)) for k in GATE_KEYS)
@@ -96,25 +113,29 @@ def compute(data, weights):
         if contributions[dominant] == 0:
             dominant = None
 
-    return weighted_total, auto_units_zero, gates_remaining, dominant, units, contributions
+    return (weighted_total, auto_units_zero, gates_remaining, dominant,
+            units, contributions, missing_units)
 
 
 def detect_plateau(history, current_total):
-    """PLATEAU = PLATEAU_K consecutive cycles with no improvement (no decrease)."""
+    """PLATEAU = no new best (strict improvement) in the last PLATEAU_K cycles.
+
+    Catches both true stalls (flat/worse) and thrash (oscillation that returns
+    to a prior level without netting progress): if none of the last K weighted
+    totals dropped below the best seen before that window, the loop is not making
+    real progress. Needs PLATEAU_K + 1 samples so there is a prior best to beat.
+    """
     series = list(history) + [current_total]
     if len(series) < PLATEAU_K + 1:
         return False
-    non_improving = 0
-    for i in range(len(series) - 1, 0, -1):
-        if series[i] >= series[i - 1]:   # flat or worse
-            non_improving += 1
-        else:
-            break
-    return non_improving >= PLATEAU_K
+    recent = series[-PLATEAU_K:]           # the last K totals
+    prior_best = min(series[:-PLATEAU_K])   # best achieved before that window
+    return min(recent) >= prior_best        # nothing recent beat the prior best
 
 
 def verdict(data, weights, ceiling):
-    weighted_total, auto_zero, gates_remaining, dominant, units, contributions = compute(data, weights)
+    (weighted_total, auto_zero, gates_remaining, dominant, units,
+     contributions, missing_units) = compute(data, weights)
     cycle = int(data.get("cycle", 0))
     history = data.get("history", [])
 
@@ -136,6 +157,7 @@ def verdict(data, weights, ceiling):
         "weighted_total": round(weighted_total, 3),
         "auto_units_zero": auto_zero,
         "gates_remaining": gates_remaining,
+        "missing_units": missing_units,
         "dominant_unit": dominant if state == "CONTINUE" else None,
         "cycle": cycle,
         "ceiling": ceiling,
@@ -146,12 +168,44 @@ def verdict(data, weights, ceiling):
     }
 
 
+def _num(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def floor_guard_status(prev_denoms, curr_denoms, exclusions_logged):
+    """Anti-gaming (§5): flag a denominator that FELL between cycles.
+
+    A dropped denominator (fewer citations/studies/themes than last cycle) is
+    how a loop games a unit to zero by *removing* content. It is legitimate only
+    when backed by a logged exclusion reason. Advisory: the script records and
+    flags the drop; a human/agent judges legitimacy — it never silently credits
+    a removal.
+    """
+    if not curr_denoms or not prev_denoms:
+        return "ok"
+    drops = []
+    for key, curr in curr_denoms.items():
+        prev = prev_denoms.get(key)
+        c, p = _num(curr), _num(prev)
+        if c is not None and p is not None and c < p:
+            drops.append(f"{key} {prev}->{curr}")
+    if not drops:
+        return "ok"
+    tag = "logged-exclusion" if exclusions_logged else "UNLOGGED (no-op per §5)"
+    return f"{tag}: " + ", ".join(drops)
+
+
 def append_to_manifest(path, data, result):
     """Append this cycle's record to manifest.json's verification_units array.
 
     Makes the audit trail a *written artifact*, not a hand-maintained
     convention — same spirit as kappa.py / prisma_flow.py emitting real files.
     Creates the manifest (and the array) if absent; preserves any other keys.
+    Records per-cycle denominators and a floor-guard status so an anti-gaming
+    content-removal is detectable across cycles, not just by convention.
     """
     try:
         with open(path, encoding="utf-8") as f:
@@ -161,19 +215,27 @@ def append_to_manifest(path, data, result):
     except FileNotFoundError:
         manifest = {}
 
+    history = manifest.setdefault("verification_units", [])
+    if not isinstance(history, list):
+        raise ValueError("manifest.verification_units exists but is not an array")
+
+    denominators = data.get("denominators", {})
+    prev_denoms = history[-1].get("denominators", {}) if history else {}
+    guard = floor_guard_status(prev_denoms, denominators,
+                               bool(data.get("exclusions_logged")))
+
     record = {
         "cycle": result["cycle"],
         "state": result["state"],
         "weighted_total": result["weighted_total"],
         "by_unit": result["by_unit"],
         "gates": {k: int(data.get("gates", {}).get(k, 0)) for k in GATE_KEYS},
+        "denominators": denominators,
+        "floor_guard": guard,
         # agent-supplied annotation (progressed/no-op/failed/blocked/baseline)
         "outcome": data.get("outcome", "baseline" if result["cycle"] == 0 else ""),
     }
 
-    history = manifest.setdefault("verification_units", [])
-    if not isinstance(history, list):
-        raise ValueError("manifest.verification_units exists but is not an array")
     history.append(record)
 
     with open(path, "w", encoding="utf-8") as f:
@@ -182,12 +244,35 @@ def append_to_manifest(path, data, result):
     return record
 
 
+def dry_run_preview(data, ceiling):
+    """Preview what the loop will do without running or writing anything."""
+    review_type = data.get("review_type", "unspecified")
+    gates = data.get("gates", {})
+    gates_will_fire = [k for k in GATE_KEYS if int(gates.get(k, 0)) > 0]
+    in_scope = sorted(set(data.get("units", {})) |
+                      ({"U_consistency"} if data.get("consistency") else set()))
+    return {
+        "dry_run": True,
+        "review_type": review_type,
+        "predicate": ("every in-scope auto-unit == 0 AND every human gate "
+                      "CONFIRMED AND ai-disclosure.md current"),
+        "universal_floor": list(UNIVERSAL_FLOOR),
+        "units_in_scope": in_scope,
+        "human_gates_that_will_fire": gates_will_fire,
+        "ceiling": ceiling,
+        "note": "preview only — no checks run, no state written",
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description="Compute verify-review units + verdict.")
     ap.add_argument("input", nargs="?", help="JSON file (default: stdin)")
-    ap.add_argument("--ceiling", type=int, default=CEILING, help="hard cycle ceiling")
-    ap.add_argument("--strict", action="store_true",
-                    help="exit non-zero unless VERIFIED (default behaviour anyway)")
+    # --max-cycles is the documented name (spec §4); --ceiling kept as an alias.
+    ap.add_argument("--max-cycles", "--ceiling", type=int, default=CEILING,
+                    dest="ceiling", help="hard cycle ceiling (override, default 25)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print review type, predicate, units-in-scope, gates that "
+                         "will fire, and ceiling; run no checks and write no state")
     ap.add_argument("--manifest", metavar="PATH",
                     help="append this cycle's record to PATH's verification_units array "
                          "(creates the file/array if absent)")
@@ -199,6 +284,10 @@ def main():
     except json.JSONDecodeError as e:
         print(json.dumps({"error": f"invalid JSON: {e}"}), file=sys.stderr)
         return 2
+
+    if args.dry_run:
+        print(json.dumps(dry_run_preview(data, args.ceiling), indent=2))
+        return 0
 
     result = verdict(data, DEFAULT_WEIGHTS, args.ceiling)
 

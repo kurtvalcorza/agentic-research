@@ -1,6 +1,6 @@
 ---
 name: verify-review
-description: Drive a research review to a verifiably-finished end-state by looping the validation skills (verify-sources, validate-citations, validate-consistency, prisma-flow, validate-evidence) against a mechanical "units remaining" predicate until every auto-reducible defect is zero — then cleanly hand off to the human gates (risk-of-bias confirmation, numeric verification, conflict adjudication). Use after a draft/synthesis exists, to verify a manuscript before submission, or as the validation phase of orchestrate-research. Replaces single-pass validation with a bounded, audited self-correcting loop.
+description: Drive a research review to a verifiably-finished end-state by looping the validation skills (verify-sources, validate-citations, validate-consistency, prisma-flow, validate-evidence) against a mechanical "units remaining" predicate until every auto-reducible defect is zero — then cleanly hand off to the human gates (risk-of-bias confirmation, numeric verification, conflict adjudication). Use after a draft/synthesis exists, to verify a manuscript before submission, or as the validation phase of orchestrate-research. Runs on top of single-pass validation (the snapshot is its cycle-0 baseline) as a bounded, audited self-correcting loop.
 ---
 
 # verify-review
@@ -23,7 +23,7 @@ This loop is adapted from a general autonomous code-improvement engine, but with
 
 - After a draft/synthesis exists and you want it **verified to a finished state**, not just spot-checked.
 - Before submitting or trusting any AI-assisted manuscript, review, or synthesis.
-- As the **validation phase of `orchestrate-research`** (it routes here instead of a single-pass `validate-*` fan-out).
+- As the **validation phase of `orchestrate-research`** (it routes here **in addition to** the single-pass `validate-*` fan-out, whose snapshot becomes this loop's cycle-0 baseline — both run, neither replaces the other).
 - Ad hoc: "verify this review", "drive this manuscript to clean", "check this is submission-ready".
 
 ## The success predicate
@@ -75,7 +75,7 @@ The loop runs on **both** registrable/systematic reviews and the lighter narrati
 | `U_screen` | ✅ dual-reviewer | ⬜ no dual-screening κ |
 | Human gates | all | `H_cite_manual` only |
 
-**Citation integrity and consistency are universal** — every review, however light, must end with real, faithfully-represented citations. The in-scope set is resolved once at classification and frozen for the run.
+**Citation integrity and consistency are universal** — every review, however light, must end with real, faithfully-represented citations. The in-scope set is resolved once at classification and frozen for the run. These three floor units (`U_cite_external`, `U_cite_internal`, `U_consistency`) must be **present** in `units.json` for a `VERIFIED` verdict: `review_units.py` **fails closed** — an empty or citation-less units map lists them under `missing_units` and can never report `VERIFIED`, so a malformed or partial input cannot gate a review complete.
 
 ## Procedure
 
@@ -131,11 +131,13 @@ A loop optimizing a scalar will "cheat" — drop a hard-to-verify citation, excl
 2. A citation moving to `UNVERIFIED (manual)` is **not** a cleared `U_cite_external` — it moves to the `H_cite_manual` human gate.
 3. A regressing change (re-opening a reconciled PRISMA arm, dropping consistency below 75) is **reverted**, never kept.
 
+**The backend makes this detectable, not just declared.** Pass per-cycle `denominators` (citation / study / theme counts) in `units.json`; `review_units.py --manifest` records them and sets a `floor_guard` status on each cycle's record — a denominator that **fell** since the previous cycle is flagged `UNLOGGED (no-op per §5)` unless you also pass `exclusions_logged: true`. Judging legitimacy stays with you, but a content-removal that games a unit to zero is now written into the audit trail instead of relying on honest self-report. See `references/loop-protocol.md` §6.
+
 ## State, checkpoints & provenance
 
 Reuse the orchestrator's existing `manifest.json` / `execution-log.json` — do **not** create a parallel state file.
 
-- Append each cycle to `verification_units: [{cycle, state, weighted_total, by_unit, gates, outcome}]` in the manifest — **written by the backend, not by hand**: pass `--manifest <path>` and `review_units.py` appends the computed record (creating the file/array if absent). This history **is** the audit trail.
+- Append each cycle to `verification_units: [{cycle, state, weighted_total, by_unit, gates, denominators, floor_guard, outcome}]` in the manifest — **written by the backend, not by hand**: pass `--manifest <path>` and `review_units.py` appends the computed record (creating the file/array if absent). This history **is** the audit trail.
 
   ```
   python scripts/review_units.py units.json --manifest manifest.json
@@ -162,5 +164,5 @@ Reuse the orchestrator's existing `manifest.json` / `execution-log.json` — do 
 - `verify-sources`, `validate-citations`, `validate-consistency`, `prisma-flow`, `validate-evidence` — the checks this loop sequences.
 - `appraise-risk-of-bias` — the human gate it hands off to (consumes confirmation, never re-judges).
 - `orchestrate-research` — routes here at the validation phase; folds the verdict back into the manifest.
-- `validate-manuscript` — the single-pass batch QA this loop supersedes when a verified end-state (not a snapshot) is the goal.
+- `validate-manuscript` — the single-pass batch QA that produces this loop's cycle-0 snapshot; `verify-review` drives that snapshot to a verified end-state (it extends the batch QA, it does not skip it).
 - `.agent/steering/ai-research-provenance.md` — provenance + disclosure convention.
