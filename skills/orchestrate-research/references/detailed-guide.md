@@ -35,7 +35,7 @@ def run_protocol_frontend(research_intent, corpus_root):
   }
 ```
 
-**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and starts at acquisition (Phase -1) or a bring-your-own corpus (Step 0.1).
+**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The lighter narrative path drops the protocol/RoB stages and starts at acquisition (Phase -1) or a bring-your-own corpus (Step 0.1).
 
 ---
 
@@ -87,7 +87,7 @@ def run_acquisition_frontend(research_question, corpus_root):
   }
 ```
 
-**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The `identification_counts` and `duplicates_removed` values are persisted and carried to the reporting phase so `prisma-flow` builds a REAL PRISMA 2020 diagram from actual run data.
+**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The `identification_counts` and `duplicates_removed` values are persisted and carried to the reporting phase so `prisma-flow` builds a REAL PRISMA 2020 diagram from actual run data.
 
 ---
 
@@ -1346,9 +1346,12 @@ At each phase checkpoint
       │     Output: phase6-contribution-framing_project.md
       │
       ├─ Phase 6 complete?
-      │  └─ Run validate-consistency (AUTO FINAL GATE — single-pass snapshot)
-      │     Score ≥75? → PASS (continue to Phase 5c)
-      │     Score <75? → HALT (user fixes issues, re-validate)
+      │  └─ Run validate-consistency (AUTO — single-pass snapshot, seeds cycle 0)
+      │     Score ≥75? → snapshot passes; continue to Phase 5c
+      │     Score <75? → continue to Phase 5c anyway: verify-review derives U_consistency>0
+      │                  and REPAIRS it via the loop (that is the loop's job) — do NOT
+      │                  HALT here for a submission-ready review; only fall back to a
+      │                  manual fix if the loop stops at PLATEAU/CEILING
       │
       └─ Snapshot gates passed (submission-ready review)?
          └─ Run verify-review (AUTO — Verified End-State Loop; the snapshot above is its cycle 0)

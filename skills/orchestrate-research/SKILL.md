@@ -94,7 +94,7 @@ When this is a registrable/systematic review, the orchestrator routes to **`desi
   - its **search plan** feeds `acquire-corpus` (which executes it), and
   - its **appraisal plan** feeds `appraise-risk-of-bias` (which instrument applies to which study design).
 
-**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and uses the acquisition front-end (or a bring-your-own corpus) directly.
+**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The lighter narrative path drops the protocol/RoB stages and uses the acquisition front-end (or a bring-your-own corpus) directly.
 
 See **[[references/detailed-guide|Implementation Details & Templates]]** for the protocol-branch wiring.
 
@@ -125,7 +125,7 @@ User provides input
 2. **`dedupe-records`** — record-level dedup run AFTER acquisition and BEFORE screening: DOI-exact + fuzzy-title (year/author guarded) + preprint-vs-published reconciliation. Emits the **duplicates-removed** count that the PRISMA flow needs.
 3. **Hand off to screening** — the deduped candidate set feeds the existing Phase 1 screening exactly as a bring-your-own corpus would. Everything downstream (extraction, synthesis, drafting, validation) is unchanged.
 
-**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The identification counts (from `acquire-corpus`) and duplicates-removed count (from `dedupe-records`) are carried forward to the reporting phase so `prisma-flow` can build a REAL PRISMA 2020 diagram (see below).
+**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The identification counts (from `acquire-corpus`) and duplicates-removed count (from `dedupe-records`) are carried forward to the reporting phase so `prisma-flow` can build a REAL PRISMA 2020 diagram (see below).
 
 See **[[references/detailed-guide|Implementation Details & Templates]]** for the acquisition-branch wiring and count hand-off.
 

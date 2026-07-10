@@ -97,17 +97,12 @@ def _as_count(x, ctx):
     as an error verdict with a non-zero exit — rather than crashing with a
     traceback or letting a bad value slip through the gate.
     """
-    if isinstance(x, bool):
-        raise InputError(f"{ctx}: boolean is not a valid count ({x!r})")
-    if isinstance(x, (int, float)):
-        v = float(x)
-    elif isinstance(x, str):
-        try:
-            v = float(x)
-        except ValueError:
-            raise InputError(f"{ctx}: not a number ({x!r})")
-    else:
-        raise InputError(f"{ctx}: expected a number, got {type(x).__name__}")
+    # bool is an int subclass, so it must be rejected explicitly. Numeric strings
+    # ("0") are also rejected: the contract requires JSON numbers, so a wrong type
+    # fails closed rather than being silently coerced.
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        raise InputError(f"{ctx}: expected a JSON number ({x!r})")
+    v = float(x)
     if not math.isfinite(v):   # reject NaN / Infinity (would blind plateau + emit invalid JSON)
         raise InputError(f"{ctx}: not a finite number ({x!r})")
     return v
@@ -169,7 +164,7 @@ def compute(data, weights):
     # U_consistency is derived ONLY from the `consistency` object — a value
     # supplied directly in `units` is ignored, so a caller cannot fabricate a
     # present-and-zero U_consistency and satisfy the floor without a real score.
-    units = {key: _as_count(count, f"units.{key}")
+    units = {key: _as_nonneg_count(count, f"units.{key}")
              for key, count in raw_units.items() if key != "U_consistency"}
 
     cu = derive_consistency_unit(data.get("consistency"))
@@ -191,25 +186,32 @@ def compute(data, weights):
     # required unit that is absent is "not yet checked", not zero, so an input
     # that omits an in-scope check (e.g. a systematic review with no U_prisma)
     # cannot reach a done verdict.
-    declared = data.get("units_in_scope")
-    if declared is None:
-        declared = []
-    elif not isinstance(declared, list):
+    raw_scope = data.get("units_in_scope")
+    if raw_scope is None:
+        declared, declared_present = [], False
+    elif isinstance(raw_scope, list):
+        declared, declared_present = raw_scope, True
+    else:
         raise InputError("units_in_scope: expected an array of unit names")
+    for u in declared:
+        if not isinstance(u, str):
+            raise InputError(f"units_in_scope: entries must be unit-name strings (got {u!r})")
     required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
     missing_units = [u for u in required if u not in units]
 
     # predicate uses RAW counts: every required unit present AND all == 0
     auto_units_zero = not missing_units and all(c == 0 for c in units.values())
 
-    # Human gates: when the caller declares scope (the rigorous/orchestrated
-    # path), the `gates` key must be present so an omitted gates object cannot
-    # silently assert "all human gates confirmed" — the fail-closed counterpart
-    # to requiring the in-scope units. Lenient (no scope declared) keeps the
-    # simple default of "no gates reported = none pending".
-    if declared and "gates" not in data:
-        raise InputError("gates: required (even as {}) when units_in_scope is declared")
+    # Human gates: when the caller declares scope (the rigorous/orchestrated path),
+    # `gates` must be present AND an object — an omitted or null gates value cannot
+    # silently assert "all human gates confirmed". Lenient (no scope declared) keeps
+    # the simple default of "no gates reported = none pending".
+    if declared_present and not isinstance(data.get("gates"), dict):
+        raise InputError("gates: required as an object (even {}) when units_in_scope is declared")
     raw_gates = _as_object(data.get("gates"), "gates")
+    unknown = [k for k in raw_gates if k not in GATE_KEYS]
+    if unknown:
+        raise InputError(f"gates: unknown gate key(s) {unknown}; expected {list(GATE_KEYS)}")
     gates_remaining = sum(_as_int_count(raw_gates.get(k, 0), f"gates.{k}") for k in GATE_KEYS)
 
     # dominant in-scope unit (for routing), highest weighted contribution
@@ -283,7 +285,9 @@ def verdict(data, weights, ceiling):
         "auto_units_zero": auto_zero,
         "gates_remaining": gates_remaining,
         "missing_units": missing_units,
-        "dominant_unit": dominant if state == "CONTINUE" else None,
+        # No dominant-unit routing while a required check is missing: the client
+        # must clear `missing_units` first, not keep repairing a reported unit.
+        "dominant_unit": dominant if (state == "CONTINUE" and not missing_units) else None,
         "cycle": cycle,
         "ceiling": ceiling,
         "soft_advisory": advisory,
@@ -360,8 +364,18 @@ def append_to_manifest(path, data, result):
     excl = data.get("exclusions_logged")
     if excl is not None and not isinstance(excl, bool):
         raise InputError("exclusions_logged: expected a boolean")
-    prev = history[-1] if history and isinstance(history[-1], dict) else {}
-    prev_denoms = prev.get("denominators") if isinstance(prev.get("denominators"), dict) else {}
+    # Baseline = denominators of the most recent ACCEPTED cycle (floor_guard not
+    # UNLOGGED). An unlogged drop does NOT become the new baseline, so a later cycle
+    # that keeps the same reduced denominators stays flagged (sticky) until the count
+    # is restored or a logged exclusion is recorded — a drop can't be "normalised"
+    # away by simply repeating it.
+    prev_denoms = {}
+    for rec in reversed(history):
+        if not isinstance(rec, dict) or str(rec.get("floor_guard", "")).startswith("UNLOGGED"):
+            continue
+        d = rec.get("denominators")
+        prev_denoms = d if isinstance(d, dict) else {}
+        break
     guard = floor_guard_status(prev_denoms, denominators, excl is True)
 
     # Anti-gaming (§5): an unlogged denominator drop means the units may have been
@@ -428,6 +442,9 @@ def main():
                     help="append this cycle's record to PATH's verification_units array "
                          "(creates the file/array if absent)")
     args = ap.parse_args()
+    if args.ceiling < 1:
+        print(json.dumps({"error": "--max-cycles/--ceiling must be >= 1"}), file=sys.stderr)
+        return 2
 
     # Read + parse + evaluate all fail closed: a missing/unreadable file,
     # non-JSON, or malformed field types produce an {"error": ...} verdict with a

@@ -87,4 +87,4 @@ This skill does **not** draw the PRISMA flow diagram itself. It surfaces the rea
 - **appraise-risk-of-bias** — per-study risk-of-bias appraisal (RoB 2 / ROBINS-I / Newcastle-Ottawa / QUADAS-2), human-gated, downstream of extraction.
 - **prisma-flow** — assembles the PRISMA 2020 flow diagram from this skill's screening/eligibility counts plus the upstream identification/duplicate counts.
 
-Canonical pipeline order: `design-review-protocol` → `generate-screening-criteria` → `acquire-corpus` → `dedupe-records` → **screen-literature** (single-pass or DUAL) → extract / synthesize → `appraise-risk-of-bias` → `validate-evidence` / draft → `validate-*` + `verify-sources` → `verify-review` (loop to verified end-state) → `prisma-flow`.
+Canonical pipeline order: `design-review-protocol` → `generate-screening-criteria` → `acquire-corpus` → `dedupe-records` → **screen-literature** (single-pass or DUAL) → extract / synthesize → `appraise-risk-of-bias` → `validate-evidence` / draft → `validate-*` + `verify-sources` → `prisma-flow` → `verify-review` (loop to verified end-state; consumes the `prisma-flow` reconciliation as `U_prisma`).
