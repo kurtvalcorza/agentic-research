@@ -37,8 +37,19 @@ requires them to be present and zero for *every* review type — an empty or
 citation-less units map can never be VERIFIED (the gate fails closed). Declare
 `units_in_scope` to also require the review-type-specific units (screening,
 PRISMA, extraction, GRADE) be present+0, so an input that silently omits an
-in-scope check cannot reach VERIFIED. Malformed values (non-numeric or boolean
-counts, wrong field types) fail closed with an error verdict and non-zero exit.
+in-scope check cannot reach VERIFIED; declaring scope also requires the `gates`
+key to be present (even `{}`), so an omitted gates object cannot silently assert
+all human gates confirmed.
+
+Fail-closed details:
+  - `U_consistency` is derived ONLY from the `consistency` object (needs a numeric
+    score); a value placed directly in `units` is ignored.
+  - Counts must be finite non-negative numbers; gate/cycle/denominator counts must
+    be whole numbers; booleans/NaN/negatives/wrong field types → error verdict,
+    non-zero exit (never a traceback or a spurious VERIFIED).
+  - With `--manifest`, an UNLOGGED denominator drop (content removed without
+    `exclusions_logged`) HOLDS a would-be VERIFIED as BLOCKED_ON_HUMAN for
+    adjudication (anti-gaming, §5).
 
 OUTPUT: a JSON verdict on stdout. Exit code 0 only when VERIFIED; non-zero
 otherwise (so it can gate a pipeline like `prisma_flow.py --strict`).
@@ -46,6 +57,7 @@ otherwise (so it can gate a pipeline like `prisma_flow.py --strict`).
 
 import argparse
 import json
+import math
 import sys
 
 # --- configuration (single source of truth for weights / thresholds) --------
@@ -88,13 +100,38 @@ def _as_count(x, ctx):
     if isinstance(x, bool):
         raise InputError(f"{ctx}: boolean is not a valid count ({x!r})")
     if isinstance(x, (int, float)):
-        return float(x)
-    if isinstance(x, str):
+        v = float(x)
+    elif isinstance(x, str):
         try:
-            return float(x)
+            v = float(x)
         except ValueError:
             raise InputError(f"{ctx}: not a number ({x!r})")
-    raise InputError(f"{ctx}: expected a number, got {type(x).__name__}")
+    else:
+        raise InputError(f"{ctx}: expected a number, got {type(x).__name__}")
+    if not math.isfinite(v):   # reject NaN / Infinity (would blind plateau + emit invalid JSON)
+        raise InputError(f"{ctx}: not a finite number ({x!r})")
+    return v
+
+
+def _as_nonneg_count(x, ctx):
+    """Coerce to a non-negative count; a negative count is malformed input."""
+    v = _as_count(x, ctx)
+    if v < 0:
+        raise InputError(f"{ctx}: negative count ({x!r})")
+    return v
+
+
+def _as_int_count(x, ctx):
+    """Coerce to a non-negative INTEGER count (gates, cycle).
+
+    Rejects negatives (which could cancel a positive gate to a false zero) and
+    fractional values (which int() would truncate — 0.9 → 0 silently drops a
+    pending human gate). Counts are whole numbers, so anything else is malformed.
+    """
+    v = _as_nonneg_count(x, ctx)
+    if v != int(v):
+        raise InputError(f"{ctx}: expected a whole number ({x!r})")
+    return int(v)
 
 
 def derive_consistency_unit(consistency):
@@ -104,23 +141,36 @@ def derive_consistency_unit(consistency):
     object without a real score means the check was not measured, so the floor
     unit must stay absent (fail closed) rather than fabricate a present-and-zero
     U_consistency that could satisfy the gate without a genuine >=75 result.
+    critical_breaks and score are validated non-negative/finite so a negative
+    break count cannot cancel the sub-gate gap to a spurious 0.
     """
-    if not consistency:
+    if consistency is None:
         return None
     if not isinstance(consistency, dict):
         raise InputError("consistency: expected an object")
     score = consistency.get("score")
     if score is None:
-        return None
-    breaks = _as_count(consistency.get("critical_breaks", 0), "consistency.critical_breaks")
-    return breaks + max(0, CONSISTENCY_GATE - _as_count(score, "consistency.score"))
+        return None       # measured requires a score; absent → fails closed
+    breaks = _as_nonneg_count(consistency.get("critical_breaks", 0), "consistency.critical_breaks")
+    return breaks + max(0, CONSISTENCY_GATE - _as_nonneg_count(score, "consistency.score"))
+
+
+def _as_object(x, ctx):
+    """Absent/null → {}; any other non-object (incl. empty [] / '') is malformed."""
+    if x is None:
+        return {}
+    if not isinstance(x, dict):
+        raise InputError(f"{ctx}: expected an object")
+    return x
 
 
 def compute(data, weights):
-    raw_units = data.get("units") or {}
-    if not isinstance(raw_units, dict):
-        raise InputError("units: expected an object")
-    units = {key: _as_count(count, f"units.{key}") for key, count in raw_units.items()}
+    raw_units = _as_object(data.get("units"), "units")
+    # U_consistency is derived ONLY from the `consistency` object — a value
+    # supplied directly in `units` is ignored, so a caller cannot fabricate a
+    # present-and-zero U_consistency and satisfy the floor without a real score.
+    units = {key: _as_count(count, f"units.{key}")
+             for key, count in raw_units.items() if key != "U_consistency"}
 
     cu = derive_consistency_unit(data.get("consistency"))
     if cu is not None:
@@ -141,8 +191,10 @@ def compute(data, weights):
     # required unit that is absent is "not yet checked", not zero, so an input
     # that omits an in-scope check (e.g. a systematic review with no U_prisma)
     # cannot reach a done verdict.
-    declared = data.get("units_in_scope") or []
-    if not isinstance(declared, list):
+    declared = data.get("units_in_scope")
+    if declared is None:
+        declared = []
+    elif not isinstance(declared, list):
         raise InputError("units_in_scope: expected an array of unit names")
     required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
     missing_units = [u for u in required if u not in units]
@@ -150,10 +202,15 @@ def compute(data, weights):
     # predicate uses RAW counts: every required unit present AND all == 0
     auto_units_zero = not missing_units and all(c == 0 for c in units.values())
 
-    raw_gates = data.get("gates") or {}
-    if not isinstance(raw_gates, dict):
-        raise InputError("gates: expected an object")
-    gates_remaining = sum(int(_as_count(raw_gates.get(k, 0), f"gates.{k}")) for k in GATE_KEYS)
+    # Human gates: when the caller declares scope (the rigorous/orchestrated
+    # path), the `gates` key must be present so an omitted gates object cannot
+    # silently assert "all human gates confirmed" — the fail-closed counterpart
+    # to requiring the in-scope units. Lenient (no scope declared) keeps the
+    # simple default of "no gates reported = none pending".
+    if declared and "gates" not in data:
+        raise InputError("gates: required (even as {}) when units_in_scope is declared")
+    raw_gates = _as_object(data.get("gates"), "gates")
+    gates_remaining = sum(_as_int_count(raw_gates.get(k, 0), f"gates.{k}") for k in GATE_KEYS)
 
     # dominant in-scope unit (for routing), highest weighted contribution
     dominant = None
@@ -193,10 +250,12 @@ def detect_plateau(history, current_total):
 def verdict(data, weights, ceiling):
     (weighted_total, auto_zero, gates_remaining, dominant, units,
      contributions, missing_units) = compute(data, weights)
-    cycle = int(_as_count(data.get("cycle", 0), "cycle"))
+    cycle = _as_int_count(data.get("cycle", 0), "cycle")
 
-    raw_history = data.get("history") or []
-    if not isinstance(raw_history, list):
+    raw_history = data.get("history")
+    if raw_history is None:
+        raw_history = []
+    elif not isinstance(raw_history, list):
         raise InputError("history: expected an array of weighted totals")
     history = [_as_count(h, f"history[{i}]") for i, h in enumerate(raw_history)]
 
@@ -206,6 +265,11 @@ def verdict(data, weights, ceiling):
         state = "VERIFIED"
     elif auto_zero and gates_remaining > 0:
         state = "BLOCKED_ON_HUMAN"
+    elif missing_units:
+        # Incomplete input (a required in-scope unit was not reported) is not a
+        # repair stall: never mislabel it PLATEAU. Keep going so the agent can
+        # supply the missing check; the ceiling still bounds a misconfigured run.
+        state = "CEILING" if cycle >= ceiling else "CONTINUE"
     elif detect_plateau(history, weighted_total):
         state = "PLATEAU"
     elif cycle >= ceiling:
@@ -245,8 +309,11 @@ def floor_guard_status(prev_denoms, curr_denoms, exclusions_logged):
     flags the drop; a human/agent judges legitimacy — it never silently credits
     a removal.
     """
-    if not curr_denoms or not prev_denoms:
-        return "ok"
+    if not prev_denoms:
+        return "ok"          # no prior baseline to compare against
+    # NB: an empty curr_denoms is NOT an early "ok" — wiping every denominator
+    # after a prior cycle reported them is the largest possible content removal
+    # and must be flagged, so fall through to the union-of-keys loop below.
     drops = []
     # Union of keys: a denominator that *vanished* (key removed) is the biggest
     # possible content removal, so it must be flagged too — not just a lower value.
@@ -286,21 +353,32 @@ def append_to_manifest(path, data, result):
     if not isinstance(history, list):
         raise ValueError("manifest.verification_units exists but is not an array")
 
-    denominators = data.get("denominators") or {}
-    if not isinstance(denominators, dict):
-        raise InputError("denominators: expected an object")
+    # denominator values are validated numeric so a crafted non-numeric value
+    # cannot silently blind the cross-cycle floor-guard comparison.
+    raw_denoms = _as_object(data.get("denominators"), "denominators")
+    denominators = {k: _as_int_count(v, f"denominators.{k}") for k, v in raw_denoms.items()}
+    excl = data.get("exclusions_logged")
+    if excl is not None and not isinstance(excl, bool):
+        raise InputError("exclusions_logged: expected a boolean")
     prev = history[-1] if history and isinstance(history[-1], dict) else {}
     prev_denoms = prev.get("denominators") if isinstance(prev.get("denominators"), dict) else {}
-    guard = floor_guard_status(prev_denoms, denominators,
-                               bool(data.get("exclusions_logged")))
+    guard = floor_guard_status(prev_denoms, denominators, excl is True)
 
-    gates_in = data.get("gates") or {}
+    # Anti-gaming (§5): an unlogged denominator drop means the units may have been
+    # zeroed by REMOVING content, not resolving it — so it must not read as done.
+    # Hold a would-be VERIFIED for human adjudication, and record the held state.
+    if guard.startswith("UNLOGGED") and result["state"] == "VERIFIED":
+        result["state"] = "BLOCKED_ON_HUMAN"
+        result["hold_reason"] = "floor_guard: " + guard
+        result["dominant_unit"] = None
+
+    gates_in = _as_object(data.get("gates"), "gates")
     record = {
         "cycle": result["cycle"],
         "state": result["state"],
         "weighted_total": result["weighted_total"],
         "by_unit": result["by_unit"],
-        "gates": {k: int(_as_count(gates_in.get(k, 0), f"gates.{k}")) for k in GATE_KEYS},
+        "gates": {k: _as_int_count(gates_in.get(k, 0), f"gates.{k}") for k in GATE_KEYS},
         "denominators": denominators,
         "floor_guard": guard,
         # agent-supplied annotation (progressed/no-op/failed/blocked/baseline)
@@ -318,11 +396,12 @@ def append_to_manifest(path, data, result):
 def dry_run_preview(data, ceiling):
     """Preview what the loop will do without running or writing anything."""
     review_type = data.get("review_type", "unspecified")
-    gates = data.get("gates") or {}
-    gates_will_fire = [k for k in GATE_KEYS if _as_count(gates.get(k, 0), f"gates.{k}") > 0]
-    declared = data.get("units_in_scope") or []
-    in_scope = sorted(set(data.get("units") or {}) | set(declared) |
-                      ({"U_consistency"} if data.get("consistency") else set()))
+    gates = _as_object(data.get("gates"), "gates")
+    gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]
+    declared = data.get("units_in_scope")
+    declared = declared if isinstance(declared, list) else []
+    in_scope = sorted((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
+                      | set(declared) | ({"U_consistency"} if data.get("consistency") else set()))
     return {
         "dry_run": True,
         "review_type": review_type,
@@ -350,19 +429,19 @@ def main():
                          "(creates the file/array if absent)")
     args = ap.parse_args()
 
-    raw = open(args.input).read() if args.input else sys.stdin.read()
+    # Read + parse + evaluate all fail closed: a missing/unreadable file,
+    # non-JSON, or malformed field types produce an {"error": ...} verdict with a
+    # non-zero exit, never a traceback or a spurious VERIFIED.
     try:
+        if args.input:
+            with open(args.input, encoding="utf-8") as f:
+                raw = f.read()
+        else:
+            raw = sys.stdin.read()
         data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        print(json.dumps({"error": f"invalid JSON: {e}"}), file=sys.stderr)
-        return 2
-    if not isinstance(data, dict):
-        print(json.dumps({"error": "input must be a JSON object"}), file=sys.stderr)
-        return 2
+        if not isinstance(data, dict):
+            raise InputError("input must be a JSON object")
 
-    # Malformed field types fail closed (error verdict + non-zero exit), never a
-    # spurious VERIFIED or an uncaught traceback.
-    try:
         if args.dry_run:
             print(json.dumps(dry_run_preview(data, args.ceiling), indent=2))
             return 0
@@ -370,7 +449,9 @@ def main():
         result = verdict(data, DEFAULT_WEIGHTS, args.ceiling)
 
         if args.manifest:
-            result["manifest_record"] = append_to_manifest(args.manifest, data, result)
+            record = append_to_manifest(args.manifest, data, result)
+            result["manifest_record"] = record
+            result["floor_guard"] = record["floor_guard"]
     except InputError as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 2

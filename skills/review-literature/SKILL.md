@@ -196,7 +196,7 @@ You receive:
    - Cross-checks introduction ↔ conclusion
    - Validates claims ↔ evidence alignment
    - Checks argument logical flow
-   - **CHECKPOINT 4**: Final review before completion
+   - **CHECKPOINT 4**: Final snapshot review (completion for a standard review; for a submission-ready review, the optional verify-review end-state below is the completion gate)
    - Expected result: Consistency score (target: ≥75%)
 
 **Optional — Verified end-state ([[../verify-review/SKILL|verify-review]])**

@@ -132,7 +132,7 @@ A loop optimizing a scalar will "cheat" — drop a hard-to-verify citation, excl
 2. A citation moving to `UNVERIFIED (manual)` is **not** a cleared `U_cite_external` — it moves to the `H_cite_manual` human gate.
 3. A regressing change (re-opening a reconciled PRISMA arm, dropping consistency below 75) is **reverted**, never kept.
 
-**The backend makes this detectable, not just declared.** Pass per-cycle `denominators` (citation / study / theme counts) in `units.json`; `review_units.py --manifest` records them and sets a `floor_guard` status on each cycle's record — a denominator that **fell** since the previous cycle is flagged `UNLOGGED (no-op per §5)` unless you also pass `exclusions_logged: true`. Judging legitimacy stays with you, but a content-removal that games a unit to zero is now written into the audit trail instead of relying on honest self-report. See `references/loop-protocol.md` §6.
+**The backend makes this detectable *and* blocking, not just declared.** Pass per-cycle `denominators` (citation / study / theme counts) in `units.json`; `review_units.py --manifest` records them and sets a `floor_guard` status on each cycle's record — a denominator that **fell** (or whose key was removed entirely) since the previous cycle is flagged `UNLOGGED (no-op per §5)` unless you also pass `exclusions_logged: true`. An `UNLOGGED` drop **holds a would-be `VERIFIED` as `BLOCKED_ON_HUMAN`** (with a `hold_reason`) so a review whose units were zeroed by *removing* content cannot be gated complete on the exit code — a human must adjudicate whether the removal was a legitimate logged exclusion. See `references/loop-protocol.md` §6.
 
 ## State, checkpoints & provenance
 

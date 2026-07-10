@@ -1468,6 +1468,12 @@ consistency_score = validate_consistency(
 # cycle 0 — both modes run, neither replaces the other. The loop repairs the
 # highest-leverage defect, re-checks, and repeats until every in-scope auto-unit is 0,
 # then hands off to the human gates. It gates `complete` for a submission-ready review.
+#
+# IMPORTANT: the backend fails closed on any DECLARED-but-missing unit, so cycle 0
+# must seed EVERY unit in units_in_scope. For systematic/scoping/rapid/umbrella scope
+# that includes U_prisma (run prisma-flow) and U_grade (run validate-evidence) BEFORE
+# invoking the loop — not only the citation/consistency snapshots — or the loop stalls
+# on missing_units. Also pass the in-scope human gates (H_rob/…) each cycle.
 from skills.verify_review import verify_review
 
 verdict = verify_review(
@@ -1478,6 +1484,8 @@ verdict = verify_review(
     "citation_score": citation_score,
     "verification": verification,
     "consistency_score": consistency_score,
+    "prisma": prisma_result,          # required when U_prisma is in scope
+    "grade": evidence_grading_result, # required when U_grade is in scope
   },
   output_path=f"{project_context.output_root}/verification/verify-review-report.md"
 )

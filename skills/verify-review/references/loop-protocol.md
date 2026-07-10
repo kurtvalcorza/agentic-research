@@ -45,13 +45,22 @@ Rules:
   it and only the universal floor is enforced. The floor is always required,
   whether or not it appears in the list.
   When a cycle re-runs only the checks whose inputs changed, **carry forward the
-  last-known floor-unit values** into that cycle's `units.json` (and pass
-  `consistency` with its score) so the floor stays present — otherwise the cycle
-  reports `missing_units` and cannot reach `VERIFIED`/`BLOCKED_ON_HUMAN`.
+  last-known value of every in-scope unit** (floor *and* declared) into that
+  cycle's `units.json` (and pass `consistency` with its score) so nothing lands in
+  `missing_units` — otherwise the cycle cannot reach `VERIFIED`/`BLOCKED_ON_HUMAN`.
+  Declaring `units_in_scope` also **requires the `gates` key to be present** (even
+  `{}`): an omitted gates object cannot silently assert all human gates confirmed.
+- `U_consistency` is derived **only** from the `consistency` object (which needs a
+  numeric `score`); a value placed directly in `units` is ignored, so it cannot
+  fake a present-and-zero floor unit.
+- Counts must be finite non-negative numbers; gate, cycle, and denominator counts
+  must be whole numbers. Booleans, `NaN`/`Infinity`, negatives, and wrong field
+  types (incl. an empty `[]`/`""` where an object is expected) fail closed with an
+  `{"error": …}` verdict and a non-zero exit — never a spurious `VERIFIED`.
 - `denominators` (optional) are the current totals behind the units (citation
-  count, study count, theme count …). `exclusions_logged` (optional) marks that a
-  drop in a denominator this cycle is backed by a logged exclusion reason. Together
-  they drive the floor-guard check (§6).
+  count, study count, theme count …). `exclusions_logged` (optional, a real
+  boolean) marks that a drop in a denominator this cycle is backed by a logged
+  exclusion reason. Together they drive the floor-guard check (§6).
 - `consistency` is optional; when present it derives `U_consistency =
   critical_breaks + max(0, 75 − score)` (graded gradient, Q2).
 - `history` is the list of prior **weighted totals**, oldest first, *excluding*
@@ -81,10 +90,14 @@ Rules:
   pipeline like `prisma_flow.py --strict`.
 - `units_evaluated` are the **raw** in-scope counts; `by_unit` are the **weighted**
   contributions (`weightᵢ × countᵢ`) that sum to `weighted_total`.
-- `missing_units` lists any **universal-floor** unit (`U_cite_external`,
-  `U_cite_internal`, `U_consistency`) absent from the input. It is **non-empty ⇒
-  never `VERIFIED`**: the floor units must be present and zero, so an empty or
-  citation-less `units.json` fails closed rather than reporting a spurious pass.
+- `missing_units` lists any **required** unit absent from the input — the
+  universal floor (`U_cite_external`, `U_cite_internal`, `U_consistency`) plus any
+  unit named in `units_in_scope`. It is **non-empty ⇒ never `VERIFIED`** (and
+  never `PLATEAU`: incomplete input reports `CONTINUE` so the missing check can be
+  run, not a false stall). So an empty/citation-less `units.json`, or a systematic
+  run that omits a declared `U_prisma`, fails closed rather than passing.
+  (`U_consistency` is derived **only** from the `consistency` object; a value
+  placed directly in `units` is ignored, so it can't fake the floor.)
 - `dominant_unit` is populated only when `state == CONTINUE`; it is the in-scope
   unit with the largest **weighted** contribution (ties broken by weight, then
   name). This is the routing target.
@@ -165,11 +178,14 @@ The floor-guard (`SKILL.md` § anti-gaming) is judged at units-accounting time �
 whether a removal is *legitimate* is a human/agent call — but the backend makes it
 **mechanically detectable** rather than trusting self-report. Pass per-cycle
 `denominators`; `review_units.py --manifest` records them and sets a `floor_guard`
-status on the record: a denominator that **fell** since the previous cycle is
-flagged `UNLOGGED (no-op per §5): citations 40->38` unless the input sets
-`exclusions_logged: true` (then `logged-exclusion: …`). Either way the drop is
-written into the audit trail, so a later reader can catch a content-removal that
-gamed a unit to zero:
+status on the record: a denominator that **fell** since the previous cycle — or
+whose key was **removed entirely** (including wiping all denominators after a prior
+cycle reported them) — is flagged `UNLOGGED (no-op per §5): citations 40->38`
+unless the input sets `exclusions_logged: true` (then `logged-exclusion: …`). The
+drop is written into the audit trail, and an `UNLOGGED` drop also **holds a
+would-be `VERIFIED` as `BLOCKED_ON_HUMAN`** (with a `hold_reason`) so the exit code
+cannot mark the review complete when its units may have been zeroed by removing
+content — a human adjudicates:
 
 - If a cycle reduced `U_cite_external` by deleting a citation rather than
   resolving it, the `citations` denominator falls and `floor_guard` flags it
