@@ -23,7 +23,7 @@ INPUT (a JSON file, or stdin):
                                          #   present+0 before VERIFIED; default is
                                          #   the universal floor alone.
   "consistency": {"score": 71, "critical_breaks": 0},   # optional -> derives U_consistency
-  "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},  # human-gate counts
+  "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},  # human-gate counts
   "history": [14, 11, 9],                # prior WEIGHTED totals, oldest first (optional)
   "denominators": {"citations": 40, "studies": 22, "themes": 8},  # optional, floor-guard
   "exclusions_logged": false             # optional: a denominator drop is backed by a
@@ -76,7 +76,7 @@ PLATEAU_K = 3              # consecutive flat-or-worse cycles -> PLATEAU
 SOFT_ADVISORY_CYCLE = 10   # advisory only; does NOT stop the loop
 CEILING = 25               # hard backstop
 
-GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual")
+GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
 
 # Citation integrity + consistency are universal for EVERY review type (spec
 # §3.3): the floor the loop guarantees for any review. A VERIFIED verdict must
@@ -161,6 +161,9 @@ def _as_object(x, ctx):
 
 def compute(data, weights):
     raw_units = _as_object(data.get("units"), "units")
+    for key in raw_units:
+        if key not in DEFAULT_WEIGHTS:
+            raise InputError(f"units: unknown unit {key!r}; expected one of {sorted(DEFAULT_WEIGHTS)}")
     # U_consistency is derived ONLY from the `consistency` object — a value
     # supplied directly in `units` is ignored, so a caller cannot fabricate a
     # present-and-zero U_consistency and satisfy the floor without a real score.
@@ -196,6 +199,8 @@ def compute(data, weights):
     for u in declared:
         if not isinstance(u, str):
             raise InputError(f"units_in_scope: entries must be unit-name strings (got {u!r})")
+        if u not in DEFAULT_WEIGHTS:
+            raise InputError(f"units_in_scope: unknown unit {u!r}; expected one of {sorted(DEFAULT_WEIGHTS)}")
     required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
     missing_units = [u for u in required if u not in units]
 
@@ -374,8 +379,9 @@ def append_to_manifest(path, data, result):
         if not isinstance(rec, dict) or str(rec.get("floor_guard", "")).startswith("UNLOGGED"):
             continue
         d = rec.get("denominators")
-        prev_denoms = d if isinstance(d, dict) else {}
-        break
+        if isinstance(d, dict) and d:   # keep scanning past accepted records that carry no
+            prev_denoms = d             # denominators, so an intermediate opt-out (or a pre-
+            break                       # denominators record) can't reset the baseline to {}
     guard = floor_guard_status(prev_denoms, denominators, excl is True)
 
     # Anti-gaming (§5): an unlogged denominator drop means the units may have been

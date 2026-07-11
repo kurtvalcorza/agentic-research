@@ -1338,7 +1338,10 @@ At each phase checkpoint
       ├─ Phase 5 complete (validation passed)?
       │  └─ Run verify-sources (AUTO EXTERNAL GATE — DOI/retraction/claim fidelity)
       │     PASS (0 RETRACTED, 0 UNVERIFIED, 0 un-reviewed MISMATCH)? → continue to Phase 6
-      │     FAIL (retracted/fabricated citation)? → HALT (cannot mark complete; log human_override if bypassed)
+      │     FAIL (retracted/fabricated citation)? → for a submission-ready review, feed as
+      │        verify-review cycle-0 baseline (U_cite_external>0): the loop re-resolves/redrafts
+      │        and re-checks. Still cannot mark complete until Phase 5c reaches VERIFIED. A
+      │        snapshot-only run HALTS here (log human_override if bypassed).
       │     Output: verification/source-verification.md
       │
       ├─ Phase 5b complete (external verification passed)?
@@ -1353,8 +1356,9 @@ At each phase checkpoint
       │                  HALT here for a submission-ready review; only fall back to a
       │                  manual fix if the loop stops at PLATEAU/CEILING
       │
-      └─ Snapshot gates passed (submission-ready review)?
-         └─ Run verify-review (AUTO — Verified End-State Loop; the snapshot above is its cycle 0)
+      └─ Submission-ready review? (the Phase 5/5b/7 snapshots — PASS *or* FAIL — seed cycle 0;
+         a citation/consistency FAIL is not a hard stop, it is exactly what the loop repairs)
+         └─ Run verify-review (AUTO — Verified End-State Loop; the snapshots above are its cycle 0)
             VERIFIED (every in-scope auto-unit 0, human gates confirmed)? → workflow COMPLETE ✅
             BLOCKED_ON_HUMAN? → emit human-handoff checklist (RoB / adjudication / manual citations); COMPLETE only after human confirms
             PLATEAU / CEILING? → HALT (surface the stall — usually an upstream methodology issue)

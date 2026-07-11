@@ -25,7 +25,7 @@ Assembled each cycle from the in-scope checks' outputs and passed to
     "U_grade": 0
   },
   "consistency": { "score": 71, "critical_breaks": 0 },
-  "gates": { "H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1 },
+  "gates": { "H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0 },
   "history": [14, 11, 9],
   "denominators": { "citations": 40, "studies": 22, "themes": 8 },
   "exclusions_logged": false
@@ -157,12 +157,12 @@ so a count of 3 on the ×3-weighted `U_cite_external` records as `9.0`;
 "verification_units": [
   { "cycle": 0, "state": "CONTINUE", "weighted_total": 14.0,
     "by_unit": {"U_cite_external": 9.0, "U_consistency": 4.0, "U_prisma": 1.0},
-    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
+    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},
     "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "baseline" },
   { "cycle": 1, "state": "CONTINUE", "weighted_total": 11.0,
     "by_unit": {"U_cite_external": 6.0, "U_consistency": 4.0, "U_prisma": 1.0},
-    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
+    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},
     "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "progressed: verify-sources cleared 1 fabricated citation" }
 ]

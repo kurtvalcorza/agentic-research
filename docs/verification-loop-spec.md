@@ -88,6 +88,7 @@ unit. Unknowns are **excluded from plateau counting**; repeated unknowns on the 
 | `H_rob` | `appraise-risk-of-bias` | # studies without **human-confirmed** rating | Yes — hard gate |
 | `H_screen_adj` | `screen-literature` | # conflicts requiring human adjudication | Yes |
 | `H_cite_manual` | `verify-sources` | # citations only resolvable as `UNVERIFIED (manual)` | Yes — human confirms/removes |
+| `H_numeric` | `extract-synthesis` | # numeric results (effect sizes / sample sizes / CIs) awaiting **human numeric verification** | Yes — human confirms |
 
 ### 3.3 Units-in-scope by review type (Q4 — the loop applies to *both* paths)
 
@@ -146,6 +147,7 @@ classify review type (systematic | scoping | rapid | umbrella | narrative)
 | `U_prisma` | `prisma-flow` → trace the dropped-records stage upstream |
 | `U_consistency` | `validate-consistency` auto-repair suggestions |
 | `U_screen` | `screen-literature` re-screen of the disagreement subset |
+| `U_extract` | `extract-synthesis` re-reconcile the flagged extraction fields |
 | `U_grade` | `validate-evidence` for ungraded themes |
 
 One repair per cycle (highest-leverage first) keeps each cycle auditable — no blind "fix

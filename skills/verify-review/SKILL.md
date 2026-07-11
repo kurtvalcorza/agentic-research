@@ -61,6 +61,7 @@ The **predicate uses raw counts** (every unit must reach 0); the **weights only 
 | `H_rob` | `appraise-risk-of-bias` | studies without a **human-confirmed** rating |
 | `H_screen_adj` | `screen-literature` | conflicts requiring human adjudication |
 | `H_cite_manual` | `verify-sources` | citations only resolvable as `UNVERIFIED (manual)` |
+| `H_numeric` | `extract-synthesis` | numeric results (effect sizes / sample sizes / CIs) awaiting **human numeric verification** |
 
 ## Units in scope (by review type)
 
@@ -117,6 +118,7 @@ Each cycle:
 | `U_prisma` | `prisma-flow` → trace the stage that dropped records upstream |
 | `U_consistency` | `validate-consistency` auto-repair suggestions |
 | `U_screen` | `screen-literature` re-screen of the disagreement subset |
+| `U_extract` | `extract-synthesis` re-reconcile the flagged extraction fields |
 | `U_grade` | `validate-evidence` for the ungraded themes |
 
 One repair per cycle, highest-leverage first — no blind "fix everything" passes; each cycle stays auditable.
