@@ -72,6 +72,7 @@ Phase 4: Drafting (Human + Enhance Writing) → draft sections
 Phase 6: Contribution Framing → positioned contribution
 Phase 5: Citation Validation → validated citations
 Phase 7: Consistency Validation → final review
+(optional) verify-review → verified end-state loop → VERIFIED / BLOCKED_ON_HUMAN (submission-ready)
 ```
 
 **Checkpoints:** 4 (Phases 1, 3, 6, 7)

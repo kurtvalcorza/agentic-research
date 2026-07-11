@@ -40,7 +40,7 @@ flowchart TB
     R["<b>appraise-risk-of-bias</b><br/>RoB2/ROBINS-I/NOS/QUADAS-2<br/>HUMAN-GATED"]:::appr
     G["<b>validate-evidence</b><br/>GRADE certainty"]:::appr
     W["<b>structure-arguments → draft-section<br/>→ write-manuscript</b><br/>theme-driven drafting (SWiM)"]:::val
-    V["<b>validate-* + verify-sources</b><br/>internal QA + external citation check"]:::val
+    V["<b>validate-* + verify-sources → verify-review</b><br/>internal QA + external citation check,<br/>looped to a verified end-state"]:::val
     F["<b>prisma-flow</b><br/>real PRISMA 2020 flow,<br/>reconciliation-gated"]:::rep
 
     P --> C --> A --> D --> S --> E --> R --> G --> W --> V --> F

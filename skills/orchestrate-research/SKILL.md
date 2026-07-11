@@ -94,7 +94,7 @@ When this is a registrable/systematic review, the orchestrator routes to **`desi
   - its **search plan** feeds `acquire-corpus` (which executes it), and
   - its **appraisal plan** feeds `appraise-risk-of-bias` (which instrument applies to which study design).
 
-**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and uses the acquisition front-end (or a bring-your-own corpus) directly.
+**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The lighter narrative path drops the protocol/RoB stages and uses the acquisition front-end (or a bring-your-own corpus) directly.
 
 See **[[references/detailed-guide|Implementation Details & Templates]]** for the protocol-branch wiring.
 
@@ -125,7 +125,7 @@ User provides input
 2. **`dedupe-records`** — record-level dedup run AFTER acquisition and BEFORE screening: DOI-exact + fuzzy-title (year/author guarded) + preprint-vs-published reconciliation. Emits the **duplicates-removed** count that the PRISMA flow needs.
 3. **Hand off to screening** — the deduped candidate set feeds the existing Phase 1 screening exactly as a bring-your-own corpus would. Everything downstream (extraction, synthesis, drafting, validation) is unchanged.
 
-**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → verify-review (loop to verified end-state) → prisma-flow (reporting)`. The identification counts (from `acquire-corpus`) and duplicates-removed count (from `dedupe-records`) are carried forward to the reporting phase so `prisma-flow` can build a REAL PRISMA 2020 diagram (see below).
+**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The identification counts (from `acquire-corpus`) and duplicates-removed count (from `dedupe-records`) are carried forward to the reporting phase so `prisma-flow` can build a REAL PRISMA 2020 diagram (see below).
 
 See **[[references/detailed-guide|Implementation Details & Templates]]** for the acquisition-branch wiring and count hand-off.
 
@@ -142,7 +142,7 @@ Alongside the existing internal validation skills (`validate-citations`, `valida
 - **`validate-citations`** — INTERNAL consistency only: checks the draft against the extraction matrix. It cannot tell whether a cited source is real, exists, or has been retracted.
 - **`verify-sources`** — EXTERNAL verification: resolves each citation against bibliographic databases (scite MCP preferred, else CrossRef/OpenAlex API), confirms DOI existence and author/year match, checks for retraction/correction/expression-of-concern, and tests claim-vs-source fidelity. It emits `verification/source-verification.md` with a per-citation status (VERIFIED / RETRACTED / UNVERIFIED / FLAGGED / MISMATCH) and a PASS/FAIL gate.
 
-**Gate rule:** A `verify-sources` **FAIL** (any RETRACTED or fabricated/UNVERIFIED citation, or an un-reviewed MISMATCH) **HALTS** the workflow — the review cannot be marked `complete`. PASS requires zero RETRACTED, zero UNVERIFIED, and zero un-reviewed MISMATCH. This gate sits beside the Phase 5 citation-validation gate and the Phase 7 consistency-validation final gate. If the user overrides the gate to proceed, the override must be logged as a `human_override` provenance event (see below).
+**Gate rule:** A `verify-sources` **FAIL** (any RETRACTED or fabricated/UNVERIFIED citation, or an un-reviewed MISMATCH) means the review **cannot be marked `complete`**. PASS requires zero RETRACTED, zero UNVERIFIED, and zero un-reviewed MISMATCH. For a **submission-ready** review a FAIL is **not a hard stop**: it is exactly the `U_cite_external > 0` case verify-review is built to repair, so the FAIL becomes the loop's **cycle-0 baseline** — verify-review re-resolves / redrafts and re-checks until `U_cite_external` reaches 0. Completion stays blocked until verify-review reaches `VERIFIED` (or a logged `BLOCKED_ON_HUMAN` handoff for citations only resolvable as `UNVERIFIED (manual)`). A one-off snapshot run *without* the loop still HALTS on FAIL. This gate sits beside the Phase 5 citation-validation gate, the Phase 7 consistency-validation final gate, and the Phase 5c verified-end-state gate. If the user overrides the gate to proceed, the override must be logged as a `human_override` provenance event (see below).
 
 ### Validation phase: snapshot (`validate-*`) + loop (`verify-review`)
 

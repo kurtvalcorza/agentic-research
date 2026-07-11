@@ -15,6 +15,7 @@ Assembled each cycle from the in-scope checks' outputs and passed to
 {
   "review_type": "systematic",
   "cycle": 3,
+  "units_in_scope": ["U_screen", "U_extract", "U_prisma", "U_grade"],
   "units": {
     "U_cite_external": 2,
     "U_cite_internal": 0,
@@ -24,15 +25,42 @@ Assembled each cycle from the in-scope checks' outputs and passed to
     "U_grade": 0
   },
   "consistency": { "score": 71, "critical_breaks": 0 },
-  "gates": { "H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1 },
-  "history": [14, 11, 9]
+  "gates": { "H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0 },
+  "history": [14, 11, 9],
+  "denominators": { "citations": 40, "studies": 22, "themes": 8 },
+  "exclusions_logged": false
 }
 ```
 
 Rules:
-- **Only include in-scope units.** An omitted unit is *absent* (narrative review
-  has no `U_prisma`), not zero-to-achieve. Including it as `0` is also fine — it
-  just contributes nothing.
+- **Only include in-scope units**, but the **universal floor** (`U_cite_external`,
+  `U_cite_internal`, `U_consistency`) must always be present — a `VERIFIED` verdict
+  is impossible while any floor unit is missing (`missing_units` lists them). An
+  omitted *non-floor* unit is *absent* (a narrative review has no `U_prisma`), not
+  zero-to-achieve; including it as `0` is also fine — it just contributes nothing.
+- `units_in_scope` (optional) is the **frozen in-scope set** resolved at
+  classification (spec §3.3). When present, every unit it lists — not just the
+  floor — must be present and `0` before `VERIFIED`, so a systematic run that
+  silently omits `U_prisma` is caught (`missing_units`) instead of passing. Omit
+  it and only the universal floor is enforced. The floor is always required,
+  whether or not it appears in the list.
+  When a cycle re-runs only the checks whose inputs changed, **carry forward the
+  last-known value of every in-scope unit** (floor *and* declared) into that
+  cycle's `units.json` (and pass `consistency` with its score) so nothing lands in
+  `missing_units` — otherwise the cycle cannot reach `VERIFIED`/`BLOCKED_ON_HUMAN`.
+  Declaring `units_in_scope` also **requires the `gates` key to be present** (even
+  `{}`): an omitted gates object cannot silently assert all human gates confirmed.
+- `U_consistency` is derived **only** from the `consistency` object (which needs a
+  numeric `score`); a value placed directly in `units` is ignored, so it cannot
+  fake a present-and-zero floor unit.
+- Counts must be finite non-negative numbers; gate, cycle, and denominator counts
+  must be whole numbers. Booleans, `NaN`/`Infinity`, negatives, and wrong field
+  types (incl. an empty `[]`/`""` where an object is expected) fail closed with an
+  `{"error": …}` verdict and a non-zero exit — never a spurious `VERIFIED`.
+- `denominators` (optional) are the current totals behind the units (citation
+  count, study count, theme count …). `exclusions_logged` (optional, a real
+  boolean) marks that a drop in a denominator this cycle is backed by a logged
+  exclusion reason. Together they drive the floor-guard check (§6).
 - `consistency` is optional; when present it derives `U_consistency =
   critical_breaks + max(0, 75 − score)` (graded gradient, Q2).
 - `history` is the list of prior **weighted totals**, oldest first, *excluding*
@@ -47,17 +75,29 @@ Rules:
   "weighted_total": 13.0,
   "auto_units_zero": false,
   "gates_remaining": 0,
+  "missing_units": [],
   "dominant_unit": "U_cite_external",
   "cycle": 2,
   "ceiling": 25,
   "soft_advisory": false,
-  "units_evaluated": { "U_cite_external": 2.0, "U_prisma": 3.0, "U_consistency": 4.0 }
+  "units_evaluated": { "U_cite_external": 2.0, "U_cite_internal": 0.0, "U_screen": 3.0, "U_consistency": 4.0 },
+  "by_unit": { "U_cite_external": 6.0, "U_cite_internal": 0.0, "U_screen": 3.0, "U_consistency": 4.0 }
 }
 ```
 
 - `state` ∈ {`VERIFIED`, `BLOCKED_ON_HUMAN`, `PLATEAU`, `CEILING`, `CONTINUE`}.
 - Exit code is `0` only for `VERIFIED`, non-zero otherwise — so it gates a
   pipeline like `prisma_flow.py --strict`.
+- `units_evaluated` are the **raw** in-scope counts; `by_unit` are the **weighted**
+  contributions (`weightᵢ × countᵢ`) that sum to `weighted_total`.
+- `missing_units` lists any **required** unit absent from the input — the
+  universal floor (`U_cite_external`, `U_cite_internal`, `U_consistency`) plus any
+  unit named in `units_in_scope`. It is **non-empty ⇒ never `VERIFIED`** (and
+  never `PLATEAU`: incomplete input reports `CONTINUE` so the missing check can be
+  run, not a false stall). So an empty/citation-less `units.json`, or a systematic
+  run that omits a declared `U_prisma`, fails closed rather than passing.
+  (`U_consistency` is derived **only** from the `consistency` object; a value
+  placed directly in `units` is ignored, so it can't fake the floor.)
 - `dominant_unit` is populated only when `state == CONTINUE`; it is the in-scope
   unit with the largest **weighted** contribution (ties broken by weight, then
   name). This is the routing target.
@@ -81,9 +121,15 @@ human work waited — human-gate work is not a stall.
 ## 4. Plateau definition
 
 `PLATEAU` = the weighted total was **flat or worse** (`total[i] ≥ total[i-1]`)
-for `PLATEAU_K = 3` consecutive cycles, counting backward from the current cycle.
-This catches both true stalls (no progress) and thrash (oscillation that nets
-zero). A cycle whose units cannot be computed (a check crashed) should be
+for `PLATEAU_K = 3` consecutive cycles, counting backward from the current cycle;
+it needs `PLATEAU_K + 1` samples so there are `K` transitions to check. A single
+strict improvement breaks the run, so an **actively-descending** loop is never
+falsely stalled — even right after a mid-run rise in the scalar (new in-scope
+work discovered, then repaired back down, e.g. `3,10,9,8` keeps going). This
+catches genuine stalls (`10,10,10,10`); it does **not** early-stop pure
+oscillation that dips every other cycle (`8,9,8,9,8`) — that runs to the ceiling
+rather than risk aborting a loop that is in fact making progress. A cycle whose
+units cannot be computed (a check crashed) should be
 recorded as `unknown` and **excluded** from the history array, so it does not
 falsely trip or reset the plateau counter; repeated `unknown`s on the same unit
 are an operational failure to surface, not a `PLATEAU`.
@@ -102,19 +148,22 @@ python scripts/review_units.py units.json --manifest manifest.json
 
 The agent's per-cycle annotation rides in on the input `units.json` as
 `"outcome": "progressed: …"`; cycle 0 defaults to `"baseline"`. The written
-record is `{cycle, state, weighted_total, by_unit, gates, outcome}` (note
-`by_unit` is the **weighted** contribution per unit, so a count of 3 on the
-×3-weighted `U_cite_external` records as `9.0`):
+record is `{cycle, state, weighted_total, by_unit, gates, denominators,
+floor_guard, outcome}` (note `by_unit` is the **weighted** contribution per unit,
+so a count of 3 on the ×3-weighted `U_cite_external` records as `9.0`;
+`denominators`/`floor_guard` carry the anti-gaming trail from §6):
 
 ```json
 "verification_units": [
   { "cycle": 0, "state": "CONTINUE", "weighted_total": 14.0,
     "by_unit": {"U_cite_external": 9.0, "U_consistency": 4.0, "U_prisma": 1.0},
-    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
+    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},
+    "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "baseline" },
   { "cycle": 1, "state": "CONTINUE", "weighted_total": 11.0,
     "by_unit": {"U_cite_external": 6.0, "U_consistency": 4.0, "U_prisma": 1.0},
-    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1},
+    "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},
+    "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "progressed: verify-sources cleared 1 fabricated citation" }
 ]
 ```
@@ -125,11 +174,22 @@ counter and the audit trail both see it.
 
 ## 6. Floor-guard accounting (worked)
 
-The floor-guard (`SKILL.md` § anti-gaming) is enforced at units-accounting time,
-not by the script:
+The floor-guard (`SKILL.md` § anti-gaming) is judged at units-accounting time —
+whether a removal is *legitimate* is a human/agent call — but the backend makes it
+**mechanically detectable** rather than trusting self-report. Pass per-cycle
+`denominators`; `review_units.py --manifest` records them and sets a `floor_guard`
+status on the record: a denominator that **fell** since the previous cycle — or
+whose key was **removed entirely** (including wiping all denominators after a prior
+cycle reported them) — is flagged `UNLOGGED (no-op per §5): citations 40->38`
+unless the input sets `exclusions_logged: true` (then `logged-exclusion: …`). The
+drop is written into the audit trail, and an `UNLOGGED` drop also **holds a
+would-be `VERIFIED` as `BLOCKED_ON_HUMAN`** (with a `hold_reason`) so the exit code
+cannot mark the review complete when its units may have been zeroed by removing
+content — a human adjudicates:
 
 - If a cycle reduced `U_cite_external` by deleting a citation rather than
-  resolving it, record `outcome: "no-op: citation removed without logged
+  resolving it, the `citations` denominator falls and `floor_guard` flags it
+  `UNLOGGED`; record `outcome: "no-op: citation removed without logged
   exclusion reason"` and **do not** credit the reduction — recompute the unit as
   if the citation still needed resolution, or route it to `H_cite_manual`.
 - A citation the backend can only mark `UNVERIFIED (manual)` is moved from
