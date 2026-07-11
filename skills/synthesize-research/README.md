@@ -27,6 +27,7 @@ Writes manuscript sections using extracted evidence
 **Phase 4: Citation Validation (two gates)**
 - *4a — internal:* `validate-citations` verifies every draft citation traces to the extraction matrix.
 - *4b — external:* `verify-sources` resolves every citation against bibliographic databases (scite MCP preferred, else CrossRef / OpenAlex) to confirm the source is **real, not retracted, and faithfully represented**. A verify-sources **FAIL blocks completion** — the run is not "complete" until it PASSES, in addition to validate-citations. The two are different layers; both run.
+- *4c — verified end-state (optional):* for a submission-ready synthesis, `verify-review` takes the passing Phase 4 snapshot as its cycle 0 and drives the review to a *verified end-state* on a bounded self-correcting loop — repairing one defect at a time until every in-scope defect is 0, then handing off to the human gates (`VERIFIED` / `BLOCKED_ON_HUMAN`). On a quick draft the snapshot alone is enough.
 
 **Phase 5: AI Provenance & Disclosure**
 Each phase's automated decisions are provenance-stamped (model / version / prompt) in the execution log, and the run emits an `ai-disclosure.md` artifact (PRISMA-trAIce aligned) per `.agent/steering/ai-research-provenance.md`.
@@ -103,4 +104,5 @@ The orchestrator will guide you through setup, then coordinate all specialist ag
 - `prisma-flow` — reporting step (Phase 6): real PRISMA 2020 flow from identification + duplicates-removed + screening counts; fails if counts do not reconcile
 - `verify-sources` — external citation verification gate (Phase 4b); blocks completion on FAIL
 - `validate-citations` — internal draft↔matrix consistency gate (Phase 4a); complementary (run both)
+- `verify-review` — optional verified-end-state loop (Phase 4c) after the snapshot; drives the review to `VERIFIED`/`BLOCKED_ON_HUMAN` for a submission-ready synthesis
 - `.agent/steering/ai-research-provenance.md` — provenance stamping + the `ai-disclosure.md` artifact convention

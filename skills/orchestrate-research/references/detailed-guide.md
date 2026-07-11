@@ -35,7 +35,7 @@ def run_protocol_frontend(research_intent, corpus_root):
   }
 ```
 
-**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → prisma-flow (reporting)`. The lighter narrative path drops the protocol/RoB stages and starts at acquisition (Phase -1) or a bring-your-own corpus (Step 0.1).
+**Canonical full order (registrable review):** `design-review-protocol → generate-screening-criteria → acquire-corpus → dedupe-records → screen-literature → extract-synthesis → appraise-risk-of-bias → validate-evidence (+ structure-arguments / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The lighter narrative path drops the protocol/RoB stages and starts at acquisition (Phase -1) or a bring-your-own corpus (Step 0.1).
 
 ---
 
@@ -87,7 +87,7 @@ def run_acquisition_frontend(research_question, corpus_root):
   }
 ```
 
-**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → prisma-flow (reporting)`. The `identification_counts` and `duplicates_removed` values are persisted and carried to the reporting phase so `prisma-flow` builds a REAL PRISMA 2020 diagram from actual run data.
+**Canonical front-end order:** `acquire-corpus → dedupe-records → screen-literature → (extract / synthesize / draft) → validate-* + verify-sources → prisma-flow (reconciliation + PRISMA 2020 diagram) → verify-review (loop to verified end-state; consumes the prisma-flow reconciliation as U_prisma)`. The `identification_counts` and `duplicates_removed` values are persisted and carried to the reporting phase so `prisma-flow` builds a REAL PRISMA 2020 diagram from actual run data.
 
 ---
 
@@ -434,6 +434,15 @@ def select_workflow(corpus_analysis, project_context):
 - 🛑 EXTERNAL GATE: PASS requires zero RETRACTED, zero UNVERIFIED, zero un-reviewed MISMATCH. A FAIL (retracted/fabricated citation) HALTS — cannot mark `complete`.
 - Output: verification/source-verification.md
 
+### Phase 5c: Verified End-State Loop (AUTO - verify-review)
+- Phases 5/5b/7 are single-pass *snapshots*; `verify-review` drives them to *closure*. Both modes run — the snapshot establishes the baseline (it is verify-review's cycle 0), the loop finishes the job.
+- Bounded units-remaining loop over the same checks (`verify-sources` / `validate-citations` / `validate-consistency` / `validate-evidence` / `prisma-flow`). Repairs the highest-leverage defect (citation integrity weighted ×3), re-checks, repeats.
+- Units-in-scope derived from review type (systematic = all; narrative = citation integrity + consistency floor).
+- 🛑 Stops at `VERIFIED` (every in-scope auto-unit 0 AND human gates confirmed AND `ai-disclosure.md` current) | `BLOCKED_ON_HUMAN` (mechanical defects cleared, human gates await — hands off, does not loop through) | `PLATEAU` (3 non-improving cycles) | `CEILING` (cycle 25; soft methodology advisory at cycle 10).
+- Appends a `verification_units` history to `manifest.json` (cycle, state, weighted_total, by_unit, gates, denominators, floor_guard, outcome) — the audit trail.
+- Runnable backend: `skills/verify-review/scripts/review_units.py` (verdict + exit-code gate). A review intended to be submission-ready is marked `complete` only on `VERIFIED`.
+- Output: verification/verify-review-report.md
+
 ### Phase 6: Contribution Framing (AUTO - 3 min)
 - 5 provocation questions
 - Overclaim detection
@@ -456,6 +465,7 @@ def select_workflow(corpus_analysis, project_context):
 ✅ Quality gates at 6 meta-merges (HALT on score <75)
 ✅ Citation validation gate (Phase 5)
 ✅ External source-verification gate (Phase 5b, verify-sources — HALT on RETRACTED/UNVERIFIED/un-reviewed MISMATCH)
+✅ Verified end-state loop (Phase 5c, verify-review — `complete` only on VERIFIED; hands off to human gates on BLOCKED_ON_HUMAN)
 ✅ Consistency validation gate (Phase 7)
 ✅ PRISMA flow reconciliation gate (prisma-flow — FAILS if identification/duplicates/screening counts do not reconcile)
 
@@ -1328,17 +1338,30 @@ At each phase checkpoint
       ├─ Phase 5 complete (validation passed)?
       │  └─ Run verify-sources (AUTO EXTERNAL GATE — DOI/retraction/claim fidelity)
       │     PASS (0 RETRACTED, 0 UNVERIFIED, 0 un-reviewed MISMATCH)? → continue to Phase 6
-      │     FAIL (retracted/fabricated citation)? → HALT (cannot mark complete; log human_override if bypassed)
+      │     FAIL (retracted/fabricated citation)? → for a submission-ready review, feed as
+      │        verify-review cycle-0 baseline (U_cite_external>0): the loop re-resolves/redrafts
+      │        and re-checks. Still cannot mark complete until Phase 5c reaches VERIFIED. A
+      │        snapshot-only run HALTS here (log human_override if bypassed).
       │     Output: verification/source-verification.md
       │
       ├─ Phase 5b complete (external verification passed)?
       │  └─ Run frame-contributions (AUTO, provocation mode)
       │     Output: phase6-contribution-framing_project.md
       │
-      └─ Phase 6 complete?
-         └─ Run validate-consistency (AUTO FINAL GATE)
-            Score ≥75? → PASS (workflow COMPLETE ✅)
-            Score <75? → HALT (user fixes issues, re-validate)
+      ├─ Phase 6 complete?
+      │  └─ Run validate-consistency (AUTO — single-pass snapshot, seeds cycle 0)
+      │     Score ≥75? → snapshot passes; continue to Phase 5c
+      │     Score <75? → continue to Phase 5c anyway: verify-review derives U_consistency>0
+      │                  and REPAIRS it via the loop (that is the loop's job) — do NOT
+      │                  HALT here for a submission-ready review; only fall back to a
+      │                  manual fix if the loop stops at PLATEAU/CEILING
+      │
+      └─ Submission-ready review? (the Phase 5/5b/7 snapshots — PASS *or* FAIL — seed cycle 0;
+         a citation/consistency FAIL is not a hard stop, it is exactly what the loop repairs)
+         └─ Run verify-review (AUTO — Verified End-State Loop; the snapshots above are its cycle 0)
+            VERIFIED (every in-scope auto-unit 0, human gates confirmed)? → workflow COMPLETE ✅
+            BLOCKED_ON_HUMAN? → emit human-handoff checklist (RoB / adjudication / manual citations); COMPLETE only after human confirms
+            PLATEAU / CEILING? → HALT (surface the stall — usually an upstream methodology issue)
 ```
 
 ---
@@ -1446,6 +1469,36 @@ consistency_score = validate_consistency(
   strictness="moderate",
   output_path=f"{project_context.output_root}/phase7-consistency-report_project.md"
 )
+
+# Phase 5c: Verified End-State Loop (auto-invoked). The single-pass snapshots above
+# (validate-citations / verify-sources / validate-consistency) are verify-review's
+# cycle 0 — both modes run, neither replaces the other. The loop repairs the
+# highest-leverage defect, re-checks, and repeats until every in-scope auto-unit is 0,
+# then hands off to the human gates. It gates `complete` for a submission-ready review.
+#
+# IMPORTANT: the backend fails closed on any DECLARED-but-missing unit, so cycle 0
+# must seed EVERY unit in units_in_scope. For systematic/scoping/rapid/umbrella scope
+# that includes U_prisma (run prisma-flow) and U_grade (run validate-evidence) BEFORE
+# invoking the loop — not only the citation/consistency snapshots — or the loop stalls
+# on missing_units. Also pass the in-scope human gates (H_rob/…) each cycle.
+from skills.verify_review import verify_review
+
+verdict = verify_review(
+  manifest_path=f"{project_context.output_root}/manifest.json",
+  review_type=project_context.review_type,
+  units_in_scope=scope_for(project_context.review_type),  # frozen at classification (spec §3.3)
+  snapshot_results={               # seed cycle 0 from the snapshots above (no re-run)
+    "citation_score": citation_score,
+    "verification": verification,
+    "consistency_score": consistency_score,
+    "prisma": prisma_result,          # required when U_prisma is in scope
+    "grade": evidence_grading_result, # required when U_grade is in scope
+  },
+  output_path=f"{project_context.output_root}/verification/verify-review-report.md"
+)
+# verdict["state"] == "VERIFIED"          → review may be marked complete
+# verdict["state"] == "BLOCKED_ON_HUMAN"  → emit handoff checklist; complete only after human sign-off
+# verdict["state"] in ("PLATEAU","CEILING") → HALT; surface the stall (methodology issue upstream)
 ```
 
 ---

@@ -31,9 +31,10 @@ You manage the end-to-end process of turning raw research files into a publicati
 4. **[[../draft-section/SKILL|Drafter]]** - Writes the manuscript sections.
 5. **[[../validate-citations/SKILL|Citation Validator]]** - Ensures internal draft↔matrix integrity.
 6. **[[../verify-sources/SKILL|Source Verifier]]** - External citation verification (DOI existence, retraction/correction/concern, claim-vs-source fidelity).
+7. **[[../verify-review/SKILL|Verified End-State Loop]]** - *Optional.* After the Phase 4 validation snapshot, drives the review to a *verified end-state*: re-runs the same checks on a bounded units-remaining loop, repairing one defect at a time until every in-scope defect is 0, then hands off to the human gates (`VERIFIED` / `BLOCKED_ON_HUMAN`). Use for a submission-ready synthesis; the single-pass snapshot alone is enough for a quick draft.
 
 **Reporting:**
-7. **[[../prisma-flow/SKILL|PRISMA Flow Assembler]]** - Builds the real PRISMA 2020 flow diagram from actual identification (acquire-corpus), duplicates-removed (dedupe-records), and screening/eligibility (screen-literature) counts; fails if the arithmetic does not reconcile.
+8. **[[../prisma-flow/SKILL|PRISMA Flow Assembler]]** - Builds the real PRISMA 2020 flow diagram from actual identification (acquire-corpus), duplicates-removed (dedupe-records), and screening/eligibility (screen-literature) counts; fails if the arithmetic does not reconcile.
 
 ## Synthesis Method Declaration
 
@@ -118,6 +119,7 @@ This phase has **two gates** that are different layers — run both; a run is no
 - **Output**: `verification/source-verification.md` with per-citation status (VERIFIED / RETRACTED / UNVERIFIED / FLAGGED / MISMATCH) and a PASS/FAIL gate.
 - **Gate**: PASS requires **zero RETRACTED, zero UNVERIFIED, and zero un-reviewed MISMATCH**.
 - **Completion rule**: A **verify-sources FAIL blocks completion.** The synthesis run is not "complete" until verify-sources PASSES on the draft, in addition to validate-citations. Present failures grouped by severity (retracted/fabricated first); do not soften.
+- **Verified end-state (optional)**: for a submission-ready synthesis, route the passing snapshot to **`verify-review`** — it treats this Phase 4 snapshot as its cycle 0 and drives the review to a verified end-state (`VERIFIED`, or `BLOCKED_ON_HUMAN` when only human gates remain), rather than stopping at a single point-in-time pass. On a quick draft the snapshot alone is enough. **If the review's declared scope includes `U_prisma`** (a registrable synthesis), run **Phase 6 `prisma-flow` first** so its reconciliation seeds cycle 0 — otherwise verify-review stalls on `missing_units`. A synthesis where PRISMA is out of scope needs no reordering.
 - **Override**: The gate is reportable but **not silently overridable**. If the user chooses to proceed past a FAIL, log it as a `human_override` provenance event per `.agent/steering/ai-research-provenance.md`.
 
 ### Phase 5: AI Provenance & Disclosure
@@ -147,6 +149,7 @@ This phase has **two gates** that are different layers — run both; a run is no
 | 3. Drafting | ⚪ | [Draft](phase3-draft.md) | |
 | 4a. Validation (internal) | ⚪ | [Validation](phase4-validation.md) | validate-citations |
 | 4b. Source verification (external) | ⚪ | [Verification](verification/source-verification.md) | verify-sources — GATE: blocks completion |
+| 4c. Verified end-state (optional) | ⚪ | [Verify-review](verification/verify-review-report.md) | verify-review — loops the snapshot to VERIFIED / BLOCKED_ON_HUMAN; for submission-ready |
 | 5. AI disclosure | ⚪ | [Disclosure](ai-disclosure.md) | provenance + PRISMA-trAIce |
 | 6. PRISMA flow (reporting) | ⚪ | [Flow](prisma-flow.md) | prisma-flow — fails if counts do not reconcile |
 ```
@@ -164,6 +167,7 @@ This phase has **two gates** that are different layers — run both; a run is no
 - `prisma-flow` — reporting step (Phase 6): assembles the real PRISMA 2020 flow from identification + duplicates-removed + screening counts; fails if the arithmetic does not reconcile.
 - `verify-sources` — external citation verification gate (4b); blocks completion on FAIL.
 - `validate-citations` — internal draft↔matrix consistency gate (4a); complementary to verify-sources (run both).
+- `verify-review` — optional verified-end-state loop (4c) after the Phase 4 snapshot; drives the review to `VERIFIED`/`BLOCKED_ON_HUMAN` for a submission-ready synthesis (the snapshot is its cycle 0).
 - `.agent/steering/ai-research-provenance.md` — per-decision provenance stamping + the mandatory `ai-disclosure.md` artifact (PRISMA-trAIce / ICMJE / COPE).
 
 ## Internal Metadata

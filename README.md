@@ -2,7 +2,7 @@
 
 **An AI-agent pipeline for literature & systematic reviews — aligned with PRISMA 2020, Cochrane, and GRADE, and honest about where a human stays in the loop.**
 
-A suite of 23 composable [agent skills](#how-skills-work) that take a review from a *question* to a *defensible synthesis*: design a registrable protocol, search the literature, deduplicate, screen, extract, appraise risk of bias, grade certainty, draft, and verify every citation against the real bibliographic record — emitting a PRISMA flow diagram whose numbers actually reconcile.
+A suite of 24 composable [agent skills](#how-skills-work) that take a review from a *question* to a *defensible synthesis*: design a registrable protocol, search the literature, deduplicate, screen, extract, appraise risk of bias, grade certainty, draft, and verify every citation against the real bibliographic record — emitting a PRISMA flow diagram whose numbers actually reconcile.
 
 Built to run with AI coding agents (Claude Code, and other harnesses that load Markdown skills). **Keyless by default** — the runnable backends use free APIs (OpenAlex, CrossRef) and the Python standard library; a paid literature API (scite) is optional enrichment, never required.
 
@@ -40,7 +40,7 @@ flowchart TB
     R["<b>appraise-risk-of-bias</b><br/>RoB2/ROBINS-I/NOS/QUADAS-2<br/>HUMAN-GATED"]:::appr
     G["<b>validate-evidence</b><br/>GRADE certainty"]:::appr
     W["<b>structure-arguments → draft-section<br/>→ write-manuscript</b><br/>theme-driven drafting (SWiM)"]:::val
-    V["<b>validate-* + verify-sources</b><br/>internal QA + external citation check"]:::val
+    V["<b>validate-* + verify-sources → verify-review</b><br/>internal QA + external citation check,<br/>looped to a verified end-state"]:::val
     F["<b>prisma-flow</b><br/>real PRISMA 2020 flow,<br/>reconciliation-gated"]:::rep
 
     P --> C --> A --> D --> S --> E --> R --> G --> W --> V --> F
@@ -58,7 +58,7 @@ flowchart TB
 | **Extraction & synthesis** | `extract-synthesis`, `synthesize-research`, `recursive-lit-review`, `structure-arguments` |
 | **Appraisal & grading** | `appraise-risk-of-bias` (human-gated), `validate-evidence` (GRADE) |
 | **Drafting** | `draft-section`, `write-manuscript`, `frame-contributions`, `enhance-writing`, `tools-for-thought` |
-| **Validation** | `verify-sources` (external), `validate-citations` (internal), `validate-consistency`, `validate-manuscript` |
+| **Validation** | `verify-sources` (external), `validate-citations` (internal), `validate-consistency`, `validate-manuscript` (single-pass batch), `verify-review` (loop to a verified end-state) |
 | **Reporting** | `prisma-flow` |
 | **Orchestration** | `orchestrate-research`, `review-literature` |
 

@@ -42,11 +42,16 @@ Start: "review the literature on [topic]" / "I need a systematic review"
 │     frame-contributions for contribution framing)
 │
 ├─ Validation (before submission)
-│  ├─ validate-citations (INTERNAL: draft ↔ extraction matrix)
-│  ├─ verify-sources (EXTERNAL: DOI resolution + retraction + claim fidelity — the
-│  │     hard gate against fabricated/retracted sources)
-│  ├─ validate-consistency (cross-phase traceability)
-│  └─ validate-manuscript (batch: citations + evidence + consistency)
+│  ├─ Want a SNAPSHOT (single pass)?
+│  │  ├─ validate-citations (INTERNAL: draft ↔ extraction matrix)
+│  │  ├─ verify-sources (EXTERNAL: DOI resolution + retraction + claim fidelity — the
+│  │  │     hard gate against fabricated/retracted sources)
+│  │  ├─ validate-consistency (cross-phase traceability)
+│  │  └─ validate-manuscript (batch: citations + evidence + consistency)
+│  └─ Want a VERIFIED END-STATE (loop until clean, then hand off to humans)?
+│     └─ verify-review (units-remaining loop over the checks above; weights citation
+│        integrity ×3; stops at VERIFIED | BLOCKED_ON_HUMAN | PLATEAU | CEILING;
+│        runnable backend review_units.py)
 │
 └─ Reporting → prisma-flow (PRISMA 2020 flow from REAL counts, reconciliation-gated)
 ```
@@ -98,6 +103,7 @@ absence and fall back to the keyless scripts automatically.
 | verify-sources | validation (external) | resolve_citation.py |
 | validate-consistency | validation | — |
 | validate-manuscript | validation (batch) | — |
+| verify-review | validation (loop → verified end-state) | review_units.py |
 | prisma-flow | reporting | prisma_flow.py |
 | orchestrate-research | orchestration | — |
 | review-literature | orchestration | — |
