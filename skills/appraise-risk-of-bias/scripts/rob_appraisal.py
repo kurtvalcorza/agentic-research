@@ -149,7 +149,8 @@ def parse(raw: dict) -> list[dict]:
     _no_unknown_keys(raw, {"schema_version", "studies"}, "record")
 
     version = raw.get("schema_version")
-    if version not in SCHEMA_VERSIONS:
+    # isinstance FIRST: an unhashable value raises TypeError on set membership.
+    if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
         raise InputError(f"record: unrecognised or missing schema_version {version!r} "
                          f"(recognised: {', '.join(sorted(SCHEMA_VERSIONS))})")
 
@@ -176,11 +177,11 @@ def _parse_study(s, i: int, seen: set) -> dict:
     ctx = f"study {sid}"
 
     design = s.get("design")
-    if design not in DESIGN_INSTRUMENT:
+    if not isinstance(design, str) or design not in DESIGN_INSTRUMENT:
         raise InputError(f"{ctx}.design: must be one of "
                          f"{', '.join(sorted(DESIGN_INSTRUMENT))}, got {design!r}")
     instrument = s.get("instrument")
-    if instrument not in DOMAINS:
+    if not isinstance(instrument, str) or instrument not in DOMAINS:
         raise InputError(f"{ctx}.instrument: must be one of "
                          f"{', '.join(sorted(DOMAINS))}, got {instrument!r}")
 
@@ -201,9 +202,11 @@ def _parse_study(s, i: int, seen: set) -> dict:
             if not isinstance(value, (str, int, float, dict)) or isinstance(value, bool):
                 raise InputError(f"{ctx}.domains.{name}: expected a string, number or "
                                  f"object, got {type(value).__name__} {value!r}")
-        if overall is not None and not isinstance(overall, str):
-            raise InputError(f"{ctx}.overall: expected a string, got "
-                             f"{type(overall).__name__} {overall!r}")
+        # `overall` is required whatever the instrument. Deferring the VOCABULARY
+        # check is right (we cannot know which vocabulary applies), but presence is
+        # instrument-independent, and omitting it produced an artifact with an em
+        # dash rather than exit 2.
+        _str(overall, f"{ctx}.overall")
         return {"id": sid, "design": design, "instrument": instrument,
                 "result_assessed": _opt_str(s.get("result_assessed"), f"{ctx}.result_assessed"),
                 "domains": dict(domains_raw), "evidence": s.get("evidence", {}) or {},
@@ -220,7 +223,7 @@ def _parse_study(s, i: int, seen: set) -> dict:
     for name, value in domains_raw.items():
         domains[name] = _parse_domain(instrument, name, value, f"{ctx}.domains.{name}")
 
-    if overall not in SEVERITY[instrument]:
+    if not isinstance(overall, str) or overall not in SEVERITY[instrument]:
         raise InputError(f"{ctx}.overall: must be one of "
                          f"{', '.join(SEVERITY[instrument])} for {instrument}, got {overall!r}")
 
@@ -242,15 +245,20 @@ def _parse_domain(instrument: str, name: str, value, ctx: str):
         allowed = {"risk_of_bias"} | ({"applicability"} if name in QUADAS_APPLICABILITY else set())
         _no_unknown_keys(d, allowed, ctx)
         rob = d.get("risk_of_bias")
-        if rob not in SEVERITY["quadas2"]:
+        if not isinstance(rob, str) or rob not in SEVERITY["quadas2"]:
             raise InputError(f"{ctx}.risk_of_bias: must be one of "
                              f"{', '.join(SEVERITY['quadas2'])}, got {rob!r}")
+        # QUADAS-2's first three domains carry an applicability judgment as well as
+        # a risk-of-bias one. Treating it as optional meant a record omitting all
+        # three still reported a clean, complete appraisal — an incomplete appraisal
+        # presented as a finished one.
         app = d.get("applicability")
-        if name in QUADAS_APPLICABILITY and app is not None and app not in SEVERITY["quadas2"]:
+        if name in QUADAS_APPLICABILITY and (
+                not isinstance(app, str) or app not in SEVERITY["quadas2"]):
             raise InputError(f"{ctx}.applicability: must be one of "
                              f"{', '.join(SEVERITY['quadas2'])}, got {app!r}")
         return {"risk_of_bias": rob, "applicability": app}
-    if value not in SEVERITY[instrument]:
+    if not isinstance(value, str) or value not in SEVERITY[instrument]:
         raise InputError(f"{ctx}: must be one of {', '.join(SEVERITY[instrument])} "
                          f"for {instrument}, got {value!r}")
     return value
@@ -438,7 +446,11 @@ def main() -> int:
 
     source = args.infile or "stdin"
     try:
-        raw = open(args.infile, encoding="utf-8").read() if args.infile else sys.stdin.read()
+        if args.infile:
+            with open(args.infile, encoding="utf-8") as fh:
+                raw = fh.read()
+        else:
+            raw = sys.stdin.read()
     except OSError as e:
         sys.stderr.write(f"rob_appraisal: cannot read {source} ({e})\n")
         return 2

@@ -146,11 +146,15 @@ def parse(raw: dict) -> tuple[tuple, dict]:
     _no_unknown_keys(raw, {"schema_version", "variant", "items"}, "record")
 
     version = raw.get("schema_version")
-    if version not in SCHEMA_VERSIONS:
+    # isinstance FIRST: an unhashable value raises TypeError on set membership.
+    if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
         raise InputError(f"record: unrecognised or missing schema_version {version!r} "
                          f"(recognised: {', '.join(sorted(SCHEMA_VERSIONS))})")
 
     variant = raw.get("variant")
+    if not isinstance(variant, str):
+        raise InputError(f"record: variant must be a string, got "
+                         f"{type(variant).__name__} {variant!r}")
     if variant in KNOWN_UNIMPLEMENTED:
         raise InputError(KNOWN_UNIMPLEMENTED[variant])
     if variant not in VARIANTS:
@@ -278,7 +282,11 @@ def main() -> int:
 
     source = args.infile or "stdin"
     try:
-        raw = open(args.infile, encoding="utf-8").read() if args.infile else sys.stdin.read()
+        if args.infile:
+            with open(args.infile, encoding="utf-8") as fh:
+                raw = fh.read()
+        else:
+            raw = sys.stdin.read()
     except OSError as e:
         sys.stderr.write(f"prisma_checklist: cannot read {source} ({e})\n")
         return 2

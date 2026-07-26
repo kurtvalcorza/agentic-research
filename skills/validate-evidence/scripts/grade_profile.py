@@ -193,17 +193,19 @@ def parse(raw: dict) -> dict:
     if version is None:
         raise InputError("record: 'schema_version' is required "
                          f"(recognised: {', '.join(sorted(SCHEMA_VERSIONS))})")
-    if version not in SCHEMA_VERSIONS:
+    # isinstance FIRST: `[] in {"1.0"}` raises TypeError (unhashable), which would
+    # surface as a traceback and exit 1 instead of the documented exit 2.
+    if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
         raise InputError(f"record: unrecognised schema_version {version!r} "
                          f"(recognised: {', '.join(sorted(SCHEMA_VERSIONS))})")
 
     review_type = raw.get("review_type")
-    if review_type not in REVIEW_TYPES:
+    if not isinstance(review_type, str) or review_type not in REVIEW_TYPES:
         raise InputError(f"record: review_type must be one of "
                          f"{', '.join(sorted(REVIEW_TYPES))}, got {review_type!r}")
 
     mode = raw.get("synthesis_mode")
-    if mode not in SYNTHESIS_MODES:
+    if not isinstance(mode, str) or mode not in SYNTHESIS_MODES:
         raise InputError(f"record: synthesis_mode must be 'outcome' or 'theme', got {mode!r}")
 
     results = raw.get("results")
@@ -252,13 +254,22 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
     if sum(mix.values()) == 0:
         raise InputError(f"{ctx}.design_mix: no studies recorded — the starting level "
                          f"cannot be anchored")
+    # The design mix determines the starting certainty level, so it must describe
+    # the body actually cited. Left unchecked, `{"rct": 100}` over four
+    # observational studies starts the body at HIGH while the generated tables
+    # faithfully report four studies, and every downstream number inherits it.
+    if sum(mix.values()) != len(study_ids):
+        raise InputError(
+            f"{ctx}.design_mix: counts total {sum(mix.values())} but {len(study_ids)} "
+            f"studies are cited in study_ids — the mix must describe the body it "
+            f"anchors, since it determines the starting level")
 
     start = r.get("starting_level")
-    if start not in LEVELS:
+    if not isinstance(start, str) or start not in LEVELS:
         raise InputError(f"{ctx}.starting_level: must be one of "
                          f"{', '.join(LEVELS)}, got {start!r}")
     final = r.get("final")
-    if final not in LEVELS:
+    if not isinstance(final, str) or final not in LEVELS:
         raise InputError(f"{ctx}.final: must be one of {', '.join(LEVELS)}, got {final!r}")
 
     domains_raw = _obj(r.get("domains", {}), f"{ctx}.domains")
@@ -275,7 +286,7 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
                  "note": _opt_str(d.get("note"), f"{dctx}.note")}
         if name == "risk_of_bias":
             basis = d.get("basis")
-            if basis not in ROB_BASES:
+            if not isinstance(basis, str) or basis not in ROB_BASES:
                 raise InputError(f"{dctx}.basis: must be 'confirmed_rob' or 'heuristic', "
                                  f"got {basis!r}")
             entry["basis"] = basis
@@ -300,12 +311,22 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
 
 # --- appraisal record (read via --rob; NEVER imported from the sibling skill) --
 
-# Union of every instrument's overall vocabulary. This script is standalone by
-# design (it never imports the appraisal skill), so it must validate the appraisal
-# fields it relies on rather than assume the other check already did.
-APPRAISAL_OVERALLS = {"low", "some_concerns", "high",          # RoB 2
-                      "moderate", "serious", "critical", "no_information",  # ROBINS-I
-                      "unclear"}                                # QUADAS-2
+# This script is standalone by design (it never imports the appraisal skill), so it
+# must validate the appraisal record itself rather than assume the other check ran.
+# A record carrying only ids and confirmations is a STUB, not an appraisal, and must
+# not be able to fabricate backing for `basis: confirmed_rob`.
+#
+# Duplicated deliberately, per the same reasoning as the coercion helpers; the
+# conformance test keeps it aligned with rob_appraisal.py.
+APPRAISAL_DESIGN_INSTRUMENT = {"rct": "rob2", "nrsi": "robins_i",
+                               "observational": "nos", "dta": "quadas2"}
+INSTRUMENT_OVERALLS = {
+    "rob2": {"low", "some_concerns", "high"},
+    "robins_i": {"low", "moderate", "serious", "critical", "no_information"},
+    "nos": {"low", "moderate", "high"},
+    "quadas2": {"low", "unclear", "high"},
+}
+INSTRUMENT_DOMAIN_COUNT = {"rob2": 5, "robins_i": 7, "nos": 3, "quadas2": 4}
 HIGH_RISK_OVERALLS = {"high", "serious", "critical"}
 
 
@@ -318,7 +339,7 @@ def parse_appraisal(raw: dict) -> dict:
     """
     _obj(raw, "appraisal record")
     version = raw.get("schema_version")
-    if version not in SCHEMA_VERSIONS:
+    if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
         raise InputError(f"appraisal record: unrecognised or missing schema_version {version!r}")
     studies = raw.get("studies")
     if not isinstance(studies, list) or not studies:
@@ -331,10 +352,34 @@ def parse_appraisal(raw: dict) -> dict:
         if sid in out:
             raise InputError(f"appraisal record: duplicate study id {sid!r}")
 
+        # A real appraisal states what was appraised and how. Without this, a stub
+        # of {id, overall, confirmed_by, confirmed_at} would satisfy a
+        # `confirmed_rob` claim while containing no appraisal at all.
+        design = s.get("design")
+        if not isinstance(design, str) or design not in APPRAISAL_DESIGN_INSTRUMENT:
+            raise InputError(f"{ctx}.design: must be one of "
+                             f"{', '.join(sorted(APPRAISAL_DESIGN_INSTRUMENT))}, got {design!r}")
+        instrument = s.get("instrument")
+        expected = APPRAISAL_DESIGN_INSTRUMENT[design]
+        if instrument != expected:
+            raise InputError(f"{ctx}.instrument: design '{design}' calls for "
+                             f"'{expected}', got {instrument!r}")
+
+        domains = s.get("domains")
+        if not isinstance(domains, dict) or not domains:
+            raise InputError(f"{ctx}.domains: a confirmed appraisal must record its "
+                             f"domain judgments, got {domains!r}")
+        want = INSTRUMENT_DOMAIN_COUNT[instrument]
+        if len(domains) != want:
+            raise InputError(f"{ctx}.domains: {instrument} defines {want} domains, "
+                             f"but {len(domains)} were recorded — this is not a "
+                             f"complete appraisal")
+
         overall = s.get("overall")
-        if not isinstance(overall, str) or overall not in APPRAISAL_OVERALLS:
+        if not isinstance(overall, str) or overall not in INSTRUMENT_OVERALLS[instrument]:
             raise InputError(f"{ctx}.overall: must be one of "
-                             f"{', '.join(sorted(APPRAISAL_OVERALLS))}, got {overall!r}")
+                             f"{', '.join(sorted(INSTRUMENT_OVERALLS[instrument]))} "
+                             f"for {instrument}, got {overall!r}")
 
         # Strings only — str({}) would be "{}", truthy and non-empty, and would
         # silently satisfy the confirmation test.
@@ -547,7 +592,11 @@ def main() -> int:
 
     source = args.infile or "stdin"
     try:
-        raw = open(args.infile, encoding="utf-8").read() if args.infile else sys.stdin.read()
+        if args.infile:
+            with open(args.infile, encoding="utf-8") as fh:
+                raw = fh.read()
+        else:
+            raw = sys.stdin.read()
     except OSError as e:
         sys.stderr.write(f"grade_profile: cannot read {source} ({e})\n")
         return 2
@@ -561,7 +610,8 @@ def main() -> int:
     appraisal = None
     if args.rob:
         try:
-            appraisal = parse_appraisal(json.loads(open(args.rob, encoding="utf-8").read()))
+            with open(args.rob, encoding="utf-8") as fh:
+                appraisal = parse_appraisal(json.loads(fh.read()))
         except (OSError, json.JSONDecodeError) as e:
             sys.stderr.write(f"grade_profile: cannot read --rob {args.rob} ({e})\n")
             return 2

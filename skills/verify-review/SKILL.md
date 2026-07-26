@@ -134,7 +134,13 @@ Each cycle:
 | `U_consistency` | `validate-consistency` auto-repair suggestions |
 | `U_screen` | `screen-literature` re-screen of the disagreement subset |
 | `U_extract` | `extract-synthesis` re-reconcile the flagged extraction fields |
-| `U_grade` | `validate-evidence` for the ungraded themes |
+| `U_grade` | `validate-evidence` → fix the results `grade_profile.py --strict` reports: a missing domain, an illegal upgrade, arithmetic that does not reconcile, or a starting level inconsistent with the predominant design |
+| `U_rob_trace` | `appraise-risk-of-bias` → confirm the unresolved studies, or correct the identifiers the certainty record cites. **If they are unconfirmed rather than unreferenced, this is a human gate (`H_rob`), not a repair — hand off, do not loop.** |
+| `U_checklist` | `prisma-flow` → address the reported rows in the manuscript, or record an explicit `not_applicable` justification for each. Remember completeness is over all **42** rows, not the 27 numbered items |
+
+**Every unit in `DEFAULT_WEIGHTS` must appear in this table.** The backend can nominate any
+registered unit as `dominant_unit`, and Step 4's `CONTINUE → route to the repair skill` has nothing
+to do for a unit with no route — the loop would stall on exactly the failure it just detected.
 
 One repair per cycle, highest-leverage first — no blind "fix everything" passes; each cycle stays auditable.
 

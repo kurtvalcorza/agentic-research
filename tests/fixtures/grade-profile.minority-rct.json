@@ -15,7 +15,7 @@
       "design_mix": {
         "rct": 1,
         "nrsi": 0,
-        "observational": 8,
+        "observational": 3,
         "case_series": 0
       },
       "starting_level": "high",

@@ -83,10 +83,23 @@ class TestP1AppraisalBacking(_Base):
     """P1 (worst) — a malformed --rob file backed a confirmed_rob profile cleanly,
     defeating the traceability the human gate exists to provide."""
 
+    @staticmethod
+    def _appraisal_study(**over):
+        """A structurally complete appraisal, so each test isolates ONE defect.
+
+        Round 2 added structural validation (design, instrument, domain count), which
+        now fires before these field-level checks — so a bare stub would no longer
+        reach the field under test.
+        """
+        s = {"id": "P1", "design": "rct", "instrument": "rob2",
+             "domains": {"randomization": "low", "deviations": "low", "missing_data": "low",
+                         "measurement": "low", "selection_of_result": "low"},
+             "overall": "low", "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+        s.update(over)
+        return {"schema_version": "1.0", "studies": [s]}
+
     def test_out_of_vocabulary_overall_is_rejected(self):
-        rob = {"schema_version": "1.0", "studies": [
-            {"id": "P1", "overall": "totally-made-up",
-             "confirmed_by": {}, "confirmed_at": []}]}
+        rob = self._appraisal_study(overall="totally-made-up")
         code, out, err = self.run_script(
             gp, fixture("grade-profile.valid.json"),
             "--rob", str(self.write(rob, "rob.json")), "--strict")
@@ -95,8 +108,7 @@ class TestP1AppraisalBacking(_Base):
         self.assertNotIn("✅", out)
 
     def test_object_confirmation_in_appraisal_is_rejected(self):
-        rob = {"schema_version": "1.0", "studies": [
-            {"id": "P1", "overall": "low", "confirmed_by": {}, "confirmed_at": "2026-07-26"}]}
+        rob = self._appraisal_study(confirmed_by={})
         code, _, err = self.run_script(
             gp, fixture("grade-profile.valid.json"),
             "--rob", str(self.write(rob, "rob.json")), "--strict")

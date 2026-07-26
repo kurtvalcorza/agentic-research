@@ -241,7 +241,11 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         pass
 
-    raw = open(args.infile, encoding="utf-8").read() if args.infile else sys.stdin.read()
+    if args.infile:
+        with open(args.infile, encoding="utf-8") as fh:
+            raw = fh.read()
+    else:
+        raw = sys.stdin.read()
     try:
         c = json.loads(raw)
     except json.JSONDecodeError as e:
