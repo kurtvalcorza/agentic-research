@@ -1,0 +1,34 @@
+{
+  "review_type": "systematic",
+  "units_in_scope": [
+    "U_cite_external",
+    "U_cite_internal",
+    "U_consistency",
+    "U_screen",
+    "U_extract",
+    "U_prisma",
+    "U_grade",
+    "U_rob_trace",
+    "U_checklist"
+  ],
+  "units": {
+    "U_cite_external": 0,
+    "U_cite_internal": 0,
+    "U_screen": 0,
+    "U_extract": 0,
+    "U_prisma": 0,
+    "U_grade": 0,
+    "U_rob_trace": 0,
+    "U_checklist": 0
+  },
+  "consistency": {
+    "score": 90,
+    "critical_breaks": 0
+  },
+  "gates": {
+    "H_rob": 0,
+    "H_screen_adj": 0,
+    "H_cite_manual": 0,
+    "H_numeric": 0
+  }
+}

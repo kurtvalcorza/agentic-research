@@ -50,7 +50,14 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_extract` | 1 | `extract-synthesis` | extraction fields flagged unreconciled |
 | `U_prisma` | 1 | `prisma-flow` | arms failing reconciliation (`prisma_flow.py --strict`) |
 | `U_consistency` | 1 | `validate-consistency` | `critical_breaks + max(0, 75 − score)` (graded) |
-| `U_grade` | 1 | `validate-evidence` | themes/outcomes not yet GRADE-graded |
+| `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level |
+| `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve to a confirmed appraisal (`grade_profile.py --rob`) |
+| `U_checklist` | 1 | `prisma-flow` | PRISMA rows neither located nor justified (`prisma_checklist.py --strict`), over all **42** addressable rows |
+
+> **`U_grade` was redefined.** It previously counted "themes/outcomes not yet GRADE-graded", which
+> had no operational definition and so could never fail for the right reason. It is now computed
+> from the certainty check. `H_rob` likewise changed source — from a hand-entered assertion to the
+> count `rob_appraisal.py` reports — while keeping its key and meaning.
 
 The **predicate uses raw counts** (every unit must reach 0); the **weights only shape routing and the climb gradient**. Weights/thresholds live in one config block in `scripts/review_units.py`.
 
@@ -67,14 +74,22 @@ The **predicate uses raw counts** (every unit must reach 0); the **weights only 
 
 The loop runs on **both** registrable/systematic reviews and the lighter narrative path — but in-scope units are **derived from the review type**, because a unit only exists when its upstream artifact does. Omitted units are **absent**, not "zero to achieve."
 
-| Unit | systematic / scoping / rapid / umbrella | narrative / exploratory |
-|:-----|:--:|:--:|
-| `U_cite_external`, `U_cite_internal`, `U_consistency` | ✅ | ✅ (universal floor) |
-| `U_extract` | ✅ | ✅ if an extraction matrix exists |
-| `U_grade` | ✅ | only if evidence grading was performed |
-| `U_prisma` | ✅ | ⬜ no PRISMA flow |
-| `U_screen` | ✅ dual-reviewer | ⬜ no dual-screening κ |
-| Human gates | all | `H_cite_manual` only |
+| Unit | systematic | umbrella | rapid | scoping | narrative |
+|:-----|:--:|:--:|:--:|:--:|:--:|
+| `U_cite_external`, `U_cite_internal`, `U_consistency` | ✅ | ✅ | ✅ | ✅ | ✅ (universal floor) |
+| `U_extract` | ✅ | ✅ | ✅ | ✅ | ✅ if an extraction matrix exists |
+| `U_grade` | ✅ | ✅ | ✅ | ⬜ no certainty grading | only if grading was performed |
+| `U_rob_trace` | ✅ | ✅ | ⬜ heuristic basis permitted | ⬜ | ⬜ |
+| `U_checklist` | ✅ | ✅ | ✅ | ⬜ ScR variant not implemented | ⬜ |
+| `U_prisma` | ✅ | ✅ | ✅ | ✅ | ⬜ no PRISMA flow |
+| `U_screen` | ✅ dual-reviewer | ✅ | ⬜ single screening permitted | ✅ | ⬜ no dual-screening κ |
+| `H_rob` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
+| Other human gates | all | all | `H_cite_manual` | `H_cite_manual` | `H_cite_manual` only |
+
+`U_rob_trace` and `H_rob` are out of scope for **rapid** reviews because the heuristic risk-of-bias
+basis is permitted there when the streamlined method is disclosed — a rapid review still grades
+certainty, so `U_grade` applies. `U_checklist` is out of scope for **scoping** reviews because the
+PRISMA-ScR variant is deliberately unimplemented (see `prisma-flow`); it is absent, not zero.
 
 **Citation integrity and consistency are universal** — every review, however light, must end with real, faithfully-represented citations. The in-scope set is resolved once at classification and frozen for the run. These three floor units (`U_cite_external`, `U_cite_internal`, `U_consistency`) must be **present** in `units.json` for a `VERIFIED` verdict: `review_units.py` **fails closed** — an empty or citation-less units map lists them under `missing_units` and can never report `VERIFIED`, so a malformed or partial input cannot gate a review complete.
 

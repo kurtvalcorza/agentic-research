@@ -1,0 +1,270 @@
+"""Coverage for skills/verify-review/scripts/review_units.py.
+
+This is the script that decides whether a review may be reported VERIFIED, so its
+fail-closed behaviour matters more than any other check's. It had no tests until now.
+Standard library only.
+"""
+from __future__ import annotations
+
+import io
+import json
+import pathlib
+import sys
+import unittest
+from contextlib import redirect_stdout, redirect_stderr
+from unittest import mock
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _load import load  # noqa: E402
+
+ru = load("skills/verify-review/scripts/review_units.py")
+
+FLOOR = {"U_cite_external": 0, "U_cite_internal": 0}
+CLEAN_CONSISTENCY = {"score": 90, "critical_breaks": 0}
+NO_GATES = {"H_rob": 0, "H_screen_adj": 0, "H_cite_manual": 0, "H_numeric": 0}
+
+
+def verdict(data):
+    return ru.verdict(data, ru.DEFAULT_WEIGHTS, ru.CEILING)
+
+
+def systematic(units=None, gates=None, **extra):
+    """A fully-scoped systematic review record."""
+    scope = ["U_cite_external", "U_cite_internal", "U_consistency", "U_screen",
+             "U_extract", "U_prisma", "U_grade", "U_rob_trace", "U_checklist"]
+    u = {k: 0 for k in scope if k != "U_consistency"}
+    if units:
+        u.update(units)
+    d = {"units_in_scope": scope, "units": u, "consistency": CLEAN_CONSISTENCY,
+         "gates": dict(NO_GATES, **(gates or {}))}
+    d.update(extra)
+    return d
+
+
+class TestNewUnitsRegistered(unittest.TestCase):
+    def test_new_units_have_weight_one(self):
+        self.assertEqual(ru.DEFAULT_WEIGHTS["U_rob_trace"], 1)
+        self.assertEqual(ru.DEFAULT_WEIGHTS["U_checklist"], 1)
+
+    def test_citation_integrity_still_dominates_routing(self):
+        self.assertEqual(ru.DEFAULT_WEIGHTS["U_cite_external"], 3)
+
+    def test_universal_floor_is_not_extended(self):
+        """The new units are review-type dependent, so they belong in the declared
+        scope, not the floor every review type must satisfy."""
+        self.assertEqual(ru.UNIVERSAL_FLOOR,
+                         ("U_cite_external", "U_cite_internal", "U_consistency"))
+
+    def test_h_rob_remains_a_gate(self):
+        self.assertIn("H_rob", ru.GATE_KEYS)
+
+
+class TestVerifiedRequiresEverything(unittest.TestCase):
+    def test_complete_clean_systematic_review_verifies(self):
+        self.assertEqual(verdict(systematic())["state"], "VERIFIED")
+
+    def test_outstanding_grade_unit_continues(self):
+        r = verdict(systematic({"U_grade": 2}))
+        self.assertEqual(r["state"], "CONTINUE")
+        self.assertFalse(r["auto_units_zero"])
+
+    def test_outstanding_rob_trace_continues(self):
+        self.assertEqual(verdict(systematic({"U_rob_trace": 1}))["state"], "CONTINUE")
+
+    def test_outstanding_checklist_continues(self):
+        self.assertEqual(verdict(systematic({"U_checklist": 15}))["state"], "CONTINUE")
+
+    def test_missing_in_scope_unit_blocks_verification(self):
+        """The headline fail-closed property: an applicable check that was never
+        reported is MISSING, not zero."""
+        d = systematic()
+        del d["units"]["U_checklist"]
+        r = verdict(d)
+        self.assertIn("U_checklist", r["missing_units"])
+        self.assertNotEqual(r["state"], "VERIFIED")
+
+    def test_missing_unit_is_not_mislabelled_plateau(self):
+        d = systematic(history=[5, 5, 5, 5])
+        del d["units"]["U_grade"]
+        self.assertEqual(verdict(d)["state"], "CONTINUE")
+
+    def test_no_routing_while_a_unit_is_missing(self):
+        d = systematic({"U_cite_external": 4})
+        del d["units"]["U_grade"]
+        self.assertIsNone(verdict(d)["dominant_unit"])
+
+
+class TestScopeResolution(unittest.TestCase):
+    def test_narrative_review_omits_checklist_without_penalty(self):
+        """An inapplicable unit is ABSENT, not zero-to-achieve."""
+        d = {"units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency"],
+             "units": dict(FLOOR), "consistency": CLEAN_CONSISTENCY, "gates": dict(NO_GATES)}
+        r = verdict(d)
+        self.assertEqual(r["state"], "VERIFIED")
+        self.assertEqual(r["missing_units"], [])
+
+    def test_unknown_unit_in_scope_rejected(self):
+        d = systematic()
+        d["units_in_scope"].append("U_vibes")
+        with self.assertRaises(ru.InputError):
+            verdict(d)
+
+    def test_unknown_unit_in_units_rejected(self):
+        d = systematic()
+        d["units"]["U_vibes"] = 0
+        with self.assertRaises(ru.InputError):
+            verdict(d)
+
+
+class TestFailClosed(unittest.TestCase):
+    def test_empty_units_map_cannot_verify(self):
+        r = verdict({"units": {}, "gates": {}})
+        self.assertNotEqual(r["state"], "VERIFIED")
+        self.assertTrue(r["missing_units"])
+
+    def test_citationless_map_cannot_verify(self):
+        r = verdict({"units": {"U_grade": 0}, "consistency": CLEAN_CONSISTENCY, "gates": {}})
+        self.assertNotEqual(r["state"], "VERIFIED")
+        self.assertIn("U_cite_external", r["missing_units"])
+
+    def test_consistency_without_score_stays_absent(self):
+        """A consistency object with no score means the check was not measured."""
+        d = systematic()
+        d["consistency"] = {"critical_breaks": 0}
+        r = verdict(d)
+        self.assertIn("U_consistency", r["missing_units"])
+        self.assertNotEqual(r["state"], "VERIFIED")
+
+    def test_consistency_cannot_be_faked_via_units(self):
+        """A directly-supplied U_consistency is ignored; only a real score counts."""
+        d = systematic()
+        d["units"]["U_consistency"] = 0
+        d["consistency"] = {"critical_breaks": 0}
+        self.assertIn("U_consistency", verdict(d)["missing_units"])
+
+    def test_gates_required_as_object_when_scope_declared(self):
+        d = systematic()
+        del d["gates"]
+        with self.assertRaises(ru.InputError):
+            verdict(d)
+
+    def test_boolean_count_rejected(self):
+        with self.assertRaises(ru.InputError):
+            verdict(systematic({"U_grade": True}))
+
+    def test_numeric_string_rejected(self):
+        """Agrees with prisma_flow.py and the new checks — one definition of malformed."""
+        with self.assertRaises(ru.InputError):
+            verdict(systematic({"U_grade": "0"}))
+
+    def test_negative_count_rejected(self):
+        with self.assertRaises(ru.InputError):
+            verdict(systematic({"U_grade": -1}))
+
+    def test_non_finite_rejected(self):
+        for bad in (float("nan"), float("inf")):
+            with self.subTest(value=bad), self.assertRaises(ru.InputError):
+                verdict(systematic({"U_grade": bad}))
+
+    def test_fractional_gate_rejected(self):
+        """0.9 truncating to 0 would silently drop a pending human gate."""
+        with self.assertRaises(ru.InputError):
+            verdict(systematic(gates={"H_rob": 0.9}))
+
+
+class TestHumanGates(unittest.TestCase):
+    def test_pending_h_rob_blocks_on_human_not_verified(self):
+        r = verdict(systematic(gates={"H_rob": 3}))
+        self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
+        self.assertEqual(r["gates_remaining"], 3)
+
+    def test_gate_never_auto_zeroes_across_cycles(self):
+        """No number of cycles satisfies a human gate."""
+        for cycle in (1, 5, 12, ru.CEILING):
+            with self.subTest(cycle=cycle):
+                r = verdict(systematic(gates={"H_rob": 2}, cycle=cycle))
+                self.assertEqual(r["gates_remaining"], 2)
+                self.assertNotEqual(r["state"], "VERIFIED")
+
+    def test_unknown_gate_key_rejected(self):
+        d = systematic()
+        d["gates"]["H_vibes"] = 0
+        with self.assertRaises(ru.InputError):
+            verdict(d)
+
+
+class TestPlateauAndCeiling(unittest.TestCase):
+    def test_plateau_after_k_flat_cycles(self):
+        d = systematic({"U_grade": 5}, history=[5, 5, 5, 5])
+        self.assertEqual(verdict(d)["state"], "PLATEAU")
+
+    def test_improvement_breaks_the_plateau_run(self):
+        d = systematic({"U_grade": 3}, history=[9, 8, 7, 5])
+        self.assertEqual(verdict(d)["state"], "CONTINUE")
+
+    def test_ceiling_reached(self):
+        d = systematic({"U_grade": 1}, cycle=ru.CEILING)
+        self.assertEqual(verdict(d)["state"], "CEILING")
+
+    def test_history_must_be_numeric(self):
+        with self.assertRaises(ru.InputError):
+            verdict(systematic(history=["five"]))
+
+
+class TestFloorGuard(unittest.TestCase):
+    """Anti-gaming: a unit driven to zero by REMOVING content, not by fixing it.
+
+    Returns a status string: "ok", or a tagged description of the drops.
+    """
+
+    def test_dropped_denominator_flagged_as_unlogged(self):
+        status = ru.floor_guard_status({"citations": 40}, {"citations": 30}, False)
+        self.assertIn("UNLOGGED", status)
+        self.assertIn("40->30", status)
+
+    def test_dropped_denominator_with_logged_exclusion_is_tagged_differently(self):
+        status = ru.floor_guard_status({"citations": 40}, {"citations": 30}, True)
+        self.assertIn("logged-exclusion", status)
+        self.assertNotIn("UNLOGGED", status)
+
+    def test_stable_denominator_is_ok(self):
+        self.assertEqual(ru.floor_guard_status({"citations": 40}, {"citations": 40}, False), "ok")
+
+    def test_growth_is_ok(self):
+        self.assertEqual(ru.floor_guard_status({"citations": 40}, {"citations": 50}, False), "ok")
+
+    def test_no_prior_baseline_is_ok(self):
+        self.assertEqual(ru.floor_guard_status({}, {"citations": 30}, False), "ok")
+
+    def test_vanished_key_is_flagged(self):
+        """Removing a denominator entirely is the largest possible content removal."""
+        status = ru.floor_guard_status({"citations": 40}, {}, False)
+        self.assertIn("removed", status)
+
+    def test_wiping_all_denominators_is_not_silently_ok(self):
+        status = ru.floor_guard_status({"citations": 40, "studies": 12}, {}, False)
+        self.assertIn("citations", status)
+        self.assertIn("studies", status)
+
+
+class TestDryRun(unittest.TestCase):
+    def test_preview_lists_new_units_in_scope(self):
+        preview = ru.dry_run_preview(systematic(), ru.CEILING)
+        self.assertTrue(preview["dry_run"])
+        self.assertIn("U_checklist", preview["units_in_scope"])
+        self.assertIn("U_rob_trace", preview["units_in_scope"])
+        self.assertIn("U_grade", preview["units_in_scope"])
+        self.assertEqual(preview["ceiling"], ru.CEILING)
+
+    def test_preview_names_the_gates_that_will_fire(self):
+        preview = ru.dry_run_preview(systematic(gates={"H_rob": 2}), ru.CEILING)
+        self.assertIn("H_rob", preview["human_gates_that_will_fire"])
+
+    def test_preview_writes_no_state(self):
+        self.assertIn("no state written", preview_note := ru.dry_run_preview(
+            systematic(), ru.CEILING)["note"])
+        self.assertIn("preview only", preview_note)
+
+
+if __name__ == "__main__":
+    unittest.main()

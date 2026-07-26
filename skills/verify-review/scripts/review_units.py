@@ -68,7 +68,15 @@ DEFAULT_WEIGHTS = {
     "U_screen": 1,
     "U_extract": 1,
     "U_prisma": 1,
+    # U_grade: results failing grade_profile.py --strict. Previously this had no
+    # operational definition ("themes not yet graded"), so it could not fail for
+    # the right reason; it is now computed from the certainty check.
     "U_grade": 1,
+    # U_rob_trace: studies cited by the certainty record as confirmed-appraisal
+    # backing that do not resolve to a confirmed appraisal (grade_profile.py --rob).
+    "U_rob_trace": 1,
+    # U_checklist: PRISMA rows neither located nor justified (prisma_checklist.py).
+    "U_checklist": 1,
     "U_consistency": 1,
 }
 CONSISTENCY_GATE = 75      # validate-consistency pass threshold
@@ -76,6 +84,9 @@ PLATEAU_K = 3              # consecutive flat-or-worse cycles -> PLATEAU
 SOFT_ADVISORY_CYCLE = 10   # advisory only; does NOT stop the loop
 CEILING = 25               # hard backstop
 
+# H_rob is now COMPUTED by rob_appraisal.py (studies lacking confirmed_by/confirmed_at)
+# rather than asserted by hand. The key and its semantics are unchanged; only its
+# provenance is. Human gates are never auto-zeroed by any number of cycles.
 GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
 
 # Citation integrity + consistency are universal for EVERY review type (spec
