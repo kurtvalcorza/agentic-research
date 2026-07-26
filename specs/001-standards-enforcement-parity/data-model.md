@@ -41,7 +41,8 @@ inexpressible, not merely undocumented.
 | `id` | string | Unique within `results` |
 | `label` | string | Human-readable; appears in the generated profile |
 | `study_ids` | array of string | Non-empty; unique within the result (FR-042) |
-| `design_mix` | object | Counts by design: `rct`, `nrsi`, `observational`, `case_series`. Whole non-negative numbers |
+| `appraised_result` | string | **Required** when any domain declares `basis: confirmed_rob` — names the appraised target these studies are relied on for. Each `study_ids` entry must resolve at `(study, appraised_result)`, so a study appraised for a *different* result does not count (FR-017) |
+| `design_mix` | object | Counts by design: `rct`, `nrsi`, `observational`, `dta`, `case_series`. Whole non-negative numbers; must total `len(study_ids)` |
 | `starting_level` | enum | `high` \| `moderate` \| `low` \| `very_low` |
 | `starting_level_justification` | string | Required when `starting_level` disagrees with the predominant entry in `design_mix` (FR-004) |
 | `domains` | object | Exactly the five keys below — all required, none defaulted (FR-001) |
@@ -121,8 +122,9 @@ Exact domain keys per instrument are enumerated in
 
 **State transition.** A study appraisal is *provisional* until `confirmed_by` and `confirmed_at`
 are both non-empty, at which point it is *confirmed*. There is no reverse transition and no
-automated path into the confirmed state (FR-026). The count of provisional studies is reported as
-the outstanding human gate (FR-014). The check establishes that a confirmation record exists; it
+automated path into the confirmed state (FR-026). The count of provisional **appraisals** is
+reported as the outstanding human gate (FR-014) — a human confirms a judgment about one result,
+so a study contributing to two results is confirmed twice, independently. The check establishes that a confirmation record exists; it
 cannot establish who wrote it (FR-015).
 
 ---
@@ -160,7 +162,7 @@ gate from asserted to computed.
 | `U_grade` | 1 | certainty check | Results failing any certainty rule — replaces "not yet graded" (FR-023) |
 | `U_rob_trace` | 1 | certainty check `--rob` | Referenced studies not resolving to a confirmed appraisal (FR-017) |
 | `U_checklist` | 1 | checklist check | Items neither located nor justified (FR-020) |
-| `H_rob` | gate | appraisal check | Studies without confirmation — now computed, previously asserted (FR-014) |
+| `H_rob` | gate | appraisal check | Appraisals without confirmation — now computed, previously asserted (FR-014) |
 
 ### Applicability by review type
 

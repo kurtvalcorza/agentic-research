@@ -63,8 +63,10 @@ python scripts/rob_appraisal.py appraisal/risk-of-bias.json --strict
 **Exit codes**: `0` clean (or violations found without `--strict`) · `1` method violation under
 `--strict` · `2` malformed input, in which case **no artifact is emitted**.
 
-Generated: the per-study table, the traffic-light summary, and the `H_rob` count of studies
-awaiting confirmation. The confirmed overall ratings then feed `validate-evidence` via its `--rob`
+Generated: the per-appraisal table, the traffic-light summary, and the `H_rob` count of
+**appraisals** awaiting confirmation. Appraisals, not studies: identity is `(study, result)`, so a
+study contributing to two outcomes carries two appraisals, each confirmed separately. The
+confirmed overall ratings then feed `validate-evidence` via its `--rob`
 argument — a file path, never an import, so this skill stays copyable on its own.
 
 ### What the check enforces
@@ -77,7 +79,7 @@ argument — a file path, never an import, so this skill stays copyable on its o
 | 4 | `overall` is not more favourable than the worst domain, unless `overall_justification` is recorded |
 | 5 | Newcastle-Ottawa `overall` matches the band its star total implies — the bands are conventional, so a justification may override |
 | 6 | ROBINS-I: an overall of `low` while a domain reports `no_information` is flagged — absence of evidence is not evidence of low risk |
-| 7 | `confirmed_by` and `confirmed_at` are present and non-blank; the count of studies lacking them is `H_rob` |
+| 7 | `confirmed_by` and `confirmed_at` are present and non-blank; the count of appraisals lacking them is `H_rob` |
 
 ### ⚠️ What this check CANNOT verify
 

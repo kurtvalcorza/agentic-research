@@ -1,7 +1,7 @@
 # Contract: Appraisal Record (`risk-of-bias.json`)
 
-Consumed by `skills/appraise-risk-of-bias/scripts/rob_appraisal.py`. Generates the per-study table
-and traffic-light summary, and reports the outstanding human gate.
+Consumed by `skills/appraise-risk-of-bias/scripts/rob_appraisal.py`. Generates the per-appraisal
+table and traffic-light summary, and reports the outstanding human gate.
 
 ## Invocation
 
@@ -46,6 +46,10 @@ high, else `unclear` if any is unclear, else `low`.
 
 ## Example
 
+`result_assessed` is required: identity is the pair `(id, result_assessed)`, not the study id.
+This record is complete and runs clean under `--strict`; `tests/test_contract_examples.py`
+executes it on every commit.
+
 ```json
 {
   "schema_version": "1.0",
@@ -55,7 +59,6 @@ high, else `unclear` if any is unclear, else `low`.
       "design": "rct",
       "instrument": "rob2",
       "result_assessed": "diagnostic accuracy at 12 months",
-      // REQUIRED. Identity is (id, result_assessed).
       "domains": {
         "randomization": "low",
         "deviations": "low",
@@ -91,7 +94,10 @@ high, else `unclear` if any is unclear, else `low`.
 
 ## Generated artifacts
 
-1. **Per-study table** — id, design, instrument, each domain judgment, overall, confirmation status.
+1. **Per-appraisal table** — id, design, instrument, result assessed, each domain judgment,
+   overall, confirmation status. One row per appraisal, so a study contributing to two results
+   appears twice. The header states both figures — *N appraisals of M studies* — because they
+   differ, and the study count is the manuscript-facing one.
 2. **Traffic-light summary** — (study, result) × domain grid. Every row names the result it
    assesses, so a study appraised for two outcomes does not render as two identically-labelled
    rows carrying different judgments. Encoded with **both** a symbol and a text label rather than
@@ -101,7 +107,7 @@ high, else `unclear` if any is unclear, else `low`.
 Both artifacts carry a provenance line naming the generating check and source record, as the
 certainty and checklist artifacts do (constitution Principle VII).
 
-Output states the `H_rob` count and, per FR-015, carries this line verbatim:
+Output states the `H_rob` count of appraisals and, per FR-015, carries this line verbatim:
 
 > This check establishes that a confirmation record is present. It cannot establish that a human
 > made the judgment, or who that person was.

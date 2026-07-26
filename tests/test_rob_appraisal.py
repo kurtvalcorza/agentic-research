@@ -104,6 +104,22 @@ class TestArtifactPreservesIdentity(_Tmp):
         for h in headers:
             self.assertIn("Result assessed", h)
 
+    def test_header_separates_appraisals_from_studies(self):
+        """Round 8: len(studies) counts appraisals. Reporting it as a study count
+        inflates a manuscript-facing figure the moment a study has two results."""
+        _, out, _ = run(fixture("risk-of-bias.multi-result.json"))
+        self.assertIn("2 appraisals of 1 study", out)
+
+    def test_header_counts_agree_when_each_study_has_one_result(self):
+        _, out, _ = run(fixture("risk-of-bias.contract-example.json"))
+        self.assertIn("4 appraisals of 4 studies", out)
+
+    def test_h_rob_is_labelled_as_appraisals(self):
+        """It has always counted appraisals: a human confirms a judgment about one
+        result, not a study wholesale. Only the noun was wrong."""
+        _, out, _ = run(fixture("risk-of-bias.unconfirmed-study.json"))
+        self.assertIn("**H_rob: 1** appraisal awaiting", out)
+
     def test_result_rendered_even_when_the_instrument_mismatches(self):
         """The mismatch path skips domain validation, so it renders separately and
         would otherwise miss the column."""

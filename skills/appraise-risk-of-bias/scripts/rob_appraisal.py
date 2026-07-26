@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-rob_appraisal.py — check a risk-of-bias appraisal record and generate the per-study
-table and traffic-light summary from it. Standard library only.
+rob_appraisal.py — check a risk-of-bias appraisal record and generate the
+per-appraisal table and traffic-light summary from it. Standard library only.
 
 WHAT THIS CHECKS
   That each study was appraised with the instrument its design calls for, that every
@@ -307,7 +307,11 @@ def nos_band(total: int) -> str:
 
 
 def check(studies: list[dict]) -> tuple[list[str], int]:
-    """Return (violations, count of studies awaiting human confirmation)."""
+    """Return (violations, count of APPRAISALS awaiting human confirmation).
+
+    Appraisals, not studies: identity is (study, result), and each is confirmed
+    separately because a human signs off on a judgment about one result.
+    """
     errs: list[str] = []
     unconfirmed = 0
 
@@ -495,7 +499,14 @@ def main() -> int:
         sys.stderr.write(f"rob_appraisal: {e}\n")
         return 2
 
-    print(f"# Risk of bias — {len(studies)} stud{'y' if len(studies) == 1 else 'ies'}\n")
+    # Since identity is (study, result), len(studies) counts APPRAISALS, not studies.
+    # Reporting it as a study count inflates the manuscript-facing figure whenever a
+    # study contributes to more than one result.
+    n_appraisals = len(studies)
+    n_studies = len({s["id"] for s in studies})
+    head = f"# Risk of bias — {n_appraisals} appraisal{'' if n_appraisals == 1 else 's'}"
+    head += f" of {n_studies} stud{'y' if n_studies == 1 else 'ies'}"
+    print(head + "\n")
     print(per_study_table(studies))
     print()
     print(traffic_light(studies))
@@ -505,9 +516,11 @@ def main() -> int:
         for e in errs:
             print(f"- {e}")
     else:
-        print("✅ Every study uses the instrument its design calls for, carries every domain "
+        print("✅ Every appraisal uses the instrument its design calls for, carries every domain "
               "that instrument defines, and has a recorded confirmation.")
-    print(f"\n**H_rob: {unconfirmed}** stud{'y' if unconfirmed == 1 else 'ies'} awaiting human "
+    # H_rob has always counted appraisals — each is confirmed separately, since a
+    # human signs off on a judgment about one result, not on a study wholesale.
+    print(f"\n**H_rob: {unconfirmed}** appraisal{'' if unconfirmed == 1 else 's'} awaiting human "
           f"confirmation.")
     print("\n> This check establishes that a confirmation record is present. It cannot establish "
           "that a human made the judgment, or who that person was.")

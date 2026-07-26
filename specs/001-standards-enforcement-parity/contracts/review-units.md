@@ -66,6 +66,11 @@ Inapplicable units are **absent**, not zero-to-achieve (FR-025). The existing di
 
 ## Example
 
+A complete record captured **mid-review**, with units still outstanding — two ungraded results,
+one unresolved risk-of-bias reference, four unaddressed checklist rows. The verdict is therefore
+not `VERIFIED` and the exit code is 1. That is the fail-closed behaviour above, shown working
+rather than described. `tests/test_contract_examples.py` runs this record and pins that outcome.
+
 ```json
 {
   "review_type": "systematic",
@@ -82,5 +87,5 @@ Inapplicable units are **absent**, not zero-to-achieve (FR-025). The existing di
 }
 ```
 
-Verdict: **CONTINUE** — seven units outstanding across three checks, and three studies awaiting
+Verdict: **CONTINUE** — seven units outstanding across three checks, and three appraisals awaiting
 human confirmation. `H_rob` is never auto-satisfied by further cycles (FR-026).

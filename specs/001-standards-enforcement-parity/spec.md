@@ -41,6 +41,7 @@ run has automated coverage. This request satisfies that override.
 ### Session 2026-07-26
 
 - Q: How should a study referenced in the certainty record be matched to its entry in the appraisal record? → A: Exact string match on the declared study identifier; a duplicate identifier within one record is malformed input.
+  - **Superseded during implementation review.** The answer was right about exact matching and wrong about identity. RoB 2 and ROBINS-I appraise a *result*, so a study contributing to two outcomes carries two appraisals, and keying on the study identifier made the correct representation inexpressible. Matching is on `(study identifier, result assessed)`; only a repeated *pair* is malformed. See FR-042 and [contracts/risk-of-bias.md](contracts/risk-of-bias.md#identity-study-result-not-study).
 - Q: Should the record formats carry a schema version? → A: Yes — a version field is required, and a record with no version or an unrecognised version is rejected.
 - Q: Should the body-level risk-of-bias judgment be compared against the per-study ratings? → A: Yes — flag a body-level judgment contradicted by the per-study distribution, permitted only when a justification is recorded.
 - Q: Which review types must use human-confirmed appraisal rather than the heuristic fallback? → A: Systematic and umbrella require confirmed; rapid may use the heuristic when the shortcut is disclosed; scoping and narrative do not grade certainty.
@@ -189,7 +190,7 @@ applicable check and confirming it reports the omission rather than passing.
 3. **Given** a narrative review to which reporting checklists and appraisal do not apply,
    **When** the loop evaluates it, **Then** those checks are treated as out of scope rather than
    as zero-to-achieve.
-4. **Given** studies awaiting human confirmation, **When** the loop runs any number of cycles,
+4. **Given** appraisals awaiting human confirmation, **When** the loop runs any number of cycles,
    **Then** the human gate is never automatically satisfied.
 
 ---
@@ -241,8 +242,12 @@ confirming it passes, and by confirming the suite runs automatically when change
   silently into this work.
 - **Near-miss study identifiers.** An identifier differing only in case or surrounding
   whitespace MUST be reported as an unresolved reference, never quietly matched.
-- **Repeated study identifiers.** The same identifier appearing twice within one record MUST be
-  rejected, since it makes every reference to it ambiguous.
+- **Repeated appraisal identity.** The same `(study identifier, result assessed)` pair appearing
+  twice within one appraisal record MUST be rejected, since it makes every reference to it
+  ambiguous. A repeated study identifier alone MUST NOT be rejected — that is how a study
+  contributing to two results is represented — but the study's declared design MUST agree across
+  its appraisals. In a certainty record, the ambiguity is a study identifier repeated within a
+  single result, which MUST be rejected.
 - **Missing or unrecognised record version.** A record with no declared format version, or one
   the check does not recognise, MUST be rejected as unreadable rather than assumed current.
 - **Body-level judgment contradicting its own studies.** A body rated as having no risk-of-bias
@@ -291,7 +296,7 @@ confirming it passes, and by confirming the suite runs automatically when change
 - **FR-013**: The system MUST flag a declared overall judgment more favourable than the study's
   worst domain unless an explicit justification is recorded.
 - **FR-014**: The system MUST require a recorded human confirmation for every study, and MUST
-  report the count of studies lacking one.
+  report the count of appraisals lacking one.
 - **FR-015**: The system MUST state plainly, wherever human confirmation is checked, that the
   check establishes the presence of a confirmation record and not its authenticity.
 - **FR-016**: The system MUST produce, from a valid appraisal record, a per-study summary and a

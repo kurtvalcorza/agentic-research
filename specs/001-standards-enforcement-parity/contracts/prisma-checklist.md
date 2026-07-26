@@ -51,6 +51,12 @@ To enable it later: transcribe the table from the source, add it to `VARIANTS` i
 
 ## Example
 
+**An excerpt, not a complete record.** It shows the shape of the four item forms; a real
+`prisma_2020` record addresses all 42 rows, and Rule 1 below means this excerpt exits 1 under
+`--strict` with the other 38 listed as unaddressed. That is the check working, not a defect —
+`tests/test_contract_examples.py` pins that exit code so the excerpt cannot silently become
+wrong in some other way.
+
 ```json
 {
   "schema_version": "1.0",

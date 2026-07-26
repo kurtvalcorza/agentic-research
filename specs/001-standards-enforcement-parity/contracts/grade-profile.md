@@ -17,6 +17,14 @@ declares `basis: confirmed_rob`; omitting it under `--strict` is a violation, no
 
 ## Example
 
+Complete and runnable: this record exits 0 under `--strict` when paired with an appraisal
+record covering P1/P3/P5/P7 at the named result. `tests/test_contract_examples.py` runs it
+against `tests/fixtures/risk-of-bias.contract-example.json` on every commit, so the example
+cannot drift away from the schema again.
+
+Note `appraised_result`: it is required whenever a domain declares `confirmed_rob`, because an
+appraisal targets one result rather than a whole study.
+
 ```json
 {
   "schema_version": "1.0",
@@ -27,6 +35,7 @@ declares `basis: confirmed_rob`; omitting it under `--strict` is a violation, no
       "id": "O1",
       "label": "Diagnostic accuracy at 12 months",
       "study_ids": ["P1", "P3", "P5", "P7"],
+      "appraised_result": "diagnostic accuracy at 12 months",
       "design_mix": {"rct": 4, "nrsi": 0, "observational": 0, "case_series": 0},
       "starting_level": "high",
       "domains": {

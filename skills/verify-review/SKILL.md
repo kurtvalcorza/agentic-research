@@ -161,7 +161,7 @@ to do for a unit with no route — the loop would stall on exactly the failure i
 One repair per cycle, highest-leverage first — no blind "fix everything" passes; each cycle stays auditable.
 
 ### Step 5 — Human handoff (on `BLOCKED_ON_HUMAN`)
-Emit a crisp "here's what needs you" report: the studies awaiting RoB confirmation, the conflicts awaiting adjudication, the citations only resolvable manually — each with the **provisional machine judgment** so the human can confirm or override quickly. Do **not** loop through these and do **not** synthesize a confirmation.
+Emit a crisp "here's what needs you" report: the appraisals awaiting RoB confirmation, the conflicts awaiting adjudication, the citations only resolvable manually — each with the **provisional machine judgment** so the human can confirm or override quickly. Do **not** loop through these and do **not** synthesize a confirmation.
 
 ## The anti-gaming floor-guard (non-negotiable)
 
