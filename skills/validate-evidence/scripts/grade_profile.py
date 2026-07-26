@@ -11,6 +11,11 @@ WHAT THIS CHECKS
   confirmed actually resolving to a confirmed appraisal.
 
 WHAT THIS CANNOT CHECK
+  Full GRADE for diagnostic test accuracy. A `dta` body starts HIGH here, per GRADE
+  guidance, but published GRADE-DTA rates SENSITIVITY and SPECIFICITY as separate
+  outcomes each with their own certainty. This check grades one certainty per
+  result, so a DTA profile here is a simplification the reviewer must be aware of.
+
   Without --rob, whether design_mix describes the studies actually cited. The
   totals must match study_ids, but only a supplied appraisal record lets the
   DISTRIBUTION be verified -- and the distribution is what sets the starting
@@ -79,13 +84,25 @@ SYMBOLS = {4: "⊕⊕⊕⊕", 3: "⊕⊕⊕◯", 2: "⊕⊕◯◯", 1: "⊕◯�
 
 DOMAINS = ("risk_of_bias", "inconsistency", "indirectness", "imprecision", "publication_bias")
 UPGRADES = ("large_effect", "dose_response", "opposing_confounding")
-DESIGNS = ("rct", "nrsi", "observational", "case_series")
+DESIGNS = ("rct", "nrsi", "observational", "dta", "case_series")
 
 # Starting level implied by the design that PREDOMINATES in the body of evidence.
 # Anchoring to the predominant design (rather than to the strongest single study
 # present) is the whole point: one randomized trial among eight cross-sectional
 # studies does not start the body at HIGH.
-DESIGN_START = {"rct": "high", "nrsi": "low", "observational": "low", "case_series": "very_low"}
+DESIGN_START = {"rct": "high", "nrsi": "low", "observational": "low",
+                # Diagnostic test accuracy: GRADE rates a body of accuracy studies
+                # as starting HIGH, not low — mapping it onto "observational" would
+                # understate certainty by two levels.
+                #   GRADE Guidance 31, J Clin Epidemiol 2021 (S0895-4356(21)00117-7)
+                #   Schunemann et al., J Clin Epidemiol 2019 (S0895-4356(18)31069-2)
+                "dta": "high",
+                "case_series": "very_low"}
+
+# Designs the appraisal taxonomy can express. `case_series` has no risk-of-bias
+# instrument, so a body containing case series cannot be fully traced through --rob
+# and its distribution cannot be reconciled — stated rather than silently mismatched.
+APPRAISABLE_DESIGNS = ("rct", "nrsi", "observational", "dta")
 
 RECORD_KEYS = {"schema_version", "review_type", "synthesis_mode",
                "streamlined_method_disclosed", "results"}
@@ -409,6 +426,67 @@ def _validate_appraisal_domains(instrument: str, domains: dict, ctx: str) -> Non
                                  f"for {instrument}, got {value!r}")
 
 
+# Severity ranks for the overall-vs-worst-domain check, mirroring rob_appraisal.py.
+# None means "not orderable" (ROBINS-I no_information) and is excluded from the
+# comparison rather than guessed at.
+INSTRUMENT_SEVERITY = {
+    "rob2": {"low": 0, "some_concerns": 1, "high": 2},
+    "robins_i": {"low": 0, "moderate": 1, "serious": 2, "critical": 3, "no_information": None},
+    "quadas2": {"low": 0, "unclear": 1, "high": 2},
+    "nos": {"low": 0, "moderate": 1, "high": 2},
+}
+NOS_BANDS = ((7, "low"), (4, "moderate"), (0, "high"))
+
+
+def _nos_band(total: int) -> str:
+    for threshold, band in NOS_BANDS:
+        if total >= threshold:
+            return band
+    return "high"
+
+
+def _validate_appraisal_overall(instrument, domains, overall, justification, ctx):
+    """The overall must not be more favourable than the study's worst domain.
+
+    Ported from rob_appraisal.py so the two checks agree about the same file. An
+    appraisal declaring `overall: low` over a `high` domain is invalid there and was
+    being consumed here as favourable backing, letting a zero risk-of-bias downgrade
+    stand on an appraisal its own instrument rejects.
+    """
+    if justification:
+        return                                  # a recorded override, as the sibling allows
+
+    if instrument == "nos":
+        total = sum(domains.get(d, 0) for d in INSTRUMENT_DOMAINS["nos"])
+        band = _nos_band(int(total))
+        if overall != band:
+            raise InputError(
+                f"{ctx}: Newcastle-Ottawa total is {int(total)}/9, which bands as "
+                f"'{band}', but overall is '{overall}' and no overall_justification "
+                f"is recorded — rob_appraisal.py rejects this record")
+        return
+
+    ranks = {}
+    for name, value in domains.items():
+        v = value["risk_of_bias"] if instrument == "quadas2" else value
+        ranks[name] = INSTRUMENT_SEVERITY[instrument][v]
+    ordered = {d: r for d, r in ranks.items() if r is not None}
+    if not ordered:
+        return
+    worst_domain = max(ordered, key=lambda d: ordered[d])
+    worst = ordered[worst_domain]
+    declared = INSTRUMENT_SEVERITY[instrument][overall]
+    if declared is not None and declared < worst:
+        shown = domains[worst_domain]
+        if instrument == "quadas2":
+            shown = shown["risk_of_bias"]
+        raise InputError(
+            f"{ctx}: overall '{overall}' is more favourable than its worst domain "
+            f"({worst_domain} = '{shown}') and no overall_justification is recorded "
+            f"— rob_appraisal.py rejects this record, so it cannot back a "
+            f"confirmed_rob basis")
+
+
 def parse_appraisal(raw: dict) -> dict:
     """Return {study_id: {'overall': str, 'confirmed': bool}} from an appraisal record.
 
@@ -456,6 +534,10 @@ def parse_appraisal(raw: dict) -> dict:
                              f"{', '.join(sorted(INSTRUMENT_OVERALLS[instrument]))} "
                              f"for {instrument}, got {overall!r}")
 
+        _validate_appraisal_overall(instrument, domains, overall,
+                                    _opt_str(s.get("overall_justification"),
+                                             f"{ctx}.overall_justification"), ctx)
+
         # Strings only — str({}) would be "{}", truthy and non-empty, and would
         # silently satisfy the confirmation test.
         by = _opt_str(s.get("confirmed_by"), f"{ctx}.confirmed_by")
@@ -466,10 +548,17 @@ def parse_appraisal(raw: dict) -> dict:
 
 
 def predominant_design(mix: dict) -> str:
-    """The design the body mostly consists of; ties resolve to the WEAKER design."""
-    order = {"rct": 3, "nrsi": 2, "observational": 1, "case_series": 0}
-    best = max(mix.items(), key=lambda kv: (kv[1], -order[kv[0]]))
-    return best[0]
+    """The design the body mostly consists of; ties resolve to the WEAKER design.
+
+    Strength is derived from DESIGN_START rather than a separate hand-maintained
+    order, so adding a design cannot leave this function stale. A hand-kept order
+    dict is exactly what raised KeyError when 'dta' was added.
+    """
+    def rank(design):
+        return LEVELS[DESIGN_START[design]]
+    # Highest count wins; on a tie the weaker starting level wins; then name, so the
+    # result is deterministic.
+    return max(mix.items(), key=lambda kv: (kv[1], -rank(kv[0]), kv[0]))[0]
 
 
 # --- checking ----------------------------------------------------------------
@@ -573,10 +662,24 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
     # a fabricated distribution -- four observational studies declared as
     # {"rct": 4} -- inflates the starting level exactly as a wrong total would,
     # and the totals check alone let it through.
-    if resolved and len(resolved) == len(r["study_ids"]):
+    # case_series has no risk-of-bias instrument, so such studies cannot appear in an
+    # appraisal record at all and the distribution is unverifiable for those bodies.
+    # Reconciling anyway would report a guaranteed mismatch for a legitimate record.
+    if r["design_mix"].get("case_series"):
+        errs.append(
+            f"result {rid}: design_mix includes {r['design_mix']['case_series']} case "
+            f"series, which have no risk-of-bias instrument and cannot appear in an "
+            f"appraisal record — the design distribution cannot be verified for this "
+            f"body, only its total")
+    elif resolved and len(resolved) == len(r["study_ids"]):
         actual = {d: 0 for d in DESIGNS}
         for sid in resolved:
-            actual[appraisal[sid]["design"]] += 1
+            design = appraisal[sid]["design"]
+            if design not in actual:            # defensive: never KeyError on a verdict path
+                errs.append(f"result {rid}: study {sid} is appraised as '{design}', which "
+                            f"has no design_mix category")
+                continue
+            actual[design] += 1
         if actual != r["design_mix"]:
             shown = ", ".join(f"{d}={n}" for d, n in actual.items() if n)
             claimed = ", ".join(f"{d}={n}" for d, n in r["design_mix"].items() if n)
