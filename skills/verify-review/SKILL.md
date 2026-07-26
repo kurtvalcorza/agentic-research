@@ -55,9 +55,25 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_checklist` | 1 | `prisma-flow` | PRISMA rows neither located nor justified (`prisma_checklist.py --strict`), over all **42** addressable rows |
 
 > **`U_grade` was redefined.** It previously counted "themes/outcomes not yet GRADE-graded", which
-> had no operational definition and so could never fail for the right reason. It is now computed
-> from the certainty check. `H_rob` likewise changed source — from a hand-entered assertion to the
-> count `rob_appraisal.py` reports — while keeping its key and meaning.
+> had no operational definition and so could never fail for the right reason. It is now **defined
+> as** the count `grade_profile.py --strict` reports. `H_rob` likewise changed source — from a
+> hand-entered assertion to the count `rob_appraisal.py` reports — while keeping its key and
+> meaning.
+
+### ⚠️ What the backend CANNOT verify
+
+`review_units.py` computes a verdict **from the counts it is given**. It does not run the checks,
+locate their artifacts, or confirm that a reported count came from a real run. A hand-written
+`units.json` declaring every unit `0` will reach `VERIFIED`.
+
+This is true of every unit, not just the new ones — `U_prisma` and `U_screen` have always worked
+this way, because the backend is a verdict calculator rather than an orchestrator. "Defined as the
+count the check reports" describes **where the number is supposed to come from in the pipeline**,
+not a guarantee the backend can enforce.
+
+So the enforcement is real at the point the check runs, and an assertion at the point the verdict
+is computed. Closing that gap means having the loop run the checks itself and derive the counts —
+tracked in the repository's issues, not silently assumed here.
 
 The **predicate uses raw counts** (every unit must reach 0); the **weights only shape routing and the climb gradient**. Weights/thresholds live in one config block in `scripts/review_units.py`.
 

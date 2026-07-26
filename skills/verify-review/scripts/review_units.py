@@ -70,7 +70,7 @@ DEFAULT_WEIGHTS = {
     "U_prisma": 1,
     # U_grade: results failing grade_profile.py --strict. Previously this had no
     # operational definition ("themes not yet graded"), so it could not fail for
-    # the right reason; it is now computed from the certainty check.
+    # the right reason; it is now DEFINED AS the count that check reports.
     "U_grade": 1,
     # U_rob_trace: studies cited by the certainty record as confirmed-appraisal
     # backing that do not resolve to a confirmed appraisal (grade_profile.py --rob).
@@ -84,9 +84,17 @@ PLATEAU_K = 3              # consecutive flat-or-worse cycles -> PLATEAU
 SOFT_ADVISORY_CYCLE = 10   # advisory only; does NOT stop the loop
 CEILING = 25               # hard backstop
 
-# H_rob is now COMPUTED by rob_appraisal.py (studies lacking confirmed_by/confirmed_at)
-# rather than asserted by hand. The key and its semantics are unchanged; only its
-# provenance is. Human gates are never auto-zeroed by any number of cycles.
+# H_rob is DEFINED AS the count rob_appraisal.py reports (studies lacking
+# confirmed_by/confirmed_at). The key and its semantics are unchanged; only where
+# the number is meant to come from is.
+#
+# NOTE what this module cannot do: it computes a verdict from the counts it is
+# GIVEN. It does not run the checks or verify that a count came from a real run, so
+# a hand-written units.json of all zeros reaches VERIFIED. That is true of every
+# unit — this is a verdict calculator, not an orchestrator. Closing the gap means
+# running the checks here and deriving the counts; tracked as its own change.
+#
+# Human gates are never auto-zeroed by any number of cycles.
 GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
 
 # Citation integrity + consistency are universal for EVERY review type (spec
