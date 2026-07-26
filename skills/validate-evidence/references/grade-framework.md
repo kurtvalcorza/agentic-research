@@ -16,17 +16,30 @@ GRADE rates evidence quality on four levels:
 
 ## Starting Points
 
-| Study Design | Starting Level |
-|--------------|----------------|
+Anchored to the design that **predominates** in the body of evidence for that result — not to the
+strongest single study present. One randomized trial among eight cross-sectional studies does not
+start the body at HIGH.
+
+| Predominant study design | Starting Level |
+|--------------------------|----------------|
 | Randomized Controlled Trials (RCTs) | HIGH |
 | Observational studies | LOW |
 | Case series, case reports | VERY LOW |
+
+Judgement may depart from the predominant design where the evidence warrants it — but the
+departure must be recorded as an explicit justification, not applied silently.
 
 ---
 
 ## Downgrade Factors
 
 ### 1. Risk of Bias (-1 or -2)
+
+> **Source this domain from the confirmed appraisal**, not from an ad hoc reading. The per-study
+> ratings come from `appraise-risk-of-bias` using the design-appropriate instrument and are
+> human-confirmed. The indicators below describe what those instruments assess; they are not a
+> licence to re-judge each study here.
+
 - Selection bias (randomization issues)
 - Performance bias (blinding issues)
 - Detection bias (outcome assessment)
@@ -67,10 +80,24 @@ GRADE rates evidence quality on four levels:
 - Small sample size
 - Few events
 
-**Indicators:**
-- CI crosses clinical decision threshold
+**Primary basis — judge on these:**
+- The **confidence interval** around the pooled estimate relative to the decision threshold:
+  downgrade when the interval spans both appreciable benefit and appreciable harm
+- The **Optimal Information Size (OIS)**: does the total sample reach what a single adequately
+  powered trial would require? Downgrade when it falls well short
+
+**Fallback only — when no interval or OIS is available:**
 - Total events <300
 - Total sample <400
+
+> These absolute thresholds are a **crude fallback**, not the rule. They are convenient and
+> frequently misapplied: a tight interval around a null effect from 250 events is not imprecise,
+> and a 500-participant study with a interval spanning benefit and harm is. Where the synthesis
+> is narrative and no pooled interval exists, use the fallback and **say so** — the judgment is
+> then weaker, and a reader is entitled to know that.
+
+*Consistent with the imprecision guidance in [`DETAILS.md`](./DETAILS.md); if these two files
+ever disagree again, DETAILS.md governs and this file is the defect.*
 
 ### 5. Publication Bias (-1 or -2)
 - Funnel plot asymmetry
