@@ -94,6 +94,25 @@ def mutations():
                  {"domains": dict(domains, randomization="high"),
                   "overall_justification": "Balanced across arms; analysis unchanged."}),
             ]
+        if instrument == "robins_i":
+            # Round 5 slipped through because the matrix had instrument-specific
+            # mutations for rob2, nos and quadas2 and NONE for robins_i. A
+            # differential that skips an instrument cannot detect that instrument
+            # diverging, which is the same lesson as the omitted _stars coercer.
+            cases += [
+                ("no_information domain with overall low",
+                 {"domains": dict(domains, confounding="no_information")}),
+                ("no_information domain with overall low, justified",
+                 {"domains": dict(domains, confounding="no_information"),
+                  "overall_justification": "Confounding unreported but design precludes it."}),
+                ("no_information domain with a non-low overall",
+                 {"domains": dict(domains, confounding="no_information"),
+                  "overall": "moderate"}),
+                ("every domain no_information",
+                 {"domains": {k: "no_information" for k in domains}}),
+                ("critical domain with overall low",
+                 {"domains": dict(domains, confounding="critical")}),
+            ]
         if instrument == "nos":
             cases += [
                 ("stars over the block maximum", {"domains": dict(domains, comparability=9)}),

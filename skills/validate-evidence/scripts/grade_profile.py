@@ -476,6 +476,20 @@ def _validate_appraisal_overall(instrument, domains, overall, justification, ctx
         v = value["risk_of_bias"] if instrument == "quadas2" else value
         ranks[name] = INSTRUMENT_SEVERITY[instrument][v]
     ordered = {d: r for d, r in ranks.items() if r is not None}
+    no_info = [d for d, r in ranks.items() if r is None]
+
+    # Filtering out the unorderable domains must not silently exonerate them.
+    # ROBINS-I 'no_information' is dropped from the worst-domain comparison because
+    # it cannot be ranked — but an overall of 'low' while a domain reports nothing
+    # is a claim the record has to justify. Absence of evidence is not evidence of
+    # low risk, and rob_appraisal.py rejects exactly this.
+    if no_info and overall == "low":
+        raise InputError(
+            f"{ctx}: overall 'low' while domain(s) {', '.join(no_info)} report no "
+            f"information, and no overall_justification is recorded — absence of "
+            f"evidence is not evidence of low risk, and rob_appraisal.py rejects "
+            f"this record")
+
     if not ordered:
         return
     worst_domain = max(ordered, key=lambda d: ordered[d])

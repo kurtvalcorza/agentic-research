@@ -213,3 +213,53 @@ class TestPredominantDesignTaxonomy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRound5NoInformation(_Base):
+    """Round 5 (1 finding) — the fifth instance of the same disagreement class.
+
+    _validate_appraisal_overall filters unorderable domains out of the worst-domain
+    comparison, which is right: ROBINS-I `no_information` cannot be ranked. But
+    filtering it must not silently EXONERATE it. An overall of 'low' while a domain
+    reports nothing is a claim the record has to justify, and rob_appraisal.py
+    rejects exactly that.
+    """
+
+    ROBINS = {"confounding": "low", "participant_selection": "low",
+              "intervention_classification": "low", "deviations": "low",
+              "missing_data": "low", "outcome_measurement": "low",
+              "selection_of_result": "low"}
+
+    def nrsi_profile(self):
+        return self.profile(design_mix={"rct": 0, "nrsi": 4, "observational": 0,
+                                        "dta": 0, "case_series": 0},
+                            starting_level="low", final="very_low")
+
+    def _rob(self, **over):
+        doms = dict(self.ROBINS, confounding="no_information")
+        return appraisal("nrsi", "robins_i", doms, **over)
+
+    def test_low_overall_with_no_information_is_rejected(self):
+        code, out, err = self.run_gp(self.nrsi_profile(), self._rob(), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("no information", err)
+        self.assertIn("absence of evidence", err)
+        self.assertNotIn("✅", out)
+
+    def test_justification_permits_it(self):
+        rob = self._rob(overall_justification="Design precludes confounding.")
+        code, out, err = self.run_gp(self.nrsi_profile(), rob, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+
+    def test_non_low_overall_with_no_information_is_fine(self):
+        """The rule targets 'low' specifically; 'moderate' is an honest reading."""
+        code, out, err = self.run_gp(self.nrsi_profile(), self._rob(overall="moderate"),
+                                     "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+
+    def test_both_checks_agree(self):
+        rob = self._rob()
+        code_gp, _, _ = self.run_gp(self.nrsi_profile(), rob, "--strict")
+        code_ra, _, _ = self.run_ra(rob, "--strict")
+        self.assertNotEqual(code_gp, 0)
+        self.assertNotEqual(code_ra, 0)
