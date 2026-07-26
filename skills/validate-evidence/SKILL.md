@@ -79,6 +79,53 @@ None (standalone skill)
 
 ---
 
+---
+
+## Runnable check — `scripts/grade_profile.py`
+
+The certainty record is the **source of truth**; the evidence profile and summary-of-findings
+tables are **generated from it**. Do not hand-write the tables alongside the record — maintaining
+both guarantees they eventually disagree, and the disagreement would be invisible.
+
+```bash
+python scripts/grade_profile.py grade-profile.json --rob ../appraise-risk-of-bias/risk-of-bias.json --strict
+```
+
+**Exit codes**: `0` clean (or violations found without `--strict`) · `1` method violation under
+`--strict` · `2` malformed input, in which case **no artifact is emitted** — a record that cannot
+be read must not produce a document that looks authoritative.
+
+`--rob` supplies the appraisal record. It is **required** whenever a result declares
+`basis: confirmed_rob`: claiming confirmed appraisal without supplying it is a violation, not a
+pass. It is a file path, never an import, so this skill stays copyable on its own.
+
+### What the check enforces
+
+| | Rule |
+|:--|:--|
+| 1 | All five downgrade domains present. A missing domain is reported **by name**, never read as "no concern" |
+| 2 | Ratings are `0`, `-1` or `-2` — whole steps only |
+| 3 | A **misspelled** domain key is malformed input, not a missing domain |
+| 4 | `starting_level` matches the **predominant** design, unless justified |
+| 5 | `clamp(start + Σdomains + Σupgrades, 1, 4)` equals `final`, with the discrepancy reported |
+| 6 | Upgrades only on non-randomized bodies with no downgrade applied |
+| 7 | Upgrade reasons limited to the three GRADE defines — "importance of findings" is unrepresentable |
+| 8 | Any cross-result aggregate certainty is **rejected**; GRADE defines none |
+| 9 | `basis` is `confirmed_rob` or `heuristic`; heuristic marks output PROVISIONAL and fails for systematic and umbrella reviews |
+| 10 | Referenced studies resolve to **confirmed** appraisals, matched exactly |
+| 11 | A body-level risk-of-bias judgment contradicted by its own studies is flagged unless justified |
+
+### ⚠️ What this check CANNOT verify
+
+It establishes that a certainty assessment is **complete, legal under GRADE, and arithmetically
+consistent**. It does not — and cannot — establish that a judgment was *correct*. That
+"inconsistency: serious" was the right call requires expertise the script has no access to.
+
+It also cannot confirm that the cited studies exist; only that they appear in the appraisal record
+you supplied. A clean result is a floor, not a warrant.
+
+---
+
 ## References & Details
 
-Full details, examples, and templates have been moved to [Details](references/DETAILS.md).
+Full details, examples, and templates are in [Details](references/DETAILS.md).

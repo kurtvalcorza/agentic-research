@@ -1,0 +1,26 @@
+# GRADE certainty — systematic review
+
+## Evidence profile
+
+Certainty is keyed to **protocol outcomes** (GRADE as published).
+
+| Result | Studies | Predominant design | Start | RoB | Incons. | Indir. | Imprec. | Pub. bias | Final |
+|:--|--:|:--|:--|:--:|:--:|:--:|:--:|:--:|:--|
+| Diagnostic accuracy at 12 months | 4 | rct | high | 0 | -1 | 0 | 0 | 0 | moderate ⊕⊕⊕◯ |
+
+- **Diagnostic accuracy at 12 months**
+  - *risk of bias*: 3 of 4 low, 1 some concerns
+  - *inconsistency*: direction consistent, magnitude varies widely
+  - *indirectness*: populations match the protocol
+  - *imprecision*: interval excludes the decision threshold
+  - *publication bias*: comprehensive search, no small-study pattern
+
+## Summary of findings
+
+| Result | Studies | Certainty | What this means |
+|:--|--:|:--|:--|
+| Diagnostic accuracy at 12 months | 4 | ⊕⊕⊕◯ MODERATE | Moderately confident the true effect lies close to the estimate. |
+
+## Check
+
+✅ Every result is complete, legal under GRADE, and arithmetically consistent.
