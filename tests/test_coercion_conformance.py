@@ -19,13 +19,30 @@ from _load import load  # noqa: E402
 pf = load("skills/prisma-flow/scripts/prisma_flow.py")
 gp = load("skills/validate-evidence/scripts/grade_profile.py")
 ru = load("skills/verify-review/scripts/review_units.py")
+ra = load("skills/appraise-risk-of-bias/scripts/rob_appraisal.py")
 
 # (script label, callable raising on malformed input, its error type)
+#
+# EVERY duplicated numeric coercer belongs here. rob_appraisal._stars was omitted
+# in the first version of this guard — and had already drifted, rejecting the
+# integral float 3.0 that every other coercer accepts. A conformance test that
+# skips a coercer cannot detect that coercer drifting, which is the whole job.
 COERCERS = [
     ("prisma_flow._int", lambda v: pf._int(v, "x"), pf.CountError),
     ("grade_profile._int", lambda v: gp._int(v, "x"), gp.InputError),
     ("review_units._as_nonneg_count", lambda v: ru._as_nonneg_count(v, "x"), ru.InputError),
+    ("rob_appraisal._stars", lambda v: ra._stars(v, "x", 9), ra.InputError),
 ]
+
+# Text fields must never be coerced with str() or tested by bare truthiness:
+# str({}) is "{}" (truthy, non-empty) and True is truthy, so either would let
+# malformed input satisfy a presence check. Round 1 of review found this in four
+# places across three scripts.
+STRING_VALIDATORS = [
+    ("grade_profile._opt_str", lambda v: gp._opt_str(v, "x"), gp.InputError),
+    ("rob_appraisal._opt_str", lambda v: ra._opt_str(v, "x"), ra.InputError),
+]
+NOT_STRINGS = [{}, [], True, False, 0, 1, 3.5]
 
 # Values every gate must REJECT, with why it matters.
 REJECTED = [
@@ -54,10 +71,12 @@ DISCRETE_COUNTERS = [
     ("prisma_flow._int", lambda v: pf._int(v, "x"), pf.CountError),
     ("grade_profile._int", lambda v: gp._int(v, "x"), gp.InputError),
     ("review_units._as_int_count", lambda v: ru._as_int_count(v, "x"), ru.InputError),
+    ("rob_appraisal._stars", lambda v: ra._stars(v, "x", 9), ra.InputError),
 ]
 
-# Values every gate must ACCEPT.
-ACCEPTED = [0, 1, 42]
+# Values every gate must ACCEPT. Kept within 0-9 because _stars legitimately
+# bounds its range to the instrument's maximum — a domain constraint, not drift.
+ACCEPTED = [0, 1, 9]
 
 
 class TestRejectionConformance(unittest.TestCase):
@@ -82,6 +101,33 @@ class TestIntegralFloats(unittest.TestCase):
         for label, fn, _ in COERCERS:
             with self.subTest(script=label):
                 self.assertEqual(int(fn(3.0)), 3)
+
+
+class TestStringValidatorConformance(unittest.TestCase):
+    """Text fields reject non-strings identically across scripts."""
+
+    def test_non_strings_rejected(self):
+        for value in NOT_STRINGS:
+            for label, fn, exc in STRING_VALIDATORS:
+                with self.subTest(value=repr(value), script=label):
+                    with self.assertRaises(exc):
+                        fn(value)
+
+    def test_absent_is_empty_not_an_error(self):
+        for label, fn, _ in STRING_VALIDATORS:
+            with self.subTest(script=label):
+                self.assertEqual(fn(None), "")
+
+    def test_whitespace_is_stripped_to_empty(self):
+        """A blank confirmation must not satisfy a presence check."""
+        for label, fn, _ in STRING_VALIDATORS:
+            with self.subTest(script=label):
+                self.assertEqual(fn("   "), "")
+
+    def test_real_text_survives(self):
+        for label, fn, _ in STRING_VALIDATORS:
+            with self.subTest(script=label):
+                self.assertEqual(fn("  K. Valcorza "), "K. Valcorza")
 
 
 class TestFractionalValues(unittest.TestCase):

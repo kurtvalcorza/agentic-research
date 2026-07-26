@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 
 SCHEMA_VERSIONS = {"1.0"}
@@ -106,6 +107,20 @@ def _str(v, name: str) -> str:
     return v
 
 
+def _opt_str(v, name: str) -> str:
+    """A text field that may be absent, but must be a STRING when present.
+
+    Never coerce with str(): str({}) is "{}" — truthy and non-empty — which would
+    let a malformed JSON object satisfy a check that only tests for emptiness. That
+    is how a confirmation gate silently passes on garbage.
+    """
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        raise InputError(f"{name}: expected a string, got {type(v).__name__} {v!r}")
+    return v.strip()
+
+
 def _no_unknown_keys(d: dict, allowed, ctx: str) -> None:
     unknown = sorted(set(d) - set(allowed))
     if unknown:
@@ -114,7 +129,15 @@ def _no_unknown_keys(d: dict, allowed, ctx: str) -> None:
 
 
 def _stars(v, ctx: str, maximum: int) -> int:
-    if isinstance(v, bool) or not isinstance(v, int):
+    """Star count. Accepts an integral float (JSON has one number type, so 3.0 is 3),
+    matching the shared coercion contract used by the other checks."""
+    if isinstance(v, bool):
+        raise InputError(f"{ctx}: expected an integer star count, got boolean {v!r}")
+    if isinstance(v, float):
+        if not math.isfinite(v) or not v.is_integer():
+            raise InputError(f"{ctx}: star count must be a whole number, got {v!r}")
+        v = int(v)
+    if not isinstance(v, int):
         raise InputError(f"{ctx}: expected an integer star count, got {v!r}")
     if v < 0 or v > maximum:
         raise InputError(f"{ctx}: star count must be between 0 and {maximum}, got {v}")
@@ -170,12 +193,25 @@ def _parse_study(s, i: int, seen: set) -> dict:
     # cause is the instrument, so defer to check(), which reports the mismatch as a
     # violation with a message that names the fix.
     if instrument != DESIGN_INSTRUMENT[design]:
+        # Leaf types are still validated even though the vocabulary cannot be: a
+        # domain value must be a string, a number, or an object whatever the
+        # instrument. Without this, malformed values reach the generator and crash
+        # it AFTER the first table has been printed.
+        for name, value in domains_raw.items():
+            if not isinstance(value, (str, int, float, dict)) or isinstance(value, bool):
+                raise InputError(f"{ctx}.domains.{name}: expected a string, number or "
+                                 f"object, got {type(value).__name__} {value!r}")
+        if overall is not None and not isinstance(overall, str):
+            raise InputError(f"{ctx}.overall: expected a string, got "
+                             f"{type(overall).__name__} {overall!r}")
         return {"id": sid, "design": design, "instrument": instrument,
-                "result_assessed": s.get("result_assessed", ""),
+                "result_assessed": _opt_str(s.get("result_assessed"), f"{ctx}.result_assessed"),
                 "domains": dict(domains_raw), "evidence": s.get("evidence", {}) or {},
-                "overall": overall, "overall_justification": s.get("overall_justification"),
-                "confirmed_by": str(s.get("confirmed_by", "")).strip(),
-                "confirmed_at": str(s.get("confirmed_at", "")).strip(),
+                "overall": overall,
+                "overall_justification": _opt_str(s.get("overall_justification"),
+                                                  f"{ctx}.overall_justification"),
+                "confirmed_by": _opt_str(s.get("confirmed_by"), f"{ctx}.confirmed_by"),
+                "confirmed_at": _opt_str(s.get("confirmed_at"), f"{ctx}.confirmed_at"),
                 "instrument_mismatch": True}
 
     # Unknown domain -> malformed (exit 2). Missing domain -> violation (exit 1).
@@ -189,11 +225,13 @@ def _parse_study(s, i: int, seen: set) -> dict:
                          f"{', '.join(SEVERITY[instrument])} for {instrument}, got {overall!r}")
 
     return {"id": sid, "design": design, "instrument": instrument,
-            "result_assessed": s.get("result_assessed", ""),
+            "result_assessed": _opt_str(s.get("result_assessed"), f"{ctx}.result_assessed"),
             "domains": domains, "evidence": s.get("evidence", {}) or {},
-            "overall": overall, "overall_justification": s.get("overall_justification"),
-            "confirmed_by": str(s.get("confirmed_by", "")).strip(),
-            "confirmed_at": str(s.get("confirmed_at", "")).strip()}
+            "overall": overall,
+            "overall_justification": _opt_str(s.get("overall_justification"),
+                                              f"{ctx}.overall_justification"),
+            "confirmed_by": _opt_str(s.get("confirmed_by"), f"{ctx}.confirmed_by"),
+            "confirmed_at": _opt_str(s.get("confirmed_at"), f"{ctx}.confirmed_at")}
 
 
 def _parse_domain(instrument: str, name: str, value, ctx: str):
@@ -246,6 +284,15 @@ def check(studies: list[dict]) -> tuple[list[str], int]:
     for s in studies:
         sid, inst = s["id"], s["instrument"]
 
+        # Rule 6 — the human gate, checked FIRST and for every study.
+        # It is independent of which instrument was applied: a study with the wrong
+        # instrument that also lacks confirmation is still awaiting a human, and
+        # must not vanish from H_rob because an earlier check short-circuited.
+        if not (s["confirmed_by"] and s["confirmed_at"]):
+            unconfirmed += 1
+            errs.append(f"study {sid}: no human confirmation recorded "
+                        f"(confirmed_by and confirmed_at are both required)")
+
         # Rule 1 — the instrument must match the design.
         expected = DESIGN_INSTRUMENT[s["design"]]
         if inst != expected:
@@ -295,12 +342,6 @@ def check(studies: list[dict]) -> tuple[list[str], int]:
                     f"study {sid}: overall 'low' while domain(s) {', '.join(no_info)} report "
                     f"no information — absence of evidence is not evidence of low risk; "
                     f"record an overall_justification if this is intended")
-
-        # Rule 6 — the human gate. Presence only; see the module docstring.
-        if not (s["confirmed_by"] and s["confirmed_at"]):
-            unconfirmed += 1
-            errs.append(f"study {sid}: no human confirmation recorded "
-                        f"(confirmed_by and confirmed_at are both required)")
 
     return errs, unconfirmed
 
@@ -366,9 +407,16 @@ def traffic_light(studies: list[dict]) -> str:
                 f"{c.replace('_', ' ')} (applicability)" for c in QUADAS_APPLICABILITY) + " |")
             lines.append("|:--|" + "|".join([":--"] * len(QUADAS_APPLICABILITY)) + "|")
             for s in group:
+                if s.get("instrument_mismatch"):
+                    # Its domains were never validated against quadas2, so they may
+                    # not be objects at all. Rendering them would crash mid-artifact.
+                    lines.append(f"| {s['id']} | " + " | ".join(
+                        ["— not appraised"] * len(QUADAS_APPLICABILITY)) + " |")
+                    continue
                 cells = []
                 for c in QUADAS_APPLICABILITY:
-                    app = s["domains"].get(c, {}).get("applicability")
+                    entry = s["domains"].get(c)
+                    app = entry.get("applicability") if isinstance(entry, dict) else None
                     cells.append(f"{MARKS.get(app, '·')} {app}" if app else "— not rated")
                 lines.append(f"| {s['id']} | " + " | ".join(cells) + " |")
             lines.append("")

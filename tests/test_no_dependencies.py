@@ -47,15 +47,27 @@ def collect_imports(path: pathlib.Path) -> tuple[set[str], set[str]]:
     module_level: set[str] = set()
     lazy_guarded: set[str] = set()
 
-    def walk(node, in_func: bool, in_try: bool):
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.Import, ast.ImportFrom)):
-                (lazy_guarded if (in_func and in_try) else module_level).update(_names(child))
-            walk(child,
-                 in_func or isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)),
-                 in_try or isinstance(child, ast.Try))
+    def visit(node, in_func: bool, in_try_body: bool):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            (lazy_guarded if (in_func and in_try_body) else module_level).update(_names(node))
+            return
 
-    walk(tree, False, False)
+        in_func = in_func or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+
+        if isinstance(node, ast.Try):
+            # ONLY the try BODY is guarded. An import in `except`, `else` or
+            # `finally` is not: a missing package there raises unhandled, so
+            # treating it as guarded would wave through a hard dependency.
+            for stmt in node.body:
+                visit(stmt, in_func, True)
+            for stmt in node.handlers + node.orelse + node.finalbody:
+                visit(stmt, in_func, False)
+            return
+
+        for child in ast.iter_child_nodes(node):
+            visit(child, in_func, in_try_body)
+
+    visit(tree, False, False)
     return module_level, lazy_guarded
 
 

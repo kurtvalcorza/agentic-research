@@ -185,6 +185,15 @@ def parse(raw: dict) -> tuple[tuple, dict]:
         if has_loc and has_na:
             raise InputError(f"{ctx}: item {number} has both 'location' and "
                              f"'not_applicable' — an item is one or the other")
+
+        # Both fields are TEXT. A number, boolean, object or list is malformed input
+        # (exit 2), not merely an unaddressed item (exit 1) — otherwise a typo in the
+        # record type would be reported as a reporting gap and "fixed" in the wrong file.
+        for field in ("location", "not_applicable"):
+            if field in it and not isinstance(it[field], str):
+                raise InputError(f"{ctx}.{field}: expected a string, got "
+                                 f"{type(it[field]).__name__} {it[field]!r}")
+
         entries[number] = {"location": it.get("location"),
                            "not_applicable": it.get("not_applicable")}
     return table, entries

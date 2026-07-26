@@ -131,6 +131,20 @@ def _str(v, name: str) -> str:
     return v
 
 
+def _opt_str(v, name: str) -> str:
+    """A text field that may be absent, but must be a STRING when present.
+
+    Never coerce with str() and never test bare truthiness: str({}) is "{}" and
+    `True` is truthy, so either would let malformed input satisfy a check that only
+    asks "is this non-empty?".
+    """
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        raise InputError(f"{name}: expected a string, got {type(v).__name__} {v!r}")
+    return v.strip()
+
+
 def _no_unknown_keys(d: dict, allowed: set, ctx: str) -> None:
     """Reject unrecognised keys rather than ignoring them.
 
@@ -205,7 +219,8 @@ def parse(raw: dict) -> dict:
         parsed.append(_parse_result(r, i, seen_ids))
 
     return {"schema_version": version, "review_type": review_type, "synthesis_mode": mode,
-            "streamlined_method_disclosed": raw.get("streamlined_method_disclosed"),
+            "streamlined_method_disclosed": _opt_str(
+                raw.get("streamlined_method_disclosed"), "record.streamlined_method_disclosed"),
             "results": parsed}
 
 
@@ -256,14 +271,16 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
         _obj(d, dctx)
         allowed = DOMAIN_KEYS if name == "risk_of_bias" else DOMAIN_KEYS - {"basis", "coherence_justification"}
         _no_unknown_keys(d, allowed, dctx)
-        entry = {"rating": _rating(d.get("rating"), dctx), "note": d.get("note", "")}
+        entry = {"rating": _rating(d.get("rating"), dctx),
+                 "note": _opt_str(d.get("note"), f"{dctx}.note")}
         if name == "risk_of_bias":
             basis = d.get("basis")
             if basis not in ROB_BASES:
                 raise InputError(f"{dctx}.basis: must be 'confirmed_rob' or 'heuristic', "
                                  f"got {basis!r}")
             entry["basis"] = basis
-            entry["coherence_justification"] = d.get("coherence_justification")
+            entry["coherence_justification"] = _opt_str(
+                d.get("coherence_justification"), f"{dctx}.coherence_justification")
         domains[name] = entry
 
     upgrades_raw = _obj(r.get("upgrades", {}), f"{ctx}.upgrades")
@@ -272,17 +289,33 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
     _no_unknown_keys(upgrades_raw, set(UPGRADES), f"{ctx}.upgrades")
     upgrades = {u: _upgrade(upgrades_raw.get(u, 0), f"{ctx}.upgrades.{u}") for u in UPGRADES}
 
-    return {"id": rid, "label": r.get("label", rid), "study_ids": study_ids,
+    return {"id": rid, "label": _opt_str(r.get("label"), f"{ctx}.label") or rid, "study_ids": study_ids,
             "design_mix": mix, "starting_level": start,
-            "starting_level_justification": r.get("starting_level_justification"),
+            "starting_level_justification": _opt_str(
+                r.get("starting_level_justification"), f"{ctx}.starting_level_justification"),
             "domains": domains, "upgrades": upgrades, "final": final,
-            "certainty_statement": r.get("certainty_statement", "")}
+            "certainty_statement": _opt_str(r.get("certainty_statement"),
+                                            f"{ctx}.certainty_statement")}
 
 
 # --- appraisal record (read via --rob; NEVER imported from the sibling skill) --
 
+# Union of every instrument's overall vocabulary. This script is standalone by
+# design (it never imports the appraisal skill), so it must validate the appraisal
+# fields it relies on rather than assume the other check already did.
+APPRAISAL_OVERALLS = {"low", "some_concerns", "high",          # RoB 2
+                      "moderate", "serious", "critical", "no_information",  # ROBINS-I
+                      "unclear"}                                # QUADAS-2
+HIGH_RISK_OVERALLS = {"high", "serious", "critical"}
+
+
 def parse_appraisal(raw: dict) -> dict:
-    """Return {study_id: {'overall': str, 'confirmed': bool}} from an appraisal record."""
+    """Return {study_id: {'overall': str, 'confirmed': bool}} from an appraisal record.
+
+    Validates the fields it consumes. A malformed appraisal record MUST NOT be able
+    to back a `confirmed_rob` basis: that would defeat the traceability the human
+    gate exists to provide.
+    """
     _obj(raw, "appraisal record")
     version = raw.get("schema_version")
     if version not in SCHEMA_VERSIONS:
@@ -292,13 +325,22 @@ def parse_appraisal(raw: dict) -> dict:
         raise InputError("appraisal record: 'studies' is missing or empty")
     out = {}
     for i, s in enumerate(studies):
-        _obj(s, f"appraisal studies[{i}]")
-        sid = _str(s.get("id"), f"appraisal studies[{i}].id")
+        ctx = f"appraisal studies[{i}]"
+        _obj(s, ctx)
+        sid = _str(s.get("id"), f"{ctx}.id")
         if sid in out:
             raise InputError(f"appraisal record: duplicate study id {sid!r}")
-        confirmed = bool(str(s.get("confirmed_by", "")).strip()
-                         and str(s.get("confirmed_at", "")).strip())
-        out[sid] = {"overall": s.get("overall"), "confirmed": confirmed}
+
+        overall = s.get("overall")
+        if not isinstance(overall, str) or overall not in APPRAISAL_OVERALLS:
+            raise InputError(f"{ctx}.overall: must be one of "
+                             f"{', '.join(sorted(APPRAISAL_OVERALLS))}, got {overall!r}")
+
+        # Strings only — str({}) would be "{}", truthy and non-empty, and would
+        # silently satisfy the confirmation test.
+        by = _opt_str(s.get("confirmed_by"), f"{ctx}.confirmed_by")
+        at = _opt_str(s.get("confirmed_at"), f"{ctx}.confirmed_at")
+        out[sid] = {"overall": overall, "confirmed": bool(by and at)}
     return out
 
 
@@ -414,7 +456,7 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
     # middle is judgement, and this script may only assert what is decidable.
     confirmed = [s for s in resolved if appraisal[s]["confirmed"]]
     if confirmed and not r["domains"]["risk_of_bias"]["coherence_justification"]:
-        highs = [s for s in confirmed if appraisal[s]["overall"] in ("high", "serious", "critical")]
+        highs = [s for s in confirmed if appraisal[s]["overall"] in HIGH_RISK_OVERALLS]
         lows = [s for s in confirmed if appraisal[s]["overall"] == "low"]
         rating = r["domains"]["risk_of_bias"]["rating"]
         if rating == 0 and len(highs) * 2 > len(confirmed):
