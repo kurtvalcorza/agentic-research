@@ -286,3 +286,57 @@ class TestNosBanding(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEvidenceIsValidated(_Tmp):
+    """Round 10: `s.get("evidence", {}) or {}` accepted anything. A string, a list
+    and an int all exited 0 under --strict, then backed a confirmed_rob rating."""
+
+    def with_evidence(self, ev, drop=False):
+        rec = record("risk-of-bias.contract-example.json")
+        if drop:
+            rec["studies"][0].pop("evidence", None)
+        else:
+            rec["studies"][0]["evidence"] = ev
+        return self.write(rec)
+
+    def test_wrong_type_is_malformed_not_clean(self):
+        for ev in ("not an object", ["a", "b"], 42, True):
+            with self.subTest(evidence=ev):
+                code, _, err = run(self.with_evidence(ev), "--strict")
+                self.assertEqual(code, 2)
+                self.assertIn("evidence", err)
+
+    def test_non_string_supporting_text_is_rejected(self):
+        code, _, err = run(self.with_evidence({"randomization": 123}), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("randomization", err)
+
+    def test_blank_supporting_text_is_rejected(self):
+        """Whitespace quotes nothing — same rule the confirmation gate follows."""
+        code, _, _ = run(self.with_evidence({"randomization": "   "}), "--strict")
+        self.assertEqual(code, 2)
+
+    def test_key_must_be_a_domain_of_that_instrument(self):
+        code, _, err = run(self.with_evidence({"blinding": "p.4"}), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("blinding", err)
+
+    def test_absent_and_empty_remain_legal(self):
+        """Evidence is optional; the fix must not make it mandatory."""
+        self.assertEqual(run(self.with_evidence(None, drop=True), "--strict")[0], 0)
+        self.assertEqual(run(self.with_evidence({}), "--strict")[0], 0)
+
+    def test_valid_evidence_still_passes(self):
+        code, out, _ = run(self.with_evidence(
+            {"randomization": "p.4: 'sealed opaque envelopes'"}), "--strict")
+        self.assertEqual(code, 0, msg=out)
+
+    def test_validated_on_the_instrument_mismatch_path_too(self):
+        """That path returns early, before domain validation — it needs its own
+        call, and its keys cannot be checked against the wrong instrument."""
+        rec = record("risk-of-bias.wrong-instrument.json")
+        rec["studies"][0]["evidence"] = "not an object"
+        code, _, err = run(self.write(rec), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("evidence", err)

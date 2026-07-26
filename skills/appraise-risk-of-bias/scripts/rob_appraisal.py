@@ -128,6 +128,31 @@ def _no_unknown_keys(d: dict, allowed, ctx: str) -> None:
                          f"(expected one of: {', '.join(sorted(allowed))})")
 
 
+def _parse_evidence(v, ctx: str, allowed=None) -> dict:
+    """Evidence is optional, but if supplied it must be what the schema says.
+
+    `s.get("evidence", {}) or {}` accepted anything: a string, a list and an int
+    all passed through and the record exited 0 under --strict, then went on to
+    back a confirmed_rob certainty rating. Absent is fine; wrong is not — the
+    same fail-closed rule the leaf text fields already follow.
+
+    `allowed` is the instrument's domain keys, or None on the instrument-mismatch
+    path where the declared instrument is the wrong yardstick to measure against.
+    """
+    if v is None:
+        return {}
+    if not isinstance(v, dict):
+        raise InputError(f"{ctx}: expected an object mapping domain keys to quoted "
+                         f"supporting text, got {type(v).__name__} {v!r}")
+    if allowed is not None:
+        _no_unknown_keys(v, allowed, ctx)
+    for name, text in v.items():
+        if not isinstance(text, str) or not text.strip():
+            raise InputError(f"{ctx}.{name}: expected a non-empty string quoting the "
+                             f"supporting text, got {type(text).__name__} {text!r}")
+    return dict(v)
+
+
 def _stars(v, ctx: str, maximum: int) -> int:
     """Star count. Accepts an integral float (JSON has one number type, so 3.0 is 3),
     matching the shared coercion contract used by the other checks."""
@@ -231,7 +256,8 @@ def _parse_study(s, i: int, seen: set) -> dict:
         _str(overall, f"{ctx}.overall")
         return {"id": sid, "design": design, "instrument": instrument,
                 "result_assessed": result_assessed,
-                "domains": dict(domains_raw), "evidence": s.get("evidence", {}) or {},
+                "domains": dict(domains_raw),
+                "evidence": _parse_evidence(s.get("evidence"), f"{ctx}.evidence"),
                 "overall": overall,
                 "overall_justification": _opt_str(s.get("overall_justification"),
                                                   f"{ctx}.overall_justification"),
@@ -251,7 +277,9 @@ def _parse_study(s, i: int, seen: set) -> dict:
 
     return {"id": sid, "design": design, "instrument": instrument,
             "result_assessed": result_assessed,
-            "domains": domains, "evidence": s.get("evidence", {}) or {},
+            "domains": domains,
+            "evidence": _parse_evidence(s.get("evidence"), f"{ctx}.evidence",
+                                        DOMAINS[instrument]),
             "overall": overall,
             "overall_justification": _opt_str(s.get("overall_justification"),
                                               f"{ctx}.overall_justification"),

@@ -307,3 +307,46 @@ class TestIgnoredInputsAreReported(unittest.TestCase):
         v = ru.verdict(self.record(), ru.DEFAULT_WEIGHTS, ru.CEILING)
         self.assertEqual(v["ignored_inputs"], [])
         self.assertEqual(v["missing_units"], [])
+
+
+class TestConflictingConsistencyInputIsReported(unittest.TestCase):
+    """Round 10: hanging the diagnostic off `elif` left the WORST case silent.
+
+    Supply a valid `consistency` object AND a contradicting `U_consistency`, and
+    derivation wins (correct) while the disagreement is concealed (not). The
+    record reached VERIFIED with ignored_inputs empty.
+    """
+
+    def run_it(self, units, consistency=None):
+        rec = {"review_type": "systematic",
+               "units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency"],
+               "units": units, "gates": {}, "cycle": 1}
+        if consistency is not None:
+            rec["consistency"] = consistency
+        return ru.verdict(rec, ru.DEFAULT_WEIGHTS, ru.CEILING)
+
+    BASE = {"U_cite_external": 0, "U_cite_internal": 0}
+
+    def test_conflict_is_reported_even_though_derivation_succeeds(self):
+        v = self.run_it({**self.BASE, "U_consistency": 999},
+                        {"score": 90, "critical_breaks": 0})
+        self.assertEqual(v["state"], "VERIFIED")          # derivation is authoritative
+        self.assertEqual(len(v["ignored_inputs"]), 1)      # but it is not silent
+        note = v["ignored_inputs"][0]
+        self.assertIn("999", note)
+        self.assertIn("authoritative", note)
+
+    def test_message_distinguishes_the_two_cases(self):
+        """No usable object is a different problem from a conflicting one, and the
+        remedy differs: supply the object vs. remove the direct key."""
+        absent = self.run_it({**self.BASE, "U_consistency": 0})["ignored_inputs"][0]
+        conflict = self.run_it({**self.BASE, "U_consistency": 999},
+                               {"score": 90, "critical_breaks": 0})["ignored_inputs"][0]
+        self.assertIn("Supply", absent)
+        self.assertIn("Remove the direct key", conflict)
+        self.assertNotEqual(absent, conflict)
+
+    def test_correct_usage_reports_nothing(self):
+        v = self.run_it(self.BASE, {"score": 90, "critical_breaks": 0})
+        self.assertEqual(v["ignored_inputs"], [])
+        self.assertEqual(v["state"], "VERIFIED")

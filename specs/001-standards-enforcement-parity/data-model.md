@@ -101,7 +101,7 @@ One document per review. Consumed by the appraisal check.
 | `instrument` | enum | Must correspond to `design` per the table below (FR-011) |
 | `result_assessed` | string | **Required.** Which result this appraisal applies to — RoB 2 and ROBINS-I assess a result, not a study. `(id, result_assessed)` is the identity; it is unique within `studies` (FR-042) |
 | `domains` | object | Exactly the instrument's domain keys, each a legal value (FR-012) |
-| `evidence` | object | Domain key → quoted supporting text with location |
+| `evidence` | object | Optional. When present: an object, keys restricted to that instrument's domains, values non-empty strings quoting supporting text with location. Any other shape is malformed input, not an empty default |
 | `overall` | enum | Instrument's overall vocabulary |
 | `overall_justification` | string | Required when `overall` is more favourable than the worst domain (FR-013) |
 | `confirmed_by` | string | Non-empty (FR-014) |

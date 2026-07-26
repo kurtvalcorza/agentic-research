@@ -70,10 +70,18 @@ Inapplicable units are **absent**, not zero-to-achieve (FR-025). The existing di
 written into `units` is dropped, so a caller cannot hand-write `"U_consistency": 0` and clear the
 universal floor without a real score.
 
-Dropping it is correct; dropping it silently was not. The verdict now carries an `ignored_inputs`
-array — empty in the normal case — naming what was received, why it was not used, and the form to
-supply instead. Read alongside `missing_units`, which names the same unit, the pair means
-"supplied, but not in a form that counts" rather than "forgotten".
+Dropping it is correct; dropping it silently was not. The verdict carries an `ignored_inputs`
+array — empty in the normal case — naming what was received, why it was not used, and the remedy.
+It is populated **whenever the direct key is present**, in both situations:
+
+| Supplied | Verdict effect | Reported |
+|:--|:--|:--|
+| Direct key only, no usable `consistency` object | Unit is missing; cannot reach `VERIFIED` | "supply the object" — read alongside `missing_units`, which names the same unit, the pair means "supplied, but not in a form that counts" rather than "forgotten" |
+| **Both**, disagreeing | Derived value wins, which may be `VERIFIED` | "the derived value is authoritative; remove the direct key" — the record must not be able to state two different things without saying so |
+
+The second row is the one that matters most and the easiest to omit: the verdict is correct, so
+nothing looks wrong. A contradiction the check silently resolves is still a contradiction the
+reader is entitled to see.
 
 ## Example
 

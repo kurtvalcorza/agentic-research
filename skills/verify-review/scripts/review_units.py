@@ -193,16 +193,33 @@ def compute(data, weights):
     cu = derive_consistency_unit(data.get("consistency"))
     if cu is not None:
         units["U_consistency"] = cu
-    elif "U_consistency" in raw_units:
+    # Report the drop whenever the key was supplied — NOT only when derivation
+    # failed. Hanging this off `elif` meant the worst case stayed silent: supply a
+    # `consistency` object AND "U_consistency": 999 and the record reached VERIFIED
+    # with ignored_inputs empty, hiding a direct contradiction. Derivation winning
+    # is correct; concealing that it won is not.
+    if "U_consistency" in raw_units:
         # The caller DID supply it, under a key that is deliberately ignored. Saying
         # only "missing" reads as "you forgot it" and sends them to add the very key
         # that is being dropped. Name the ignore and the remedy instead: a silent
         # drop is not fail-closed just because the verdict happens to be correct.
-        ignored_inputs.append(
-            "units.U_consistency was supplied but is ignored — this unit is derived "
-            "only from a `consistency` object with a numeric score, so that a "
-            "hand-written zero cannot satisfy the universal floor without one. "
-            "Supply {\"consistency\": {\"score\": N, \"critical_breaks\": N}} instead.")
+        supplied = raw_units["U_consistency"]
+        if cu is None:
+            ignored_inputs.append(
+                f"units.U_consistency={supplied!r} was supplied but is ignored, and no "
+                f"usable `consistency` object was given — this unit is derived only "
+                f"from a `consistency` object with a numeric score, so that a "
+                f"hand-written zero cannot satisfy the universal floor without one. "
+                f"Supply {{\"consistency\": {{\"score\": N, \"critical_breaks\": N}}}} "
+                f"instead.")
+        else:
+            # Both supplied. Derivation wins, which is correct — but the two disagree
+            # and the caller is entitled to know which one the verdict rests on.
+            ignored_inputs.append(
+                f"units.U_consistency={supplied!r} was supplied and is ignored: the "
+                f"value derived from the `consistency` object ({cu}) is authoritative. "
+                f"Remove the direct key so the record cannot state two different "
+                f"things.")
 
     # weighted total (the routing/progress scalar)
     weighted_total = 0.0
