@@ -38,6 +38,34 @@ def load_record(name="grade-profile.valid.json"):
     return json.loads(fixture(name).read_text(encoding="utf-8"))
 
 
+def appraisal_for(design_counts):
+    """Build an appraisal record whose DESIGNS match a given design_mix.
+
+    The distribution reconcile means a test's design_mix and its --rob file must
+    now agree: a mix claiming observational studies backed by an RCT appraisal is
+    exactly the certainty inflation the check exists to catch.
+    """
+    inst = {"rct": "rob2", "nrsi": "robins_i", "observational": "nos"}
+    doms = {
+        "rob2": {"randomization": "low", "deviations": "low", "missing_data": "low",
+                 "measurement": "low", "selection_of_result": "low"},
+        "robins_i": {"confounding": "low", "participant_selection": "low",
+                     "intervention_classification": "low", "deviations": "low",
+                     "missing_data": "low", "outcome_measurement": "low",
+                     "selection_of_result": "low"},
+        "nos": {"selection": 4, "comparability": 2, "outcome_or_exposure": 3},
+    }
+    studies, n = [], 1
+    for design, count in design_counts.items():
+        for _ in range(count):
+            studies.append({"id": f"P{n}", "design": design, "instrument": inst[design],
+                            "domains": doms[inst[design]], "overall": "low",
+                            "confirmed_by": "K", "confirmed_at": "2026-07-26"})
+            n += 1
+    return {"schema_version": "1.0", "studies": studies}, [x["id"] for x in studies]
+
+
+
 class TestValidRecord(unittest.TestCase):
     def test_valid_record_passes_with_rob(self):
         code, out, err = run(VALID, "--rob", str(ROB_VALID), "--strict")
@@ -175,8 +203,13 @@ class TestRuleViolations(unittest.TestCase):
         rec = load_record("grade-profile.minority-rct.json")
         rec["results"][0]["starting_level_justification"] = \
             "The single randomized trial is decisive and the observational studies are supportive."
-        code, out, _ = run(self._write(rec), "--rob", str(ROB_VALID), "--strict")
-        self.assertEqual(code, 0, msg=out)
+        # The appraisal must now match the claimed mix: a record declaring 1 RCT and
+        # 3 observational studies backed by four RCT appraisals is the very
+        # contradiction the distribution reconcile exists to catch.
+        rob, ids = appraisal_for({"rct": 1, "observational": 3})
+        rec["results"][0]["study_ids"] = ids
+        code, out, err = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
 
     def test_violation_without_strict_exits_zero(self):
         code, out, _ = run(fixture("grade-profile.bad-arithmetic.json"), "--rob", str(ROB_VALID))
@@ -207,19 +240,25 @@ class TestUpgradeLegality(unittest.TestCase):
         return rec
 
     def test_upgrade_on_observational_with_no_downgrade_is_legal(self):
-        code, out, _ = run(self._write(self._rec_with_upgrade("observational", False)),
-                           "--rob", str(ROB_VALID), "--strict")
-        self.assertEqual(code, 0, msg=out)
+        rec = self._rec_with_upgrade("observational", False)
+        rob, ids = appraisal_for({"observational": 4})
+        rec["results"][0]["study_ids"] = ids
+        code, out, err = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
 
     def test_upgrade_on_randomized_body_is_flagged(self):
-        code, out, _ = run(self._write(self._rec_with_upgrade("rct", False)),
-                           "--rob", str(ROB_VALID), "--strict")
+        rec = self._rec_with_upgrade("rct", False)
+        rob, ids = appraisal_for({"rct": 4})
+        rec["results"][0]["study_ids"] = ids
+        code, out, _ = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
         self.assertEqual(code, 1)
         self.assertIn("only for non-randomized evidence", out)
 
     def test_upgrade_over_a_downgrade_is_flagged(self):
-        code, out, _ = run(self._write(self._rec_with_upgrade("observational", True)),
-                           "--rob", str(ROB_VALID), "--strict")
+        rec = self._rec_with_upgrade("observational", True)
+        rob, ids = appraisal_for({"observational": 4})
+        rec["results"][0]["study_ids"] = ids
+        code, out, _ = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
         self.assertEqual(code, 1)
         self.assertIn("unresolved serious concerns", out)
 

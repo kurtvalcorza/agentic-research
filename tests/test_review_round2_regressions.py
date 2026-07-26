@@ -97,7 +97,7 @@ class TestP1StubAppraisalRejected(_Base):
             gp, fixture("grade-profile.valid.json"),
             "--rob", str(self.write(rob, "rob.json")), "--strict")
         self.assertEqual(code, 2)
-        self.assertIn("5 domains", err)
+        self.assertIn("missing measurement", err)
 
     def test_instrument_must_match_design_in_the_rob_file(self):
         rob = full_appraisal(instrument="quadas2")

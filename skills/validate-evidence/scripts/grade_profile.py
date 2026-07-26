@@ -11,6 +11,13 @@ WHAT THIS CHECKS
   confirmed actually resolving to a confirmed appraisal.
 
 WHAT THIS CANNOT CHECK
+  Without --rob, whether design_mix describes the studies actually cited. The
+  totals must match study_ids, but only a supplied appraisal record lets the
+  DISTRIBUTION be verified -- and the distribution is what sets the starting
+  level. A heuristic-basis record (rapid reviews) is therefore weaker evidence
+  than a confirmed one, which is part of why systematic and umbrella reviews may
+  not use it.
+
   Whether a judgment was RIGHT. That "inconsistency: serious" was the correct call
   is a matter of expertise this script has no access to. A clean result means the
   profile is complete, legal and arithmetically sound — nothing more. It also
@@ -326,8 +333,80 @@ INSTRUMENT_OVERALLS = {
     "nos": {"low", "moderate", "high"},
     "quadas2": {"low", "unclear", "high"},
 }
-INSTRUMENT_DOMAIN_COUNT = {"rob2": 5, "robins_i": 7, "nos": 3, "quadas2": 4}
+# The EXACT domain names, not merely how many. Checking cardinality let a record of
+# five arbitrary keys ({"a": null, "b": false, ...}) satisfy an RCT appraisal and
+# fabricate confirmed backing — cardinality is not completeness.
+INSTRUMENT_DOMAINS = {
+    "rob2": ("randomization", "deviations", "missing_data", "measurement",
+             "selection_of_result"),
+    "robins_i": ("confounding", "participant_selection", "intervention_classification",
+                 "deviations", "missing_data", "outcome_measurement", "selection_of_result"),
+    "nos": ("selection", "comparability", "outcome_or_exposure"),
+    "quadas2": ("patient_selection", "index_test", "reference_standard", "flow_and_timing"),
+}
+NOS_MAX = {"selection": 4, "comparability": 2, "outcome_or_exposure": 3}
+QUADAS_APPLICABILITY = ("patient_selection", "index_test", "reference_standard")
 HIGH_RISK_OVERALLS = {"high", "serious", "critical"}
+
+# Which design each instrument appraises — used to reconcile design_mix against the
+# studies actually referenced, not merely against how many there are.
+INSTRUMENT_DESIGN = {v: k for k, v in APPRAISAL_DESIGN_INSTRUMENT.items()}
+
+
+def _validate_appraisal_domains(instrument: str, domains: dict, ctx: str) -> None:
+    """Validate the instrument's EXACT domain names and value vocabulary.
+
+    This duplicates rob_appraisal.py's schema, deliberately: constitution
+    Principle III forbids importing across skills, and this check must be usable
+    standalone. `test_coercion_conformance.py` asserts the two definitions stay
+    identical, so the duplication cannot drift.
+
+    Validating only the domain COUNT was not enough: five arbitrary keys satisfied
+    it, so the two checks disagreed about the same file — rob_appraisal rejected it
+    while this one reported clean.
+    """
+    expected = INSTRUMENT_DOMAINS[instrument]
+    missing = [d for d in expected if d not in domains]
+    extra = sorted(set(domains) - set(expected))
+    if missing or extra:
+        parts = []
+        if missing:
+            parts.append(f"missing {', '.join(missing)}")
+        if extra:
+            parts.append(f"unrecognised {', '.join(extra)}")
+        raise InputError(f"{ctx}.domains: {instrument} defines "
+                         f"{', '.join(expected)} — {'; '.join(parts)}")
+
+    for name, value in domains.items():
+        dctx = f"{ctx}.domains.{name}"
+        if instrument == "nos":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise InputError(f"{dctx}: expected an integer star count, got {value!r}")
+            if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
+                raise InputError(f"{dctx}: star count must be a whole number, got {value!r}")
+            if not 0 <= int(value) <= NOS_MAX[name]:
+                raise InputError(f"{dctx}: star count must be between 0 and "
+                                 f"{NOS_MAX[name]}, got {value!r}")
+        elif instrument == "quadas2":
+            if not isinstance(value, dict):
+                raise InputError(f"{dctx}: expected an object with a risk_of_bias "
+                                 f"judgment, got {type(value).__name__} {value!r}")
+            rob = value.get("risk_of_bias")
+            if not isinstance(rob, str) or rob not in INSTRUMENT_OVERALLS["quadas2"]:
+                raise InputError(f"{dctx}.risk_of_bias: must be one of "
+                                 f"{', '.join(sorted(INSTRUMENT_OVERALLS['quadas2']))}, "
+                                 f"got {rob!r}")
+            if name in QUADAS_APPLICABILITY:
+                app = value.get("applicability")
+                if not isinstance(app, str) or app not in INSTRUMENT_OVERALLS["quadas2"]:
+                    raise InputError(f"{dctx}.applicability: must be one of "
+                                     f"{', '.join(sorted(INSTRUMENT_OVERALLS['quadas2']))}, "
+                                     f"got {app!r}")
+        else:
+            if not isinstance(value, str) or value not in INSTRUMENT_OVERALLS[instrument]:
+                raise InputError(f"{dctx}: must be one of "
+                                 f"{', '.join(sorted(INSTRUMENT_OVERALLS[instrument]))} "
+                                 f"for {instrument}, got {value!r}")
 
 
 def parse_appraisal(raw: dict) -> dict:
@@ -369,11 +448,7 @@ def parse_appraisal(raw: dict) -> dict:
         if not isinstance(domains, dict) or not domains:
             raise InputError(f"{ctx}.domains: a confirmed appraisal must record its "
                              f"domain judgments, got {domains!r}")
-        want = INSTRUMENT_DOMAIN_COUNT[instrument]
-        if len(domains) != want:
-            raise InputError(f"{ctx}.domains: {instrument} defines {want} domains, "
-                             f"but {len(domains)} were recorded — this is not a "
-                             f"complete appraisal")
+        _validate_appraisal_domains(instrument, domains, ctx)
 
         overall = s.get("overall")
         if not isinstance(overall, str) or overall not in INSTRUMENT_OVERALLS[instrument]:
@@ -385,7 +460,8 @@ def parse_appraisal(raw: dict) -> dict:
         # silently satisfy the confirmation test.
         by = _opt_str(s.get("confirmed_by"), f"{ctx}.confirmed_by")
         at = _opt_str(s.get("confirmed_at"), f"{ctx}.confirmed_at")
-        out[sid] = {"overall": overall, "confirmed": bool(by and at)}
+        out[sid] = {"overall": overall, "design": design, "instrument": instrument,
+                    "confirmed": bool(by and at)}
     return out
 
 
@@ -492,6 +568,23 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                     f"{'; '.join(hints)}")
 
     resolved = [s for s in r["study_ids"] if s in appraisal]
+
+    # Reconcile the design DISTRIBUTION, not merely the total. A correct total with
+    # a fabricated distribution -- four observational studies declared as
+    # {"rct": 4} -- inflates the starting level exactly as a wrong total would,
+    # and the totals check alone let it through.
+    if resolved and len(resolved) == len(r["study_ids"]):
+        actual = {d: 0 for d in DESIGNS}
+        for sid in resolved:
+            actual[appraisal[sid]["design"]] += 1
+        if actual != r["design_mix"]:
+            shown = ", ".join(f"{d}={n}" for d, n in actual.items() if n)
+            claimed = ", ".join(f"{d}={n}" for d, n in r["design_mix"].items() if n)
+            errs.append(
+                f"result {rid}: design_mix claims {claimed}, but the referenced "
+                f"appraisals are {shown} — the mix sets the starting level, so it "
+                f"must match the body it describes")
+
     unconfirmed = [s for s in resolved if not appraisal[s]["confirmed"]]
     if unconfirmed:
         errs.append(f"result {rid}: study reference(s) {', '.join(unconfirmed)} have no "

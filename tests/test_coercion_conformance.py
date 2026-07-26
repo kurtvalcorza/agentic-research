@@ -196,5 +196,45 @@ class TestExitCodeContract(unittest.TestCase):
                 self.assertIn("CANNOT verify", text)
 
 
+class TestInstrumentSchemaConformance(unittest.TestCase):
+    """grade_profile.py duplicates rob_appraisal.py's instrument schema, because
+    Principle III forbids importing across skills and the certainty check must be
+    usable standalone. This asserts the two definitions are IDENTICAL.
+
+    Round 3 of review found them disagreeing: grade_profile validated only the
+    domain COUNT, so a record of five arbitrary keys was accepted as a confirmed
+    RoB 2 appraisal while rob_appraisal.py rejected the same file with exit 2. Two
+    checks disagreeing about one file is worse than either being wrong alone.
+    """
+
+    def test_design_to_instrument_maps_agree(self):
+        self.assertEqual(gp.APPRAISAL_DESIGN_INSTRUMENT, ra.DESIGN_INSTRUMENT)
+
+    def test_domain_names_agree(self):
+        self.assertEqual(gp.INSTRUMENT_DOMAINS, ra.DOMAINS)
+
+    def test_value_vocabularies_agree(self):
+        for inst, values in gp.INSTRUMENT_OVERALLS.items():
+            with self.subTest(instrument=inst):
+                self.assertEqual(values, set(ra.SEVERITY[inst]))
+
+    def test_nos_maxima_agree(self):
+        self.assertEqual(gp.NOS_MAX, ra.NOS_MAX)
+
+    def test_quadas_applicability_domains_agree(self):
+        self.assertEqual(gp.QUADAS_APPLICABILITY, ra.QUADAS_APPLICABILITY)
+
+    def test_both_reject_the_same_fabricated_appraisal(self):
+        """The concrete symptom: a count-correct stub of arbitrary keys."""
+        junk = {"randomization": None, "b": False, "c": [], "d": {}, "e": "garbage"}
+        with self.assertRaises(gp.InputError):
+            gp._validate_appraisal_domains("rob2", junk, "x")
+        with self.assertRaises(ra.InputError):
+            ra._parse_study({"id": "S1", "design": "rct", "instrument": "rob2",
+                             "domains": junk, "overall": "low",
+                             "confirmed_by": "K", "confirmed_at": "2026-07-26"},
+                            0, set())
+
+
 if __name__ == "__main__":
     unittest.main()
