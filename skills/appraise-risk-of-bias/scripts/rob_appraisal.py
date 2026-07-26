@@ -317,6 +317,10 @@ def check(studies: list[dict]) -> tuple[list[str], int]:
 
     for s in studies:
         sid, inst = s["id"], s["instrument"]
+        # Identify the APPRAISAL, not the study. When one study is appraised for two
+        # results and only one judgment is at fault, "study R1" cannot tell the
+        # reviewer which of the two to go and fix.
+        who = f"study {sid} (result: {s['result_assessed']!r})"
 
         # Rule 6 — the human gate, checked FIRST and for every study.
         # It is independent of which instrument was applied: a study with the wrong
@@ -324,20 +328,20 @@ def check(studies: list[dict]) -> tuple[list[str], int]:
         # must not vanish from H_rob because an earlier check short-circuited.
         if not (s["confirmed_by"] and s["confirmed_at"]):
             unconfirmed += 1
-            errs.append(f"study {sid}: no human confirmation recorded "
+            errs.append(f"{who}: no human confirmation recorded "
                         f"(confirmed_by and confirmed_at are both required)")
 
         # Rule 1 — the instrument must match the design.
         expected = DESIGN_INSTRUMENT[s["design"]]
         if inst != expected:
-            errs.append(f"study {sid}: design '{s['design']}' calls for {expected}, "
+            errs.append(f"{who}: design '{s['design']}' calls for {expected}, "
                         f"but {inst} was applied")
             continue  # domain checks below would be against the wrong instrument
 
         # Rule 2 — every domain the instrument defines must be present.
         missing = [d for d in DOMAINS[inst] if d not in s["domains"]]
         if missing:
-            errs.append(f"study {sid}: {inst} requires domain(s) {', '.join(missing)}, "
+            errs.append(f"{who}: {inst} requires domain(s) {', '.join(missing)}, "
                         f"which are absent")
             continue
 
@@ -347,7 +351,7 @@ def check(studies: list[dict]) -> tuple[list[str], int]:
             band = nos_band(total)
             if s["overall"] != band and not s["overall_justification"]:
                 errs.append(
-                    f"study {sid}: Newcastle-Ottawa total is {total}/9, which bands as "
+                    f"{who}: Newcastle-Ottawa total is {total}/9, which bands as "
                     f"'{band}', but overall is '{s['overall']}'. The bands are conventional — "
                     f"record an overall_justification to override")
         else:
@@ -365,7 +369,7 @@ def check(studies: list[dict]) -> tuple[list[str], int]:
                     if inst == "quadas2":
                         worst_value = worst_value["risk_of_bias"]
                     errs.append(
-                        f"study {sid}: overall '{s['overall']}' is more favourable than its "
+                        f"{who}: overall '{s['overall']}' is more favourable than its "
                         f"worst domain ({worst_domain} = '{worst_value}') — record an "
                         f"overall_justification if this is intended")
 
@@ -373,7 +377,7 @@ def check(studies: list[dict]) -> tuple[list[str], int]:
             # a domain is unreported is a judgment the record must justify.
             if no_info and s["overall"] == "low" and not s["overall_justification"]:
                 errs.append(
-                    f"study {sid}: overall 'low' while domain(s) {', '.join(no_info)} report "
+                    f"{who}: overall 'low' while domain(s) {', '.join(no_info)} report "
                     f"no information — absence of evidence is not evidence of low risk; "
                     f"record an overall_justification if this is intended")
 

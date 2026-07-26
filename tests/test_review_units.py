@@ -268,3 +268,42 @@ class TestDryRun(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestIgnoredInputsAreReported(unittest.TestCase):
+    """Round 9: U_consistency supplied under `units` is deliberately dropped, so a
+    hand-written zero cannot satisfy the universal floor without a real score. But
+    reporting only 'missing' told a caller who DID supply it to add the very key
+    being ignored. The drop is correct; saying nothing about it was not."""
+
+    def record(self, **over):
+        rec = {"review_type": "systematic",
+               "units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency"],
+               "units": {"U_cite_external": 0, "U_cite_internal": 0},
+               "consistency": {"score": 90, "critical_breaks": 0},
+               "gates": {}, "cycle": 1}
+        rec.update(over)
+        return rec
+
+    def test_supplying_the_unit_directly_is_reported_not_silent(self):
+        rec = self.record(units={"U_cite_external": 0, "U_cite_internal": 0,
+                                 "U_consistency": 0})
+        del rec["consistency"]
+        v = ru.verdict(rec, ru.DEFAULT_WEIGHTS, ru.CEILING)
+        self.assertIn("U_consistency", v["missing_units"])
+        self.assertEqual(len(v["ignored_inputs"]), 1)
+        self.assertIn("is ignored", v["ignored_inputs"][0])
+        self.assertIn("consistency", v["ignored_inputs"][0])
+
+    def test_a_hand_written_zero_still_cannot_satisfy_the_floor(self):
+        """The guard itself is unchanged — only the diagnostic is new."""
+        rec = self.record(units={"U_cite_external": 0, "U_cite_internal": 0,
+                                 "U_consistency": 0})
+        del rec["consistency"]
+        v = ru.verdict(rec, ru.DEFAULT_WEIGHTS, ru.CEILING)
+        self.assertNotEqual(v["state"], "VERIFIED")
+
+    def test_nothing_reported_when_the_object_is_used_properly(self):
+        v = ru.verdict(self.record(), ru.DEFAULT_WEIGHTS, ru.CEILING)
+        self.assertEqual(v["ignored_inputs"], [])
+        self.assertEqual(v["missing_units"], [])

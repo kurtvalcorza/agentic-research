@@ -53,6 +53,7 @@ CHECKS = {
                          "--strict"],
         "expect": 0,
         "why": "complete record, presented as valid",
+        "stdout_has": ["moderate"],
     },
     "risk-of-bias.md": {
         "script": "skills/appraise-risk-of-bias/scripts/rob_appraisal.py",
@@ -60,6 +61,7 @@ CHECKS = {
         "args": lambda: ["--strict"],
         "expect": 0,
         "why": "complete record, presented as valid",
+        "stdout_has": ["1 appraisal of 1 study", "**H_rob: 0**"],
     },
     "prisma-checklist.md": {
         "script": "skills/prisma-flow/scripts/prisma_checklist.py",
@@ -68,6 +70,8 @@ CHECKS = {
         "expect": 1,
         "why": "excerpt: 4 of 42 rows, so Rule 1 fires",
         "doc_says": "excerpt, not a complete record",
+        # The exact shortfall, so a NEW violation cannot hide behind the same exit 1.
+        "stdout_has": ["4 of 42 rows addressed", "38 row(s) not addressed"],
     },
     "review-units.md": {
         "script": "skills/verify-review/scripts/review_units.py",
@@ -76,6 +80,19 @@ CHECKS = {
         "expect": 1,
         "why": "complete record in a mid-review state: units outstanding, so not verified",
         "doc_says": "units still outstanding",
+        # This check emits JSON, so assert the parsed verdict rather than substrings.
+        # `missing_units: []` is the load-bearing one: round 9 found the example was
+        # failing for a DIFFERENT reason (a required unit reported missing) that an
+        # exit-code assertion could not distinguish from the documented outcome.
+        "json_is": {
+            "missing_units": [],
+            "ignored_inputs": [],
+            "by_unit": {"U_cite_external": 0.0, "U_cite_internal": 0.0,
+                        "U_consistency": 0.0, "U_screen": 0.0, "U_extract": 0.0,
+                        "U_prisma": 0.0, "U_grade": 2.0, "U_rob_trace": 1.0,
+                        "U_checklist": 4.0},
+            "gates_remaining": 3,
+        },
     },
 }
 
@@ -133,6 +150,36 @@ class TestContractExamplesBehaveAsDocumented(unittest.TestCase):
                         code, spec["expect"],
                         msg=(f"{name} example {i} exits {code}, contract says "
                              f"{spec['expect']} ({spec['why']}).\n{out}\n{err}"))
+
+    def test_examples_produce_the_documented_diagnostics(self):
+        """The exit code alone is far too coarse.
+
+        Every method violation maps to 1, so an example can start failing for an
+        entirely different reason and a status-only assertion stays green. That is
+        exactly what happened: `review-units.md` reported a REQUIRED UNIT MISSING
+        rather than the documented seven-units-outstanding, and the exit-code check
+        added in round 8 could not tell the two apart.
+        """
+        for name, spec in CHECKS.items():
+            for i, block in enumerate(examples(name)):
+                with self.subTest(contract=name, block=i):
+                    _, out, err = self.run_example(name, block)
+                    for needle in spec.get("stdout_has", ()):
+                        self.assertIn(needle, out, msg=f"{name}\n{out}\n{err}")
+                    if "json_is" in spec:
+                        parsed = json.loads(out)
+                        for key, want in spec["json_is"].items():
+                            self.assertEqual(parsed.get(key), want,
+                                             msg=f"{name}: {key}\n{out}")
+
+    def test_every_example_is_pinned_by_more_than_its_exit_code(self):
+        """No contract may rely on the status alone — see the docstring above."""
+        for name, spec in CHECKS.items():
+            with self.subTest(contract=name):
+                self.assertTrue(
+                    spec.get("stdout_has") or spec.get("json_is"),
+                    f"{name} pins only an exit code, which cannot distinguish the "
+                    f"documented outcome from any other violation")
 
     def test_a_non_clean_example_is_explained_in_the_doc(self):
         """A non-zero expectation is only acceptable if the doc warns the reader.

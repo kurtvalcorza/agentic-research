@@ -64,12 +64,29 @@ new units inherit this without new machinery: a systematic review whose `units.j
 Inapplicable units are **absent**, not zero-to-achieve (FR-025). The existing distinction between
 "missing" and "out of scope" is what makes this correct, and it is not modified.
 
+## Reported-but-unused input
+
+`U_consistency` is derived **only** from a `consistency` object carrying a numeric score. A value
+written into `units` is dropped, so a caller cannot hand-write `"U_consistency": 0` and clear the
+universal floor without a real score.
+
+Dropping it is correct; dropping it silently was not. The verdict now carries an `ignored_inputs`
+array — empty in the normal case — naming what was received, why it was not used, and the form to
+supply instead. Read alongside `missing_units`, which names the same unit, the pair means
+"supplied, but not in a form that counts" rather than "forgotten".
+
 ## Example
 
 A complete record captured **mid-review**, with units still outstanding — two ungraded results,
 one unresolved risk-of-bias reference, four unaddressed checklist rows. The verdict is therefore
 not `VERIFIED` and the exit code is 1. That is the fail-closed behaviour above, shown working
-rather than described. `tests/test_contract_examples.py` runs this record and pins that outcome.
+rather than described. `tests/test_contract_examples.py` runs this record and asserts the whole
+diagnostic — `missing_units` empty, `by_unit` exact — not merely the exit code.
+
+Note that `U_consistency` is **not** listed in `units`. It is derived solely from the
+`consistency` object, so that a caller cannot write `"U_consistency": 0` and satisfy the
+universal floor without a real score. A value supplied under `units` is ignored and the unit is
+then reported missing; the check says so explicitly rather than dropping it silently.
 
 ```json
 {
@@ -78,10 +95,11 @@ rather than described. `tests/test_contract_examples.py` runs this record and pi
                      "U_screen", "U_extract", "U_prisma",
                      "U_grade", "U_rob_trace", "U_checklist"],
   "units": {
-    "U_cite_external": 0, "U_cite_internal": 0, "U_consistency": 0,
+    "U_cite_external": 0, "U_cite_internal": 0,
     "U_screen": 0, "U_extract": 0, "U_prisma": 0,
     "U_grade": 2, "U_rob_trace": 1, "U_checklist": 4
   },
+  "consistency": {"score": 82, "critical_breaks": 0},
   "gates": {"H_rob": 3, "H_screen_adj": 0, "H_cite_manual": 0, "H_numeric": 0},
   "cycle": 4
 }

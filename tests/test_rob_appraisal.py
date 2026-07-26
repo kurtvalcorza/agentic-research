@@ -120,6 +120,32 @@ class TestArtifactPreservesIdentity(_Tmp):
         _, out, _ = run(fixture("risk-of-bias.unconfirmed-study.json"))
         self.assertIn("**H_rob: 1** appraisal awaiting", out)
 
+    def test_violations_name_the_appraisal_not_just_the_study(self):
+        """Round 9: with two appraisals of one study and only one at fault,
+        'study R1' cannot tell the reviewer which judgment to go and fix."""
+        code, out, _ = run(
+            fixture("risk-of-bias.multi-result-partial-confirm.json"), "--strict")
+        self.assertEqual(code, 1)
+        faults = [ln for ln in out.splitlines() if ln.startswith("- study R1")]
+        self.assertEqual(len(faults), 1, msg=out)
+        self.assertIn("quality of life at 12 months", faults[0])
+        self.assertNotIn("diagnostic accuracy", faults[0])
+        self.assertIn("**H_rob: 1**", out)
+
+    def test_every_violation_carries_the_result(self):
+        """Not only the confirmation gate — the same ambiguity affects any
+        per-appraisal violation once judgments differ by result."""
+        for name in ("risk-of-bias.wrong-instrument.json",
+                     "risk-of-bias.missing-domain.json",
+                     "risk-of-bias.overall-too-favourable.json",
+                     "risk-of-bias.nos-band-mismatch.json",
+                     "risk-of-bias.no-info-but-low.json"):
+            with self.subTest(fixture=name):
+                _, out, _ = run(fixture(name))
+                for ln in out.splitlines():
+                    if ln.startswith("- study "):
+                        self.assertIn("(result: ", ln)
+
     def test_result_rendered_even_when_the_instrument_mismatches(self):
         """The mismatch path skips domain validation, so it renders separately and
         would otherwise miss the column."""

@@ -179,6 +179,7 @@ def _as_object(x, ctx):
 
 
 def compute(data, weights):
+    ignored_inputs: list[str] = []
     raw_units = _as_object(data.get("units"), "units")
     for key in raw_units:
         if key not in DEFAULT_WEIGHTS:
@@ -192,6 +193,16 @@ def compute(data, weights):
     cu = derive_consistency_unit(data.get("consistency"))
     if cu is not None:
         units["U_consistency"] = cu
+    elif "U_consistency" in raw_units:
+        # The caller DID supply it, under a key that is deliberately ignored. Saying
+        # only "missing" reads as "you forgot it" and sends them to add the very key
+        # that is being dropped. Name the ignore and the remedy instead: a silent
+        # drop is not fail-closed just because the verdict happens to be correct.
+        ignored_inputs.append(
+            "units.U_consistency was supplied but is ignored — this unit is derived "
+            "only from a `consistency` object with a numeric score, so that a "
+            "hand-written zero cannot satisfy the universal floor without one. "
+            "Supply {\"consistency\": {\"score\": N, \"critical_breaks\": N}} instead.")
 
     # weighted total (the routing/progress scalar)
     weighted_total = 0.0
@@ -249,7 +260,7 @@ def compute(data, weights):
             dominant = None
 
     return (weighted_total, auto_units_zero, gates_remaining, dominant,
-            units, contributions, missing_units)
+            units, contributions, missing_units, ignored_inputs)
 
 
 def detect_plateau(history, current_total):
@@ -275,7 +286,7 @@ def detect_plateau(history, current_total):
 
 def verdict(data, weights, ceiling):
     (weighted_total, auto_zero, gates_remaining, dominant, units,
-     contributions, missing_units) = compute(data, weights)
+     contributions, missing_units, ignored_inputs) = compute(data, weights)
     cycle = _as_int_count(data.get("cycle", 0), "cycle")
 
     raw_history = data.get("history")
@@ -309,6 +320,10 @@ def verdict(data, weights, ceiling):
         "auto_units_zero": auto_zero,
         "gates_remaining": gates_remaining,
         "missing_units": missing_units,
+        # Input the check received and deliberately did not use. Empty in the normal
+        # case; non-empty means a caller's value was dropped, and they are entitled
+        # to know that rather than inferring it from a confusing `missing_units`.
+        "ignored_inputs": ignored_inputs,
         # No dominant-unit routing while a required check is missing: the client
         # must clear `missing_units` first, not keep repairing a reported unit.
         "dominant_unit": dominant if (state == "CONTINUE" and not missing_units) else None,

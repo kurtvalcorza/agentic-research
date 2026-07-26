@@ -138,6 +138,7 @@ Each cycle:
    - `CEILING` (cycle 25) → stop; this almost always means a methodology problem.
    - `CONTINUE` → route to the repair skill for the `dominant_unit`, run it, fold its report into the manifest, append the cycle to the units history.
    - Non-empty `missing_units` → a universal-floor check has no value this cycle: **run those checks first** (or carry forward their last-known value) before routing — a missing floor unit blocks `VERIFIED`/`BLOCKED_ON_HUMAN`, so clear it before the loop can terminate cleanly.
+   - Non-empty `ignored_inputs` → you supplied something the check deliberately did not use, and the remedy is in the message. The one case today: `U_consistency` written into `units` is dropped, because it is derived only from a `consistency` object with a real score — otherwise a hand-written zero would satisfy the floor without one. Read this alongside `missing_units`, which will name the same unit; the two together mean "supplied, but not in a form that counts", not "forgotten".
 3. At **cycle 10**, emit the **soft advisory** (a high pass-count usually signals an upstream methodology issue, not a loop that needs more cycles) — then continue.
 
 **Routing (dominant unit → repair skill):**
