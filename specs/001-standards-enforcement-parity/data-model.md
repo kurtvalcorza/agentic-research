@@ -95,10 +95,10 @@ One document per review. Consumed by the appraisal check.
 
 | Field | Type | Rules |
 |:--|:--|:--|
-| `id` | string | Unique within `studies` (FR-042) |
-| `design` | enum | `rct` \| `nrsi` \| `observational` \| `dta` |
+| `id` | string | Study identifier. **Not unique on its own** — a study contributing to two results carries two appraisals (FR-042) |
+| `design` | enum | `rct` \| `nrsi` \| `observational` \| `dta`. A property of the study, so it MUST agree across that study's own appraisals |
 | `instrument` | enum | Must correspond to `design` per the table below (FR-011) |
-| `result_assessed` | string | Which result this appraisal applies to — RoB 2 and ROBINS-I assess a result, not a study |
+| `result_assessed` | string | **Required.** Which result this appraisal applies to — RoB 2 and ROBINS-I assess a result, not a study. `(id, result_assessed)` is the identity; it is unique within `studies` (FR-042) |
 | `domains` | object | Exactly the instrument's domain keys, each a legal value (FR-012) |
 | `evidence` | object | Domain key → quoted supporting text with location |
 | `overall` | enum | Instrument's overall vocabulary |
@@ -181,8 +181,9 @@ the distinction the existing backend already draws for its declared scope.
 
 ```
 Certainty Record ──references──> Appraisal Record
-     result.study_ids            studies[].id
-     exact match, both unique within their record        (FR-042)
+     (study_ids[], appraised_result)   (studies[].id, studies[].result_assessed)
+     exact match on the PAIR, unique within each record  (FR-042)
+     a study appraised for a DIFFERENT result does not resolve
      resolution required when domains.risk_of_bias.basis == confirmed_rob   (FR-017)
      path supplied at invocation, never imported                            (FR-019)
 

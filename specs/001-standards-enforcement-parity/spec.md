@@ -309,8 +309,13 @@ confirming it passes, and by confirming the suite runs automatically when change
   isolation.
 - **FR-042**: Study identifiers MUST be matched between records by exact comparison, with no
   normalisation of case or surrounding whitespace, so that a near-miss surfaces as an unresolved
-  reference rather than being silently reconciled. A study identifier appearing more than once
-  within a single record MUST be rejected as malformed input.
+  reference rather than being silently reconciled. Uniqueness is required of whatever constitutes
+  identity in each record: in an appraisal record that is the pair of study identifier and the
+  result assessed, so the same pair appearing twice MUST be rejected as malformed input while the
+  same study appraised for two different results MUST be accepted; in a certainty record it is the
+  study identifier within a single result. A study identifier alone repeating across an appraisal
+  record is therefore not an error, but that study's declared design MUST agree across all of its
+  appraisals, since design is a property of the study and only the judgment varies by result.
 - **FR-043**: The system MUST flag a body-level risk-of-bias judgment that is contradicted by
   the distribution of confirmed per-study ratings it rests on — for example, no downgrade applied
   to a body in which high-risk studies predominate — and MUST permit it only when an explicit
@@ -403,9 +408,12 @@ confirming it passes, and by confirming the suite runs automatically when change
 
 - Every record declares the version of the format it is written in; an absent or unrecognised
   version makes the record unreadable.
-- A study is identified by a declared identifier, unique within its record, matched across
-  records by exact comparison. The identifier is a local label chosen by the reviewer, not a
-  bibliographic one — one paper may yield several separately appraised results.
+- A study carries a declared identifier, a local label chosen by the reviewer rather than a
+  bibliographic one. The identifier alone is **not** the identity of an appraisal: one paper may
+  yield several separately appraised results, so an appraisal is identified by the pair of study
+  identifier and the result it assesses, and that pair is what must be unique within a record and
+  what is matched across records by exact comparison. A study's design, by contrast, belongs to
+  the study and must agree across all of its appraisals.
 
 ## Success Criteria *(mandatory)*
 

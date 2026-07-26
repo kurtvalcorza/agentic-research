@@ -419,28 +419,33 @@ def traffic_light(studies: list[dict]) -> str:
         cols = DOMAINS[inst]
         lines.append(f"**{inst}**")
         lines.append("")
-        lines.append("| Study | " + " | ".join(c.replace("_", " ") for c in cols) + " | Overall |")
-        lines.append("|:--|" + "|".join([":--"] * len(cols)) + "|:--|")
+        # The result is a column, not a decoration: identity is (study, result), so a
+        # study appraised for two results renders two rows that are otherwise identical.
+        lines.append("| Study | Result assessed | " +
+                     " | ".join(c.replace("_", " ") for c in cols) + " | Overall |")
+        lines.append("|:--|:--|" + "|".join([":--"] * len(cols)) + "|:--|")
         for s in group:
+            head = f"| {s['id']} | {s['result_assessed']} | "
             if s.get("instrument_mismatch"):
-                lines.append(f"| {s['id']} | " + " | ".join(["— not appraised"] * len(cols)) +
+                lines.append(head + " | ".join(["— not appraised"] * len(cols)) +
                              " | ⚠️ instrument mismatch |")
                 continue
             cells = [_mark(inst, c, s["domains"][c]) if c in s["domains"] else "— absent"
                      for c in cols]
             overall = f"{MARKS.get(s['overall'], '·')} {s['overall'].replace('_', ' ')}"
-            lines.append(f"| {s['id']} | " + " | ".join(cells) + f" | {overall} |")
+            lines.append(head + " | ".join(cells) + f" | {overall} |")
         lines.append("")
 
         if inst == "quadas2":
-            lines.append("| Study | " + " | ".join(
+            lines.append("| Study | Result assessed | " + " | ".join(
                 f"{c.replace('_', ' ')} (applicability)" for c in QUADAS_APPLICABILITY) + " |")
-            lines.append("|:--|" + "|".join([":--"] * len(QUADAS_APPLICABILITY)) + "|")
+            lines.append("|:--|:--|" + "|".join([":--"] * len(QUADAS_APPLICABILITY)) + "|")
             for s in group:
+                head = f"| {s['id']} | {s['result_assessed']} | "
                 if s.get("instrument_mismatch"):
                     # Its domains were never validated against quadas2, so they may
                     # not be objects at all. Rendering them would crash mid-artifact.
-                    lines.append(f"| {s['id']} | " + " | ".join(
+                    lines.append(head + " | ".join(
                         ["— not appraised"] * len(QUADAS_APPLICABILITY)) + " |")
                     continue
                 cells = []
@@ -448,7 +453,7 @@ def traffic_light(studies: list[dict]) -> str:
                     entry = s["domains"].get(c)
                     app = entry.get("applicability") if isinstance(entry, dict) else None
                     cells.append(f"{MARKS.get(app, '·')} {app}" if app else "— not rated")
-                lines.append(f"| {s['id']} | " + " | ".join(cells) + " |")
+                lines.append(head + " | ".join(cells) + " |")
             lines.append("")
     return "\n".join(lines).rstrip()
 

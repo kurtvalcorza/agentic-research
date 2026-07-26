@@ -81,6 +81,39 @@ class TestValidRecord(_Tmp):
         self.assertIn("applicability", out)
 
 
+class TestArtifactPreservesIdentity(_Tmp):
+    """Round 7: identity is (study, result), so every artifact row must say which
+    result it assesses. Without it, one study appraised for two outcomes renders
+    two rows labelled 'R1' carrying different judgments."""
+
+    def test_traffic_light_rows_are_distinguishable(self):
+        _, out, _ = run(fixture("risk-of-bias.multi-result.json"))
+        light = out.split("## Traffic-light summary", 1)[1]
+        rows = [ln for ln in light.splitlines() if ln.startswith("| R1 |")]
+        self.assertEqual(len(rows), 2, msg=light)
+        self.assertNotEqual(rows[0], rows[1])
+        self.assertIn("diagnostic accuracy at 12 months", rows[0])
+        self.assertIn("quality of life at 12 months", rows[1])
+
+    def test_every_traffic_light_table_carries_the_result(self):
+        """Including the QUADAS-2 applicability table, which is a second grid."""
+        _, out, _ = run(ALL_INSTRUMENTS)
+        light = out.split("## Traffic-light summary", 1)[1]
+        headers = [ln for ln in light.splitlines() if ln.startswith("| Study |")]
+        self.assertEqual(len(headers), 5, msg="4 instruments + quadas2 applicability")
+        for h in headers:
+            self.assertIn("Result assessed", h)
+
+    def test_result_rendered_even_when_the_instrument_mismatches(self):
+        """The mismatch path skips domain validation, so it renders separately and
+        would otherwise miss the column."""
+        _, out, _ = run(fixture("risk-of-bias.wrong-instrument.json"))
+        light = out.split("## Traffic-light summary", 1)[1]
+        for ln in light.splitlines():
+            if ln.startswith("| R1 |"):
+                self.assertIn("diagnostic accuracy at 12 months", ln)
+
+
 class TestInstrumentMatching(_Tmp):
     def test_wrong_instrument_for_design(self):
         code, out, _ = run(fixture("risk-of-bias.wrong-instrument.json"), "--strict")

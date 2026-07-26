@@ -85,15 +85,18 @@ high, else `unclear` if any is unclear, else `low`.
 | 4 | `overall` in the instrument's vocabulary | exit 2 |
 | 5 | `overall` not more favourable than the worst domain, unless `overall_justification` present | exit 1 |
 | 6 | `confirmed_by` and `confirmed_at` present and non-empty | exit 1, counted into `H_rob` |
-| 7 | `id` unique within `studies` | exit 2 |
+| 7 | `(id, result_assessed)` unique within `studies` — the study id alone is **not** unique, see [Identity](#identity-study-result-not-study) | exit 2 |
 | 8 | `studies` non-empty | exit 2 |
+| 9 | `design` agrees across every appraisal of the same `id` | exit 2 |
 
 ## Generated artifacts
 
 1. **Per-study table** — id, design, instrument, each domain judgment, overall, confirmation status.
-2. **Traffic-light summary** — study × domain grid. Encoded with **both** a symbol and a text
-   label rather than colour alone, so the artifact remains legible in print, to screen readers, and
-   to colour-blind readers.
+2. **Traffic-light summary** — (study, result) × domain grid. Every row names the result it
+   assesses, so a study appraised for two outcomes does not render as two identically-labelled
+   rows carrying different judgments. Encoded with **both** a symbol and a text label rather than
+   colour alone, so the artifact remains legible in print, to screen readers, and to colour-blind
+   readers.
 
 Both artifacts carry a provenance line naming the generating check and source record, as the
 certainty and checklist artifacts do (constitution Principle VII).
