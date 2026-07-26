@@ -8,6 +8,15 @@ renderable) and FAILS if the arithmetic does not reconcile end to end. The
 counts come from the pipeline: acquire-corpus (identification), dedupe-records
 (duplicates removed), and screen-literature (screened / excluded / included).
 
+WHAT THIS CANNOT CHECK
+  Whether the counts are TRUE. Reconciliation proves the numbers are mutually
+  consistent, not that they describe what actually happened: a run that screened
+  400 records and recorded 380 reconciles perfectly and is still wrong. The counts
+  must come from the stages that own them — acquire-corpus, dedupe-records,
+  screen-literature — and never be adjusted to make this script pass. Adjusting a
+  count to satisfy the arithmetic converts a detectable error into an undetectable
+  one.
+
 TWO-ARM MODEL (PRISMA 2020)
   PRISMA 2020 ships two flow-diagram templates and this script renders whichever
   the counts describe:
@@ -50,10 +59,11 @@ USAGE
 
 EXIT CODES
   0 reconciles (or non-strict);  1 does not reconcile under --strict;
-  2 the input is not valid JSON / a count is not an integer.
+  2 the input is not valid JSON / a count is not a whole, non-negative JSON number
+    (booleans, quoted numbers such as "3", fractions and non-finite values all fail closed).
 """
 from __future__ import annotations
-import argparse, json, sys
+import argparse, json, math, sys
 
 
 class CountError(ValueError):
@@ -61,20 +71,29 @@ class CountError(ValueError):
 
 
 def _int(v, name: str) -> int:
-    """Coerce a count to int, rejecting non-integers (no silent truncation)."""
+    """Coerce a count to int, rejecting anything that is not a JSON number.
+
+    Fails closed rather than coercing (constitution Principle IV). In particular a
+    QUOTED count such as "3" is malformed input, not a number to parse: in a
+    hand-authored record it is far more likely to be a mistake than an intention,
+    and silently accepting it is the class of quiet reconciliation the principle
+    forbids. This matches review_units.py, so both gates share one definition of
+    malformed input.
+    """
+    # bool is an int subclass, so it must be rejected before the int check —
+    # otherwise `true` would silently count as 1.
     if isinstance(v, bool):
         raise CountError(f"{name}: expected an integer count, got boolean {v!r}")
     if isinstance(v, int):
         iv = v
     elif isinstance(v, float):
+        if not math.isfinite(v):
+            raise CountError(f"{name}: count must be a finite number, got {v!r}")
         if not v.is_integer():
             raise CountError(f"{name}: count must be a whole number, got {v!r}")
         iv = int(v)
     else:
-        try:
-            iv = int(str(v).strip())
-        except (TypeError, ValueError):
-            raise CountError(f"{name}: count must be an integer, got {v!r}")
+        raise CountError(f"{name}: count must be a JSON number, got {v!r}")
     if iv < 0:
         raise CountError(f"{name}: count must be non-negative, got {iv}")
     return iv
