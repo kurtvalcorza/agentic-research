@@ -104,6 +104,11 @@ DESIGN_START = {"rct": "high", "nrsi": "low", "observational": "low",
 # and its distribution cannot be reconciled — stated rather than silently mismatched.
 APPRAISABLE_DESIGNS = ("rct", "nrsi", "observational", "dta")
 
+# Mirrors rob_appraisal.STUDY_KEYS; the conformance test asserts they stay equal.
+APPRAISAL_STUDY_KEYS = {"id", "design", "instrument", "result_assessed", "domains",
+                        "evidence", "overall", "overall_justification",
+                        "confirmed_by", "confirmed_at"}
+
 RECORD_KEYS = {"schema_version", "review_type", "synthesis_mode",
                "streamlined_method_disclosed", "results"}
 RESULT_KEYS = {"id", "label", "study_ids", "design_mix", "starting_level",
@@ -505,6 +510,11 @@ def parse_appraisal(raw: dict) -> dict:
     for i, s in enumerate(studies):
         ctx = f"appraisal studies[{i}]"
         _obj(s, ctx)
+        # Principle IV: unknown keys are rejected, never ignored. Without this a
+        # misspelled field in the appraisal record is malformed input to
+        # rob_appraisal.py and invisible here — the same disagreement class that
+        # produced the last three rounds of findings.
+        _no_unknown_keys(s, APPRAISAL_STUDY_KEYS, ctx)
         sid = _str(s.get("id"), f"{ctx}.id")
         if sid in out:
             raise InputError(f"appraisal record: duplicate study id {sid!r}")
