@@ -181,7 +181,7 @@ CI reports before merge.
 - [x] T057 [P] Register the three new scripts in `SKILLS-REGISTRY.md`
 - [x] T058 Run every scenario in [quickstart.md](./quickstart.md) end to end, including scenario 10's human read of the README, and correct any divergence between documented and actual behaviour
 - [x] T059 Review each check's "cannot verify" statement against constitution Principle VI, confirming all four are present and specific rather than generic, so a passing result is never read as a broader guarantee than it is (FR-030, SC-009)
-- [ ] T060 Open the pull request, calling out the `prisma_flow.py` coercion change (T008) and any pre-existing defects surfaced by T044/T050 as separate items rather than folded into the feature, then run the dual-bot review loop to clean or false-positives-only before merge
+- [x] T060 Open the pull request, calling out the `prisma_flow.py` coercion change (T008) and any pre-existing defects surfaced by T044/T050 as separate items rather than folded into the feature, then run the dual-bot review loop to clean or false-positives-only before merge
 
 ---
 
