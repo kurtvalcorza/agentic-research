@@ -61,6 +61,7 @@ def appraisal(design, n, domains=None):
     ids = ["P1", "P3", "P5", "P7"][:n]
     return {"schema_version": "1.0", "studies": [
         {"id": i, "design": design, "instrument": inst, "domains": doms, "overall": "low",
+         "result_assessed": 'diagnostic accuracy at 12 months',
          "confirmed_by": "K", "confirmed_at": "2026-07-26"} for i in ids]}
 
 

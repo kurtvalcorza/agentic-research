@@ -114,7 +114,9 @@ class TestMalformed(_Tmp):
         self.assert_malformed("risk-of-bias.unknown-domain.json", "blinding", "unrecognised key")
 
     def test_duplicate_id(self):
-        self.assert_malformed("risk-of-bias.duplicate-id.json", "duplicate study id")
+        """Identity is now (study, result): the same study appraised twice for the
+        SAME result is still ambiguous and rejected."""
+        self.assert_malformed("risk-of-bias.duplicate-id.json", "duplicate appraisal")
 
     def test_empty_studies(self):
         self.assert_malformed("risk-of-bias.empty-studies.json", "nothing to appraise")

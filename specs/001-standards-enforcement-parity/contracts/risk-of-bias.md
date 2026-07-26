@@ -55,6 +55,7 @@ high, else `unclear` if any is unclear, else `low`.
       "design": "rct",
       "instrument": "rob2",
       "result_assessed": "diagnostic accuracy at 12 months",
+      // REQUIRED. Identity is (id, result_assessed).
       "domains": {
         "randomization": "low",
         "deviations": "low",
@@ -101,3 +102,20 @@ Output states the `H_rob` count and, per FR-015, carries this line verbatim:
 
 > This check establishes that a confirmation record is present. It cannot establish that a human
 > made the judgment, or who that person was.
+
+
+## Identity: (study, result), not study
+
+RoB 2 and ROBINS-I appraise **a specific result**, not a study as a whole. A study
+contributing to two outcomes therefore carries **two appraisals** with two different
+risk-of-bias judgments.
+
+- `result_assessed` is **required**, and uniqueness is on `(id, result_assessed)`.
+- Appraising the same study twice for the **same** result is ambiguous → exit 2.
+- A study's **design** may not differ between its own appraisals: design is a
+  property of the study, only the judgment varies by result → exit 2.
+
+Keying identity on the study id alone made the correct representation
+**inexpressible** — the second appraisal was rejected as a duplicate — while the
+consuming check resolved on study id and could back a certainty rating with an
+appraisal targeting a different outcome.

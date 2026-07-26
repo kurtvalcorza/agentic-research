@@ -160,8 +160,21 @@ def parse(raw: dict) -> list[dict]:
     if not studies:
         raise InputError("record: 'studies' is empty — there is nothing to appraise")
 
-    seen: set[str] = set()
-    return [_parse_study(s, i, seen) for i, s in enumerate(studies)]
+    seen: set = set()
+    parsed = [_parse_study(s, i, seen) for i, s in enumerate(studies)]
+
+    # A study is one study: its design is a property of the study, not of the result
+    # being appraised, so it cannot differ between that study's own appraisals even
+    # though its risk-of-bias judgment legitimately can.
+    designs: dict = {}
+    for st in parsed:
+        prior = designs.setdefault(st["id"], st["design"])
+        if prior != st["design"]:
+            raise InputError(
+                f"study {st['id']}: appraised as both {prior!r} and {st['design']!r} — "
+                f"a study has one design; only its risk-of-bias judgment varies by "
+                f"result")
+    return parsed
 
 
 def _parse_study(s, i: int, seen: set) -> dict:
@@ -170,11 +183,20 @@ def _parse_study(s, i: int, seen: set) -> dict:
     _no_unknown_keys(s, STUDY_KEYS, ctx)
 
     sid = _str(s.get("id"), f"{ctx}.id")
-    if sid in seen:
-        raise InputError(f"{ctx}.id: duplicate study id {sid!r} — every reference to it "
-                         f"would be ambiguous")
-    seen.add(sid)
-    ctx = f"study {sid}"
+
+    # RoB 2 and ROBINS-I appraise a SPECIFIC RESULT, not a study as a whole, so a
+    # study contributing to two outcomes carries two appraisals with two judgments.
+    # Identity is therefore (study, result), not study alone: keying on the study id
+    # made the correct representation inexpressible, because the second appraisal
+    # was rejected as a duplicate.
+    result_assessed = _str(s.get("result_assessed"), f"{ctx}.result_assessed")
+    key = (sid, result_assessed)
+    if key in seen:
+        raise InputError(f"{ctx}: study {sid!r} is appraised twice for result "
+                         f"{result_assessed!r} — a duplicate appraisal is ambiguous. "
+                         f"Two appraisals of one study must name different results.")
+    seen.add(key)
+    ctx = f"study {sid} ({result_assessed})"
 
     design = s.get("design")
     if not isinstance(design, str) or design not in DESIGN_INSTRUMENT:
@@ -208,7 +230,7 @@ def _parse_study(s, i: int, seen: set) -> dict:
         # dash rather than exit 2.
         _str(overall, f"{ctx}.overall")
         return {"id": sid, "design": design, "instrument": instrument,
-                "result_assessed": _opt_str(s.get("result_assessed"), f"{ctx}.result_assessed"),
+                "result_assessed": result_assessed,
                 "domains": dict(domains_raw), "evidence": s.get("evidence", {}) or {},
                 "overall": overall,
                 "overall_justification": _opt_str(s.get("overall_justification"),
@@ -228,7 +250,7 @@ def _parse_study(s, i: int, seen: set) -> dict:
                          f"{', '.join(SEVERITY[instrument])} for {instrument}, got {overall!r}")
 
     return {"id": sid, "design": design, "instrument": instrument,
-            "result_assessed": _opt_str(s.get("result_assessed"), f"{ctx}.result_assessed"),
+            "result_assessed": result_assessed,
             "domains": domains, "evidence": s.get("evidence", {}) or {},
             "overall": overall,
             "overall_justification": _opt_str(s.get("overall_justification"),

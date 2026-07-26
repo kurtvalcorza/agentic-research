@@ -43,7 +43,8 @@
         }
       },
       "final": "high",
-      "certainty_statement": "Moderately confident the true effect lies close to the estimate."
+      "certainty_statement": "Moderately confident the true effect lies close to the estimate.",
+      "appraised_result": "diagnostic accuracy at 12 months"
     }
   ]
 }

@@ -49,7 +49,8 @@ def appraisal(**over):
     s = {"id": "R1", "design": "rct", "instrument": "rob2",
          "domains": {"randomization": "low", "deviations": "low", "missing_data": "low",
                      "measurement": "low", "selection_of_result": "low"},
-         "overall": "low", "confirmed_by": "K. Valcorza", "confirmed_at": "2026-07-26"}
+         "overall": "low", "result_assessed": 'diagnostic accuracy at 12 months',
+         "confirmed_by": "K. Valcorza", "confirmed_at": "2026-07-26"}
     s.update(over)
     return {"schema_version": "1.0", "studies": [s]}
 
@@ -94,7 +95,8 @@ class TestP1AppraisalBacking(_Base):
         s = {"id": "P1", "design": "rct", "instrument": "rob2",
              "domains": {"randomization": "low", "deviations": "low", "missing_data": "low",
                          "measurement": "low", "selection_of_result": "low"},
-             "overall": "low", "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+             "overall": "low", "result_assessed": 'diagnostic accuracy at 12 months',
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}
         s.update(over)
         return {"schema_version": "1.0", "studies": [s]}
 
@@ -143,7 +145,7 @@ class TestP2HumanGateIndependence(_Base):
         rec = {"schema_version": "1.0", "studies": [
             {"id": "S1", "design": "rct", "instrument": "nos",
              "domains": {"selection": 4, "comparability": 2, "outcome_or_exposure": 3},
-             "overall": "low"}]}
+             "overall": "low", "result_assessed": 'diagnostic accuracy at 12 months'}]}
         code, out, _ = self.run_script(ra, self.write(rec), "--strict")
         self.assertEqual(code, 1)
         self.assertIn("**H_rob: 1**", out)

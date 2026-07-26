@@ -57,7 +57,8 @@ def full_appraisal(ids=("P1", "P3", "P5", "P7"), **over):
         s = {"id": sid, "design": "rct", "instrument": "rob2",
              "domains": {"randomization": "low", "deviations": "low", "missing_data": "low",
                          "measurement": "low", "selection_of_result": "low"},
-             "overall": "low", "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+             "overall": "low", "result_assessed": 'diagnostic accuracy at 12 months',
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}
         s.update(over)
         return s
     return {"schema_version": "1.0", "studies": [study(i) for i in ids]}
@@ -69,7 +70,8 @@ class TestP1StubAppraisalRejected(_Base):
 
     def test_stub_without_design_is_rejected(self):
         stub = {"schema_version": "1.0", "studies": [
-            {"id": s, "overall": "low", "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+            {"id": s, "overall": "low", "result_assessed": 'diagnostic accuracy at 12 months',
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}
             for s in ("P1", "P3", "P5", "P7")]}
         code, out, err = self.run_script(
             gp, fixture("grade-profile.valid.json"),
@@ -246,7 +248,8 @@ class TestP2QuadasApplicabilityRequired(_Base):
             doms[name] = entry
         return {"schema_version": "1.0", "studies": [
             {"id": "D1", "design": "dta", "instrument": "quadas2", "domains": doms,
-             "overall": "low", "confirmed_by": "K", "confirmed_at": "2026-07-26"}]}
+             "overall": "low", "result_assessed": 'diagnostic accuracy at 12 months',
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}]}
 
     def test_missing_applicability_is_rejected(self):
         code, out, err = self.run_script(ra, self.write(self._quadas(True)), "--strict")
@@ -273,7 +276,7 @@ class TestP2OverallRequiredOnMismatch(_Base):
     def test_missing_overall_is_malformed_even_on_mismatch(self):
         rec = {"schema_version": "1.0", "studies": [
             {"id": "S1", "design": "rct", "instrument": "quadas2",
-             "domains": {"patient_selection": "low"},
+             "domains": {"patient_selection": "low"}, "result_assessed": 'diagnostic accuracy at 12 months',
              "confirmed_by": "K", "confirmed_at": "2026-07-26"}]}
         code, out, err = self.run_script(ra, self.write(rec), "--strict")
         self.assertEqual(code, 2)
@@ -284,6 +287,7 @@ class TestP2OverallRequiredOnMismatch(_Base):
         rec = {"schema_version": "1.0", "studies": [
             {"id": "S1", "design": "rct", "instrument": "quadas2",
              "domains": {"patient_selection": "low"}, "overall": "low",
+             "result_assessed": 'diagnostic accuracy at 12 months',
              "confirmed_by": "K", "confirmed_at": "2026-07-26"}]}
         code, out, err = self.run_script(ra, self.write(rec), "--strict")
         self.assertEqual(code, 1)

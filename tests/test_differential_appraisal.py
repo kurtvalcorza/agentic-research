@@ -149,6 +149,7 @@ def build(design, override):
     for n, sid in enumerate(STUDY_IDS):
         s = {"id": sid, "design": design, "instrument": instrument,
              "domains": copy.deepcopy(domains), "overall": "low",
+             "result_assessed": 'diagnostic accuracy at 12 months',
              "confirmed_by": "K. Valcorza", "confirmed_at": "2026-07-26"}
         s.update(copy.deepcopy(body))
         if id_override and n == 0:

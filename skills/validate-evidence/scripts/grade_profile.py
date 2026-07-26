@@ -113,7 +113,7 @@ RECORD_KEYS = {"schema_version", "review_type", "synthesis_mode",
                "streamlined_method_disclosed", "results"}
 RESULT_KEYS = {"id", "label", "study_ids", "design_mix", "starting_level",
                "starting_level_justification", "domains", "upgrades", "final",
-               "certainty_statement"}
+               "certainty_statement", "appraised_result"}
 DOMAIN_KEYS = {"rating", "note", "basis", "coherence_justification"}
 
 ROB_BASES = {"confirmed_rob", "heuristic"}
@@ -335,7 +335,9 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
                 r.get("starting_level_justification"), f"{ctx}.starting_level_justification"),
             "domains": domains, "upgrades": upgrades, "final": final,
             "certainty_statement": _opt_str(r.get("certainty_statement"),
-                                            f"{ctx}.certainty_statement")}
+                                            f"{ctx}.certainty_statement"),
+            "appraised_result": _opt_str(r.get("appraised_result"),
+                                         f"{ctx}.appraised_result")}
 
 
 # --- appraisal record (read via --rob; NEVER imported from the sibling skill) --
@@ -413,6 +415,12 @@ def _validate_appraisal_domains(instrument: str, domains: dict, ctx: str) -> Non
             if not isinstance(value, dict):
                 raise InputError(f"{dctx}: expected an object with a risk_of_bias "
                                  f"judgment, got {type(value).__name__} {value!r}")
+            # Only the first three domains carry applicability; an applicability key
+            # on flow_and_timing is illegal, and a misspelled key alongside a correct
+            # one would otherwise be read straight past by .get().
+            allowed = {"risk_of_bias"} | ({"applicability"}
+                                          if name in QUADAS_APPLICABILITY else set())
+            _no_unknown_keys(value, allowed, dctx)
             rob = value.get("risk_of_bias")
             if not isinstance(rob, str) or rob not in INSTRUMENT_OVERALLS["quadas2"]:
                 raise InputError(f"{dctx}.risk_of_bias: must be one of "
@@ -514,6 +522,10 @@ def parse_appraisal(raw: dict) -> dict:
     gate exists to provide.
     """
     _obj(raw, "appraisal record")
+    # Closed root schema, mirroring rob_appraisal.py. Without it a misspelled root
+    # field ("studiez") is malformed input there and silently ignored here — the
+    # acceptance divergence this whole class of finding is about.
+    _no_unknown_keys(raw, {"schema_version", "studies"}, "appraisal record")
     version = raw.get("schema_version")
     if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
         raise InputError(f"appraisal record: unrecognised or missing schema_version {version!r}")
@@ -530,8 +542,7 @@ def parse_appraisal(raw: dict) -> dict:
         # produced the last three rounds of findings.
         _no_unknown_keys(s, APPRAISAL_STUDY_KEYS, ctx)
         sid = _str(s.get("id"), f"{ctx}.id")
-        if sid in out:
-            raise InputError(f"appraisal record: duplicate study id {sid!r}")
+        result_assessed = _str(s.get("result_assessed"), f"{ctx}.result_assessed")
 
         # A real appraisal states what was appraised and how. Without this, a stub
         # of {id, overall, confirmed_by, confirmed_at} would satisfy a
@@ -566,8 +577,19 @@ def parse_appraisal(raw: dict) -> dict:
         # silently satisfy the confirmation test.
         by = _opt_str(s.get("confirmed_by"), f"{ctx}.confirmed_by")
         at = _opt_str(s.get("confirmed_at"), f"{ctx}.confirmed_at")
-        out[sid] = {"overall": overall, "design": design, "instrument": instrument,
-                    "confirmed": bool(by and at)}
+
+        # Identity is (study, result): an appraisal targets one result, so a study
+        # contributing to two outcomes has two entries with different judgments.
+        key = (sid, result_assessed)
+        if key in out:
+            raise InputError(f"appraisal record: study {sid!r} is appraised twice for "
+                             f"result {result_assessed!r}")
+        prior = next((v["design"] for k, v in out.items() if k[0] == sid), None)
+        if prior is not None and prior != design:
+            raise InputError(f"appraisal record: study {sid!r} is appraised as both "
+                             f"{prior!r} and {design!r} — a study has one design")
+        out[key] = {"overall": overall, "design": design, "instrument": instrument,
+                    "result_assessed": result_assessed, "confirmed": bool(by and at)}
     return out
 
 
@@ -661,34 +683,55 @@ def check(rec: dict, appraisal: dict | None, rob_supplied: bool) -> list[str]:
 
 
 def _check_traceability(r: dict, appraisal: dict) -> list[str]:
-    """Rules 10 and 12 — references resolve, and the body judgment coheres with them."""
+    """Rules 10 and 12 — references resolve to the RIGHT appraisal, and the body
+    judgment coheres with them.
+
+    An appraisal targets one result. Resolving on study id alone let a study
+    appraised for mortality back a certainty rating about quality of life, which is
+    the wrong risk-of-bias evidence for that claim.
+    """
     errs = []
     rid = r["id"]
+    target = r["appraised_result"]
 
-    unresolved = [s for s in r["study_ids"] if s not in appraisal]
+    if not target:
+        return [f"result {rid}: 'appraised_result' is required when the risk-of-bias "
+                f"basis is 'confirmed_rob' — it names which appraised result backs "
+                f"this certainty rating, since an appraisal targets one result, not "
+                f"a whole study"]
+
+    known_targets = sorted({k[1] for k in appraisal})
+    if target not in known_targets:
+        return [f"result {rid}: appraised_result {target!r} does not appear in the "
+                f"appraisal record (it appraises: {', '.join(repr(t) for t in known_targets)})"]
+
+    resolved, unresolved, wrong_target = [], [], []
+    for sid in r["study_ids"]:
+        if (sid, target) in appraisal:
+            resolved.append(sid)
+        elif any(k[0] == sid for k in appraisal):
+            others = sorted(k[1] for k in appraisal if k[0] == sid)
+            wrong_target.append(f"{sid} (appraised for {', '.join(repr(o) for o in others)}, "
+                                f"not {target!r})")
+        else:
+            near = {k[0].lower().strip(): k[0] for k in appraisal}.get(sid.lower().strip())
+            unresolved.append(f"{sid!r} (appraisal has {near!r} — identifiers are "
+                              f"matched exactly)" if near else repr(sid))
+
     if unresolved:
-        # Exact matching means a case or whitespace near-miss surfaces here rather
-        # than being silently reconciled.
-        hints = []
-        lowered = {k.lower().strip(): k for k in appraisal}
-        for s in unresolved:
-            near = lowered.get(s.lower().strip())
-            if near:
-                hints.append(f"{s!r} (appraisal has {near!r} — identifiers are matched exactly)")
-            else:
-                hints.append(repr(s))
-        errs.append(f"result {rid}: study reference(s) not found in the appraisal record: "
-                    f"{'; '.join(hints)}")
+        errs.append(f"result {rid}: study reference(s) not found in the appraisal "
+                    f"record: {'; '.join(unresolved)}")
+    if wrong_target:
+        errs.append(f"result {rid}: study reference(s) appraised for a DIFFERENT "
+                    f"result: {'; '.join(wrong_target)} — the wrong risk-of-bias "
+                    f"evidence cannot back this certainty rating")
 
-    resolved = [s for s in r["study_ids"] if s in appraisal]
+    unconfirmed = [s for s in resolved if not appraisal[(s, target)]["confirmed"]]
+    if unconfirmed:
+        errs.append(f"result {rid}: study reference(s) {', '.join(unconfirmed)} have no "
+                    f"human confirmation, so they cannot back a 'confirmed_rob' basis")
 
-    # Reconcile the design DISTRIBUTION, not merely the total. A correct total with
-    # a fabricated distribution -- four observational studies declared as
-    # {"rct": 4} -- inflates the starting level exactly as a wrong total would,
-    # and the totals check alone let it through.
-    # case_series has no risk-of-bias instrument, so such studies cannot appear in an
-    # appraisal record at all and the distribution is unverifiable for those bodies.
-    # Reconciling anyway would report a guaranteed mismatch for a legitimate record.
+    # Design distribution, reconciled against the appraisals actually resolved.
     if r["design_mix"].get("case_series"):
         errs.append(
             f"result {rid}: design_mix includes {r['design_mix']['case_series']} case "
@@ -698,9 +741,9 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
     elif resolved and len(resolved) == len(r["study_ids"]):
         actual = {d: 0 for d in DESIGNS}
         for sid in resolved:
-            design = appraisal[sid]["design"]
-            if design not in actual:            # defensive: never KeyError on a verdict path
-                errs.append(f"result {rid}: study {sid} is appraised as '{design}', which "
+            design = appraisal[(sid, target)]["design"]
+            if design not in actual:
+                errs.append(f"result {rid}: study {sid} is appraised as {design!r}, which "
                             f"has no design_mix category")
                 continue
             actual[design] += 1
@@ -712,17 +755,12 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                 f"appraisals are {shown} — the mix sets the starting level, so it "
                 f"must match the body it describes")
 
-    unconfirmed = [s for s in resolved if not appraisal[s]["confirmed"]]
-    if unconfirmed:
-        errs.append(f"result {rid}: study reference(s) {', '.join(unconfirmed)} have no "
-                    f"human confirmation, so they cannot back a 'confirmed_rob' basis")
-
-    # Rule 12 — coherence. Only the clearly-contradictory ends are flagged; the wide
-    # middle is judgement, and this script may only assert what is decidable.
-    confirmed = [s for s in resolved if appraisal[s]["confirmed"]]
+    # Coherence: only the clearly-contradictory ends are flagged.
+    confirmed = [s for s in resolved if appraisal[(s, target)]["confirmed"]]
     if confirmed and not r["domains"]["risk_of_bias"]["coherence_justification"]:
-        highs = [s for s in confirmed if appraisal[s]["overall"] in HIGH_RISK_OVERALLS]
-        lows = [s for s in confirmed if appraisal[s]["overall"] == "low"]
+        highs = [s for s in confirmed
+                 if appraisal[(s, target)]["overall"] in HIGH_RISK_OVERALLS]
+        lows = [s for s in confirmed if appraisal[(s, target)]["overall"] == "low"]
         rating = r["domains"]["risk_of_bias"]["rating"]
         if rating == 0 and len(highs) * 2 > len(confirmed):
             errs.append(

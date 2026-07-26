@@ -78,3 +78,16 @@ judgement, because the check may only assert what is decidable (constitution Pri
 
 Both carry a header line stating whether certainty is keyed to outcomes or themes (FR-008), and a
 provenance line naming the generating check and source record (constitution Principle VII).
+
+
+## `appraised_result` (required with `confirmed_rob`)
+
+Each certainty result names the appraised target it relies on. An appraisal covers
+one result, so without this a study appraised for mortality could back a certainty
+rating about quality of life.
+
+| Rule | Violation |
+|:--|:--|
+| `appraised_result` present when any domain declares `confirmed_rob` | exit 1 |
+| It names a result the appraisal record actually covers | exit 1 |
+| Every `study_ids` entry resolves at `(study, appraised_result)` | exit 1 — studies appraised for a *different* result are reported separately from unresolved ones |

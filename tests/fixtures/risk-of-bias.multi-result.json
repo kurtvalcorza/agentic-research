@@ -25,11 +25,11 @@
       "id": "R1",
       "design": "rct",
       "instrument": "rob2",
-      "result_assessed": "diagnostic accuracy at 12 months",
+      "result_assessed": "quality of life at 12 months",
       "domains": {
         "randomization": "low",
         "deviations": "low",
-        "missing_data": "some_concerns",
+        "missing_data": "high",
         "measurement": "low",
         "selection_of_result": "low"
       },
@@ -37,47 +37,7 @@
         "randomization": "p.4: computer-generated sequence, sealed opaque envelopes",
         "missing_data": "p.7: 18% attrition, reasons not reported by arm"
       },
-      "overall": "some_concerns",
-      "confirmed_by": "K. Valcorza",
-      "confirmed_at": "2026-07-26"
-    },
-    {
-      "id": "O1",
-      "design": "observational",
-      "instrument": "nos",
-      "result_assessed": "association with outcome at 24 months",
-      "domains": {
-        "selection": 4,
-        "comparability": 2,
-        "outcome_or_exposure": 2
-      },
-      "overall": "low",
-      "confirmed_by": "K. Valcorza",
-      "confirmed_at": "2026-07-26"
-    },
-    {
-      "id": "D1",
-      "design": "dta",
-      "instrument": "quadas2",
-      "result_assessed": "sensitivity and specificity",
-      "domains": {
-        "patient_selection": {
-          "risk_of_bias": "low",
-          "applicability": "low"
-        },
-        "index_test": {
-          "risk_of_bias": "unclear",
-          "applicability": "low"
-        },
-        "reference_standard": {
-          "risk_of_bias": "low",
-          "applicability": "low"
-        },
-        "flow_and_timing": {
-          "risk_of_bias": "low"
-        }
-      },
-      "overall": "unclear",
+      "overall": "high",
       "confirmed_by": "K. Valcorza",
       "confirmed_at": "2026-07-26"
     }

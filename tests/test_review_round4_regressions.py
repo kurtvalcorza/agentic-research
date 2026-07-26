@@ -77,7 +77,8 @@ def appraisal(design, instrument, domains, overall="low", n=4, **over):
     studies = []
     for i in ids:
         s = {"id": i, "design": design, "instrument": instrument, "domains": domains,
-             "overall": overall, "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+             "overall": overall, "result_assessed": 'diagnostic accuracy at 12 months',
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}
         s.update(over)
         studies.append(s)
     return {"schema_version": "1.0", "studies": studies}
@@ -263,3 +264,117 @@ class TestRound5NoInformation(_Base):
         code_ra, _, _ = self.run_ra(rob, "--strict")
         self.assertNotEqual(code_gp, 0)
         self.assertNotEqual(code_ra, 0)
+
+
+class TestRound6Schema(_Base):
+    """Round 6 P1 — the repo documented a requirement its own schema forbade.
+
+    instruments.md states RoB 2 and ROBINS-I appraise a SPECIFIC RESULT, not a
+    study. But identity was keyed on study id alone, so the second appraisal of a
+    study was rejected as a duplicate — making the correct representation
+    inexpressible — and grade_profile resolved on study id, letting a study
+    appraised for one outcome back a certainty rating about another.
+    """
+
+    ROB2 = {"randomization": "low", "deviations": "low", "missing_data": "low",
+            "measurement": "low", "selection_of_result": "low"}
+
+    def two_results(self, **second):
+        a = {"id": "P1", "design": "rct", "instrument": "rob2", "domains": dict(self.ROB2),
+             "overall": "low", "result_assessed": "mortality at 12mo",
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+        b = dict(a, result_assessed="quality of life",
+                 domains=dict(self.ROB2, missing_data="high"), overall="high")
+        b.update(second)
+        return {"schema_version": "1.0", "studies": [a, b]}
+
+    def test_one_study_two_results_is_now_expressible(self):
+        code, out, err = self.run_ra(self.two_results(), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+
+    def test_same_study_same_result_twice_is_still_rejected(self):
+        rec = self.two_results()
+        rec["studies"][1]["result_assessed"] = "mortality at 12mo"
+        code, _, err = self.run_ra(rec, "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("appraised twice for result", err)
+
+    def test_result_assessed_is_required(self):
+        rec = self.two_results()
+        del rec["studies"][0]["result_assessed"]
+        code, _, err = self.run_ra(rec, "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("result_assessed", err)
+
+    def test_a_study_cannot_have_two_designs(self):
+        """Its judgment varies by result; its design does not."""
+        rec = self.two_results(design="observational", instrument="nos",
+                               domains={"selection": 4, "comparability": 2,
+                                        "outcome_or_exposure": 3}, overall="low")
+        code, _, err = self.run_ra(rec, "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("one design", err)
+
+    def test_wrong_appraised_result_is_caught(self):
+        """The consuming half: the wrong risk-of-bias evidence cannot back a rating."""
+        rec = self.profile(study_ids=["P1"], appraised_result="quality of life",
+                           design_mix={"rct": 1, "nrsi": 0, "observational": 0,
+                                       "dta": 0, "case_series": 0})
+        rob = {"schema_version": "1.0", "studies": [
+            {"id": "P1", "design": "rct", "instrument": "rob2", "domains": dict(self.ROB2),
+             "overall": "low", "result_assessed": "mortality at 12mo",
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}]}
+        code, out, _ = self.run_gp(rec, rob, "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("appraised_result", out)
+
+    def test_appraised_result_required_for_confirmed_rob(self):
+        rec = self.profile(study_ids=["P1"],
+                           design_mix={"rct": 1, "nrsi": 0, "observational": 0,
+                                       "dta": 0, "case_series": 0})
+        rec["results"][0].pop("appraised_result", None)
+        rob = {"schema_version": "1.0", "studies": [
+            {"id": "P1", "design": "rct", "instrument": "rob2", "domains": dict(self.ROB2),
+             "overall": "low", "result_assessed": "mortality at 12mo",
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}]}
+        code, out, _ = self.run_gp(rec, rob, "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("is required", out)
+
+
+class TestRound6ClosedSchemas(_Base):
+    """Round 6 P2 — two more acceptance divergences of the familiar class."""
+
+    ROB2 = {"randomization": "low", "deviations": "low", "missing_data": "low",
+            "measurement": "low", "selection_of_result": "low"}
+
+    def _valid_rob(self):
+        return {"schema_version": "1.0", "studies": [
+            {"id": i, "design": "rct", "instrument": "rob2", "domains": dict(self.ROB2),
+             "overall": "low", "result_assessed": "diagnostic accuracy at 12 months",
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+            for i in ("P1", "P3", "P5", "P7")]}
+
+    def test_unknown_root_key_in_appraisal_is_rejected(self):
+        rob = self._valid_rob()
+        rob["studiez"] = []
+        code, _, err = self.run_gp(self.profile(), rob, "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("studiez", err)
+
+    def test_unknown_key_inside_a_quadas_domain_is_rejected(self):
+        rec = self.profile(design_mix={"rct": 0, "nrsi": 0, "observational": 0,
+                                       "dta": 4, "case_series": 0},
+                           starting_level="high", final="moderate")
+        doms = {"patient_selection": {"risk_of_bias": "low", "applicability": "low"},
+                "index_test": {"risk_of_bias": "low", "applicability": "low"},
+                "reference_standard": {"risk_of_bias": "low", "applicability": "low"},
+                "flow_and_timing": {"risk_of_bias": "low", "applicability": "low"}}
+        rob = {"schema_version": "1.0", "studies": [
+            {"id": i, "design": "dta", "instrument": "quadas2", "domains": doms,
+             "overall": "low", "result_assessed": "diagnostic accuracy at 12 months",
+             "confirmed_by": "K", "confirmed_at": "2026-07-26"}
+            for i in ("P1", "P3", "P5", "P7")]}
+        code, _, err = self.run_gp(rec, rob, "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("flow_and_timing", err)

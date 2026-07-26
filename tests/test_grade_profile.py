@@ -60,6 +60,7 @@ def appraisal_for(design_counts):
         for _ in range(count):
             studies.append({"id": f"P{n}", "design": design, "instrument": inst[design],
                             "domains": doms[inst[design]], "overall": "low",
+                            "result_assessed": 'diagnostic accuracy at 12 months',
                             "confirmed_by": "K", "confirmed_at": "2026-07-26"})
             n += 1
     return {"schema_version": "1.0", "studies": studies}, [x["id"] for x in studies]
