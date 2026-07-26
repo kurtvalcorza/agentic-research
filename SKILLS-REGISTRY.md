@@ -89,8 +89,8 @@ absence and fall back to the keyless scripts automatically.
 | dedupe-records | dedup | dedupe_records.py |
 | screen-literature | screening | kappa.py |
 | extract-synthesis | extraction | — |
-| appraise-risk-of-bias | appraisal (human-gated) | — |
-| validate-evidence | grading (GRADE) | — |
+| appraise-risk-of-bias | appraisal (human-gated) | rob_appraisal.py |
+| validate-evidence | grading (GRADE) | grade_profile.py |
 | structure-arguments | synthesis/drafting | — |
 | recursive-lit-review | large-corpus synthesis | — |
 | synthesize-research | orchestrator | — |
@@ -104,9 +104,9 @@ absence and fall back to the keyless scripts automatically.
 | validate-consistency | validation | — |
 | validate-manuscript | validation (batch) | — |
 | verify-review | validation (loop → verified end-state) | review_units.py |
-| prisma-flow | reporting | prisma_flow.py |
+| prisma-flow | reporting | prisma_flow.py, prisma_checklist.py |
 | orchestrate-research | orchestration | — |
-| review-literature | orchestration | — |
+| review-literature | orchestration | rlm_corpus_loader.py |
 
 ---
 

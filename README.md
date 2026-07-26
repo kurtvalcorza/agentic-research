@@ -75,6 +75,11 @@ Several skills ship a standard-library Python script so they *run*, not just des
 | `kappa.py` | screen-literature | Cohen's κ + recall/MCC vs reference + disagreements |
 | `prisma_flow.py` | prisma-flow | PRISMA 2020 flow (Mermaid) + arithmetic reconciliation |
 | `resolve_citation.py` | verify-sources | DOI resolution + retraction check (OpenAlex/CrossRef) |
+| `review_units.py` | verify-review | Units-remaining scalar + the VERIFIED/CONTINUE verdict (fails closed) |
+| `grade_profile.py` | validate-evidence | GRADE completeness + certainty arithmetic → evidence profile & summary of findings |
+| `rob_appraisal.py` | appraise-risk-of-bias | Instrument/design match + domain completeness → traffic-light summary, `H_rob` count |
+| `prisma_checklist.py` | prisma-flow | PRISMA 2020 reporting completeness over 42 rows → completed checklist |
+| `rlm_corpus_loader.py` | review-literature | Builds a JSONL corpus from Markdown/PDF files. **Markdown is stdlib-only; PDF text extraction needs `pypdf` or `PyPDF2`** — the one optional dependency in the repository, imported lazily and failing with an actionable message |
 
 ```bash
 # e.g. confirm a citation is real and not retracted — no key needed:
@@ -91,17 +96,27 @@ python skills/verify-sources/scripts/resolve_citation.py "10.1016/S0140-6736(97)
 
 ## Standards alignment
 
-| Standard | Where |
-|:---------|:------|
-| **PRISMA 2020** (flow + checklist) | `prisma-flow`, reporting throughout |
-| **PRISMA-S** (search reporting) | `acquire-corpus` search log |
-| **PRISMA-ScR** (scoping) | `design-review-protocol` review-type branch |
-| **Cochrane / JBI** (review conduct) | dual screening/extraction, protocol |
-| **GRADE** (certainty) | `validate-evidence` |
-| **RoB 2 / ROBINS-I / Newcastle-Ottawa / QUADAS-2** | `appraise-risk-of-bias` |
-| **SWiM** (non-meta-analysis synthesis) | synthesis skills |
-| **PRISMA-trAIce / ICMJE** (AI disclosure) | `steering/ai-research-provenance.md` |
-| **PROSPERO / OSF** (registration) | `design-review-protocol` |
+**Enforced** means a runnable check fails when the standard is violated. **Guidance** means the
+methodology is documented and followed by the agent, but nothing verifies the result. Both are
+legitimate; conflating them is not, so the distinction is stated rather than left to inference.
+
+| Standard | Where | Enforced? |
+|:---------|:------|:----------|
+| **PRISMA 2020** — flow diagram | `prisma-flow` → `prisma_flow.py` | ✅ arithmetic reconciliation, exit 1 under `--strict` |
+| **PRISMA 2020** — checklist | `prisma-flow` → `prisma_checklist.py` | ✅ completeness over all **42 addressable rows** (27 numbered items + lettered sub-items) |
+| **PRISMA-S** (search reporting) | `acquire-corpus` search log | ⚠️ guidance — the log is written, not validated |
+| **PRISMA-ScR** (scoping) | `design-review-protocol` review-type branch | ⚠️ guidance — and the checklist variant is **deliberately not implemented**: its item table could not be transcribed from an accessible copy of the source, and an approximated table would make every verdict wrong while looking authoritative, so `prisma_checklist.py` refuses the variant rather than guessing |
+| **Cochrane / JBI** — dual screening | `screen-literature` → `kappa.py` | ✅ κ computed; `--min-kappa` fails below the floor |
+| **Cochrane / JBI** — dual extraction, protocol | `extract-synthesis`, `design-review-protocol` | ⚠️ guidance — no agreement metric |
+| **GRADE** (certainty) | `validate-evidence` → `grade_profile.py` | ✅ all five domains present, whole-step ratings, starting level vs predominant design, certainty arithmetic, upgrade legality; cross-result aggregates rejected outright |
+| **RoB 2 / ROBINS-I / Newcastle-Ottawa / QUADAS-2** | `appraise-risk-of-bias` → `rob_appraisal.py` | ✅ instrument matches design, all domains present and in-vocabulary, overall vs worst domain; **human confirmation is checked for presence, never authenticity** |
+| **SWiM** (non-meta-analysis synthesis) | synthesis skills | ⚠️ guidance |
+| **PRISMA-trAIce / ICMJE** (AI disclosure) | `steering/ai-research-provenance.md` | ⚠️ guidance |
+| **PROSPERO / OSF** (registration) | `design-review-protocol` | ⚠️ guidance — produces content to submit; registration is yours |
+| **Verification loop** | `verify-review` → `review_units.py` | ✅ fails closed; cannot report VERIFIED on a partial units map |
+
+Closing the ⚠️ rows for GRADE, risk-of-bias and the reporting checklist is the subject of
+[specs/001-standards-enforcement-parity](specs/001-standards-enforcement-parity/spec.md).
 
 ## How skills work
 
