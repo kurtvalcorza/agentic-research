@@ -25,7 +25,8 @@ DEFAULT_WEIGHTS["U_checklist"] = 1
 `U_grade` keeps its weight of 1 and its key. Only its **definition** changes: from the undocumented
 "themes not yet graded" to "results failing the certainty check under `--strict`" (FR-023).
 `H_rob` keeps its key and its position in `GATE_KEYS`; only its **source** changes, from asserted
-to computed by the appraisal check (FR-014).
+to computed by the appraisal check (FR-014). A matching but unconfirmed appraisal belongs
+exclusively to `H_rob`; it is not also counted as `U_rob_trace`.
 
 `UNIVERSAL_FLOOR` is **not** extended. The floor is the set every review type must satisfy however
 light; certainty, traceability, and reporting completeness are review-type dependent and belong in
@@ -36,7 +37,7 @@ the in-scope set instead.
 | Unit | Weight | Produced by | Counts |
 |:--|:--:|:--|:--|
 | `U_grade` | 1 | certainty check | Results violating any certainty rule |
-| `U_rob_trace` | 1 | certainty check with `--rob` | Referenced studies not resolving to a confirmed appraisal |
+| `U_rob_trace` | 1 | certainty check with `--rob` | References not resolving at the named `(study, result)` target; matching but unconfirmed appraisals are excluded |
 | `U_checklist` | 1 | checklist check | Rows neither located nor justified |
 | `H_rob` | gate | appraisal check | Studies lacking confirmation |
 
@@ -48,12 +49,14 @@ Passed as `units_in_scope`, resolved once at classification and frozen for the r
 |:--|:--:|:--:|:--:|:--:|:--:|
 | `U_grade` | ✅ | ✅ | ✅ | ⬜ | ⬜ |
 | `U_rob_trace` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
-| `U_checklist` | ✅ | ✅ | ✅ | ✅ | ⬜ |
+| `U_checklist` | ✅ | ✅ | ✅ | ⬜ | ⬜ |
 | `H_rob` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
 
 `U_rob_trace` and `H_rob` are out of scope for rapid reviews because the heuristic basis is
 permitted there (research.md D-009); a rapid review still grades certainty, so `U_grade` applies.
-Scoping reviews report against the scoping checklist variant but do not grade certainty.
+The PRISMA-ScR checklist checker is deliberately unimplemented, so scoping reviews keep
+`U_checklist` out of scope rather than treating an unavailable check as zero. They also do not
+grade certainty.
 
 ## Fail-closed behaviour (existing, extended to the new units)
 
@@ -98,6 +101,7 @@ then reported missing; the check says so explicitly rather than dropping it sile
 
 ```json
 {
+  "schema_version": "1.0",
   "review_type": "systematic",
   "units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency",
                      "U_screen", "U_extract", "U_prisma",

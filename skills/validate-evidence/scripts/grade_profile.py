@@ -83,7 +83,8 @@ LEVEL_NAMES = {v: k for k, v in LEVELS.items()}
 SYMBOLS = {4: "⊕⊕⊕⊕", 3: "⊕⊕⊕◯", 2: "⊕⊕◯◯", 1: "⊕◯◯◯"}
 
 DOMAINS = ("risk_of_bias", "inconsistency", "indirectness", "imprecision", "publication_bias")
-UPGRADES = ("large_effect", "dose_response", "opposing_confounding")
+UPGRADE_MAX = {"large_effect": 2, "dose_response": 1, "opposing_confounding": 1}
+UPGRADES = tuple(UPGRADE_MAX)
 DESIGNS = ("rct", "nrsi", "observational", "dta", "case_series")
 
 # Starting level implied by the design that PREDOMINATES in the body of evidence.
@@ -196,9 +197,10 @@ def _rating(v, ctx: str) -> int:
     return v
 
 
-def _upgrade(v, ctx: str) -> int:
-    if isinstance(v, bool) or not isinstance(v, int) or v not in (0, 1, 2):
-        raise InputError(f"{ctx}: upgrade must be the integer 0, 1 or 2, got {v!r}")
+def _upgrade(v, ctx: str, maximum: int) -> int:
+    if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= maximum:
+        allowed = ", ".join(str(i) for i in range(maximum + 1))
+        raise InputError(f"{ctx}: upgrade must be one of the integers {allowed}, got {v!r}")
     return v
 
 
@@ -327,7 +329,10 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
     # The closed set is what makes "importance of findings" unrepresentable — it is
     # not a GRADE upgrade reason, and certainty must never rise because a result matters.
     _no_unknown_keys(upgrades_raw, set(UPGRADES), f"{ctx}.upgrades")
-    upgrades = {u: _upgrade(upgrades_raw.get(u, 0), f"{ctx}.upgrades.{u}") for u in UPGRADES}
+    upgrades = {
+        u: _upgrade(upgrades_raw.get(u, 0), f"{ctx}.upgrades.{u}", UPGRADE_MAX[u])
+        for u in UPGRADES
+    }
 
     return {"id": rid, "label": _opt_str(r.get("label"), f"{ctx}.label") or rid, "study_ids": study_ids,
             "design_mix": mix, "starting_level": start,
@@ -801,6 +806,12 @@ def _keyed_as(rec: dict) -> str:
             "GRADE as published by the GRADE Working Group.")
 
 
+def _markdown_cell(value: object) -> str:
+    """Render caller-controlled text without creating extra table cells or rows."""
+    return str(value).replace("\r\n", "\n").replace("\r", "\n") \
+        .replace("|", "&#124;").replace("\n", "<br>")
+
+
 def evidence_profile(rec: dict) -> str:
     lines = ["## Evidence profile", "", _keyed_as(rec), ""]
     provisional = any(r["domains"].get("risk_of_bias", {}).get("basis") == "heuristic"
@@ -817,7 +828,8 @@ def evidence_profile(rec: dict) -> str:
         cells = [(str(d[n]["rating"]) if n in d else "—") for n in DOMAINS]
         final_idx = LEVELS[r["final"]]
         lines.append(
-            f"| {r['label']} | {len(r['study_ids'])} | {predominant_design(r['design_mix'])} | "
+            f"| {_markdown_cell(r['label'])} | {len(r['study_ids'])} | "
+            f"{predominant_design(r['design_mix'])} | "
             f"{r['starting_level']} | " + " | ".join(cells) +
             f" | {r['final'].replace('_', ' ')} {SYMBOLS[final_idx]} |")
     lines.append("")
@@ -835,9 +847,9 @@ def summary_of_findings(rec: dict) -> str:
              "| Result | Studies | Certainty | What this means |", "|:--|--:|:--|:--|"]
     for r in rec["results"]:
         idx = LEVELS[r["final"]]
-        lines.append(f"| {r['label']} | {len(r['study_ids'])} | "
+        lines.append(f"| {_markdown_cell(r['label'])} | {len(r['study_ids'])} | "
                      f"{SYMBOLS[idx]} {r['final'].replace('_', ' ').upper()} | "
-                     f"{r['certainty_statement']} |")
+                     f"{_markdown_cell(r['certainty_statement'])} |")
     return "\n".join(lines)
 
 

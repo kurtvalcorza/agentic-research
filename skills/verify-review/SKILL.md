@@ -51,7 +51,7 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_prisma` | 1 | `prisma-flow` | arms failing reconciliation (`prisma_flow.py --strict`) |
 | `U_consistency` | 1 | `validate-consistency` | `critical_breaks + max(0, 75 − score)` (graded) |
 | `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level |
-| `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve to a confirmed appraisal (`grade_profile.py --rob`) |
+| `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve at the named `(study, result)` target (`grade_profile.py --rob`); matching but unconfirmed appraisals are excluded and counted only by `H_rob` |
 | `U_checklist` | 1 | `prisma-flow` | PRISMA rows neither located nor justified (`prisma_checklist.py --strict`), over all **42** addressable rows |
 
 > **`U_grade` was redefined.** It previously counted "themes/outcomes not yet GRADE-graded", which
@@ -152,7 +152,7 @@ Each cycle:
 | `U_screen` | `screen-literature` re-screen of the disagreement subset |
 | `U_extract` | `extract-synthesis` re-reconcile the flagged extraction fields |
 | `U_grade` | `validate-evidence` → fix the results `grade_profile.py --strict` reports: a missing domain, an illegal upgrade, arithmetic that does not reconcile, or a starting level inconsistent with the predominant design |
-| `U_rob_trace` | `appraise-risk-of-bias` → confirm the unresolved studies, or correct the identifiers the certainty record cites. **If they are unconfirmed rather than unreferenced, this is a human gate (`H_rob`), not a repair — hand off, do not loop.** |
+| `U_rob_trace` | `appraise-risk-of-bias` → create the missing appraisal or correct the study/result identifiers the certainty record cites. **Matching but unconfirmed appraisals are excluded from this unit and counted only by the human gate (`H_rob`) — hand off, do not loop.** |
 | `U_checklist` | `prisma-flow` → address the reported rows in the manuscript, or record an explicit `not_applicable` justification for each. Remember completeness is over all **42** rows, not the 27 numbered items |
 
 **Every unit in `DEFAULT_WEIGHTS` must appear in this table.** The backend can nominate any

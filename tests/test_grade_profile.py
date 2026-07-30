@@ -99,6 +99,15 @@ class TestValidRecord(unittest.TestCase):
         _, out, _ = run(VALID, "--rob", str(ROB_VALID))
         self.assertIn("cannot verify that a domain judgment was the", out)
 
+    def test_escapes_free_text_in_markdown_tables(self):
+        rec = load_record()
+        rec["results"][0]["label"] = "Mortality | readmission"
+        rec["results"][0]["certainty_statement"] = "Line one\nLine two | caveat"
+        _, out, _ = run(self._tmp(rec, "markdown.json"), "--rob", str(ROB_VALID))
+        self.assertIn("Mortality &#124; readmission", out)
+        self.assertIn("Line one<br>Line two &#124; caveat", out)
+        self.assertNotIn("| Mortality | readmission |", out)
+
     def _tmp(self, rec, name):
         import tempfile
         d = tempfile.TemporaryDirectory()
@@ -162,6 +171,16 @@ class TestMalformedInput(unittest.TestCase):
     def test_illegal_upgrade_key_rejected(self):
         self.assert_malformed("grade-profile.illegal-upgrade.json",
                               "importance_of_findings", "unrecognised key")
+
+    def test_two_level_upgrade_is_only_valid_for_large_effect(self):
+        for reason in ("dose_response", "opposing_confounding"):
+            with self.subTest(reason=reason):
+                rec = load_record()
+                rec["results"][0]["upgrades"] = {reason: 2}
+                code, out, err = run(self.write(rec), "--strict")
+                self.assertEqual(code, 2, msg=out + err)
+                self.assertIn(reason, err)
+                self.assertIn("integers 0, 1", err)
 
     def test_quoted_count_rejected(self):
         self.assert_malformed("grade-profile.quoted-count.json", "must be a JSON number")
@@ -272,6 +291,15 @@ class TestUpgradeLegality(unittest.TestCase):
 
     def test_upgrade_on_observational_with_no_downgrade_is_legal(self):
         rec = self._rec_with_upgrade("observational", False)
+        rob, ids = appraisal_for({"observational": 4})
+        rec["results"][0]["study_ids"] = ids
+        code, out, err = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+
+    def test_very_large_effect_may_upgrade_two_levels(self):
+        rec = self._rec_with_upgrade("observational", False)
+        rec["results"][0]["upgrades"]["large_effect"] = 2
+        rec["results"][0]["final"] = "high"
         rob, ids = appraisal_for({"observational": 4})
         rec["results"][0]["study_ids"] = ids
         code, out, err = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")

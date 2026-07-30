@@ -13,6 +13,7 @@ Assembled each cycle from the in-scope checks' outputs and passed to
 
 ```json
 {
+  "schema_version": "1.0",
   "review_type": "systematic",
   "cycle": 3,
   "units_in_scope": ["U_screen", "U_extract", "U_prisma", "U_grade"],

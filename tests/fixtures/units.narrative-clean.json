@@ -1,4 +1,5 @@
 {
+  "schema_version": "1.0",
   "review_type": "narrative",
   "units_in_scope": [
     "U_cite_external",

@@ -64,7 +64,7 @@ Arithmetic: `high(4) + (-1) = 3 = moderate`. ✅
 | 4 | `starting_level` matches predominant `design_mix` entry, or carries `starting_level_justification` | exit 1 |
 | 5 | `clamp(index(starting) + Σdomains + Σupgrades, 1, 4)` equals `index(final)` | exit 1 — reports both sides and the difference |
 | 6 | Upgrades non-zero only when body is non-randomized **and** all domain ratings are `0` | exit 1 |
-| 7 | Upgrade keys ⊆ {`large_effect`, `dose_response`, `opposing_confounding`} | exit 2 |
+| 7 | Upgrade keys ⊆ {`large_effect`, `dose_response`, `opposing_confounding`}; `large_effect` is `0`/`1`/`2`, while the other two are `0`/`1` only | exit 2 |
 | 8 | No `overall_certainty` or any cross-result aggregate key | exit 2 |
 | 9 | `basis` is `confirmed_rob` or `heuristic`; `heuristic` stamps output PROVISIONAL, and fails under `--strict` for `systematic` and `umbrella`; permitted for `rapid` only with `streamlined_method_disclosed` | exit 1 |
 | 10 | With `--rob`: every `study_ids` entry resolves to a **confirmed** study, matched exactly | exit 1 |

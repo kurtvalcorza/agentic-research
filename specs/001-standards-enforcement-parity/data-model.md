@@ -65,8 +65,9 @@ Keys are exactly `risk_of_bias`, `inconsistency`, `indirectness`, `imprecision`,
 
 ### Nested: Upgrades
 
-Permitted keys, each `0`, `1`, or `2`: `large_effect`, `dose_response`, `opposing_confounding`.
-Any other key is malformed input, which is what makes "importance of findings" unrepresentable
+Permitted keys: `large_effect` accepts `0`, `1`, or `2`; `dose_response` and
+`opposing_confounding` accept `0` or `1`. Any other key or out-of-range value is malformed input,
+which is what makes both unsupported reasons and unsupported two-level upgrades unrepresentable
 (FR-006). A non-zero upgrade is legal only when the body is non-randomized **and** every domain
 rating is `0` (FR-005).
 
@@ -157,10 +158,14 @@ reproduced (D-013).
 Consumed by the existing verification-loop backend. This feature adds three units and changes one
 gate from asserted to computed.
 
+| Field | Type | Rules |
+|:--|:--|:--|
+| `schema_version` | string | Required; must be `"1.0"`. Unversioned/older records are rejected before redefined unit meanings are interpreted |
+
 | Unit | Weight | Source | Counts |
 |:--|:--:|:--|:--|
 | `U_grade` | 1 | certainty check | Results failing any certainty rule — replaces "not yet graded" (FR-023) |
-| `U_rob_trace` | 1 | certainty check `--rob` | Referenced studies not resolving to a confirmed appraisal (FR-017) |
+| `U_rob_trace` | 1 | certainty check `--rob` | References not resolving at the named `(study, result)` target; matching but unconfirmed appraisals are excluded and counted only by `H_rob` (FR-017) |
 | `U_checklist` | 1 | checklist check | Items neither located nor justified (FR-020) |
 | `H_rob` | gate | appraisal check | Appraisals without confirmation — now computed, previously asserted (FR-014) |
 
@@ -170,7 +175,7 @@ gate from asserted to computed.
 |:--|:--:|:--:|:--:|:--:|:--:|
 | `U_grade` | ✅ | ✅ | ✅ | ⬜ | ⬜ |
 | `U_rob_trace` | ✅ | ✅ | ⬜ (heuristic basis permitted) | ⬜ | ⬜ |
-| `U_checklist` | ✅ | ✅ | ✅ | ✅ (scoping variant) | ⬜ |
+| `U_checklist` | ✅ | ✅ | ✅ | ⬜ (ScR checker unimplemented) | ⬜ |
 | `H_rob` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
 
 An applicable unit absent from the record is reported as **missing**, and the review cannot be

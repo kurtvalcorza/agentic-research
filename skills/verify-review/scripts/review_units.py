@@ -8,6 +8,7 @@ suite (screen-literature/kappa.py, prisma-flow/prisma_flow.py).
 
 INPUT (a JSON file, or stdin):
 {
+  "schema_version": "1.0",             # required; rejects pre-redefinition records
   "review_type": "systematic",          # systematic|scoping|rapid|umbrella|narrative
   "cycle": 3,                            # current cycle number (0 = baseline)
   "units": {                             # auto-reducible unit COUNTS (in-scope only)
@@ -61,6 +62,8 @@ import math
 import sys
 
 # --- configuration (single source of truth for weights / thresholds) --------
+SCHEMA_VERSION = "1.0"
+
 # Q1: fabricated/unverifiable citations dominate routing and the climb gradient.
 DEFAULT_WEIGHTS = {
     "U_cite_external": 3,
@@ -73,7 +76,8 @@ DEFAULT_WEIGHTS = {
     # the right reason; it is now DEFINED AS the count that check reports.
     "U_grade": 1,
     # U_rob_trace: studies cited by the certainty record as confirmed-appraisal
-    # backing that do not resolve to a confirmed appraisal (grade_profile.py --rob).
+    # backing that do not resolve at the named (study, result) target. A matching
+    # but unconfirmed appraisal is excluded here and belongs only to H_rob.
     "U_rob_trace": 1,
     # U_checklist: PRISMA rows neither located nor justified (prisma_checklist.py).
     "U_checklist": 1,
@@ -178,7 +182,17 @@ def _as_object(x, ctx):
     return x
 
 
+def _validate_schema_version(data):
+    """Reject legacy records before interpreting redefined unit semantics."""
+    version = data.get("schema_version")
+    if version != SCHEMA_VERSION:
+        raise InputError(
+            f"schema_version: expected {SCHEMA_VERSION!r}, got {version!r}; "
+            "unversioned or older records predate the current U_grade/U_rob_trace definitions")
+
+
 def compute(data, weights):
+    _validate_schema_version(data)
     ignored_inputs: list[str] = []
     raw_units = _as_object(data.get("units"), "units")
     for key in raw_units:
@@ -466,6 +480,7 @@ def append_to_manifest(path, data, result):
 
 def dry_run_preview(data, ceiling):
     """Preview what the loop will do without running or writing anything."""
+    _validate_schema_version(data)
     review_type = data.get("review_type", "unspecified")
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]

@@ -35,7 +35,8 @@ def systematic(units=None, gates=None, **extra):
     u = {k: 0 for k in scope if k != "U_consistency"}
     if units:
         u.update(units)
-    d = {"units_in_scope": scope, "units": u, "consistency": CLEAN_CONSISTENCY,
+    d = {"schema_version": ru.SCHEMA_VERSION,
+         "units_in_scope": scope, "units": u, "consistency": CLEAN_CONSISTENCY,
          "gates": dict(NO_GATES, **(gates or {}))}
     d.update(extra)
     return d
@@ -97,7 +98,8 @@ class TestVerifiedRequiresEverything(unittest.TestCase):
 class TestScopeResolution(unittest.TestCase):
     def test_narrative_review_omits_checklist_without_penalty(self):
         """An inapplicable unit is ABSENT, not zero-to-achieve."""
-        d = {"units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency"],
+        d = {"schema_version": ru.SCHEMA_VERSION,
+             "units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency"],
              "units": dict(FLOOR), "consistency": CLEAN_CONSISTENCY, "gates": dict(NO_GATES)}
         r = verdict(d)
         self.assertEqual(r["state"], "VERIFIED")
@@ -117,13 +119,24 @@ class TestScopeResolution(unittest.TestCase):
 
 
 class TestFailClosed(unittest.TestCase):
+    def test_unversioned_legacy_record_is_rejected(self):
+        d = systematic()
+        del d["schema_version"]
+        with self.assertRaisesRegex(ru.InputError, "schema_version"):
+            verdict(d)
+
+    def test_unknown_schema_version_is_rejected(self):
+        with self.assertRaisesRegex(ru.InputError, "schema_version"):
+            verdict(systematic(schema_version="0.9"))
+
     def test_empty_units_map_cannot_verify(self):
-        r = verdict({"units": {}, "gates": {}})
+        r = verdict({"schema_version": ru.SCHEMA_VERSION, "units": {}, "gates": {}})
         self.assertNotEqual(r["state"], "VERIFIED")
         self.assertTrue(r["missing_units"])
 
     def test_citationless_map_cannot_verify(self):
-        r = verdict({"units": {"U_grade": 0}, "consistency": CLEAN_CONSISTENCY, "gates": {}})
+        r = verdict({"schema_version": ru.SCHEMA_VERSION, "units": {"U_grade": 0},
+                     "consistency": CLEAN_CONSISTENCY, "gates": {}})
         self.assertNotEqual(r["state"], "VERIFIED")
         self.assertIn("U_cite_external", r["missing_units"])
 
@@ -177,6 +190,13 @@ class TestHumanGates(unittest.TestCase):
         r = verdict(systematic(gates={"H_rob": 3}))
         self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
         self.assertEqual(r["gates_remaining"], 3)
+
+    def test_unconfirmed_appraisals_are_not_also_auto_units(self):
+        """H_rob exclusively owns matching-but-unconfirmed appraisals."""
+        r = verdict(systematic({"U_rob_trace": 0}, gates={"H_rob": 3}))
+        self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
+        self.assertTrue(r["auto_units_zero"])
+        self.assertIsNone(r["dominant_unit"])
 
     def test_gate_never_auto_zeroes_across_cycles(self):
         """No number of cycles satisfies a human gate."""
@@ -277,7 +297,7 @@ class TestIgnoredInputsAreReported(unittest.TestCase):
     being ignored. The drop is correct; saying nothing about it was not."""
 
     def record(self, **over):
-        rec = {"review_type": "systematic",
+        rec = {"schema_version": ru.SCHEMA_VERSION, "review_type": "systematic",
                "units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency"],
                "units": {"U_cite_external": 0, "U_cite_internal": 0},
                "consistency": {"score": 90, "critical_breaks": 0},
@@ -318,7 +338,7 @@ class TestConflictingConsistencyInputIsReported(unittest.TestCase):
     """
 
     def run_it(self, units, consistency=None):
-        rec = {"review_type": "systematic",
+        rec = {"schema_version": ru.SCHEMA_VERSION, "review_type": "systematic",
                "units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency"],
                "units": units, "gates": {}, "cycle": 1}
         if consistency is not None:

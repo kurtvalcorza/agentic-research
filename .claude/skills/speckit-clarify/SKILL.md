@@ -63,7 +63,7 @@ Note: This clarification workflow is expected to run (and be completed) BEFORE i
 
 Execution steps:
 
-1. Run `pwsh .specify/scripts/powershell/check-prerequisites.ps1 -Json -PathsOnly` from repo root **once** (combined `--json --paths-only` mode / `-Json -PathsOnly`). Parse minimal JSON payload fields:
+1. Run the platform-native prerequisite check from repo root **once**: on Unix/Linux/macOS, `bash .specify/scripts/bash/check-prerequisites.sh --json --paths-only`; on Windows, `pwsh .specify/scripts/powershell/check-prerequisites.ps1 -Json -PathsOnly`. Parse minimal JSON payload fields:
    - `FEATURE_DIR`
    - `FEATURE_SPEC`
    - (Optionally capture `IMPL_PLAN`, `TASKS` for future chained flows.)
