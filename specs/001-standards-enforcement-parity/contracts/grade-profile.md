@@ -72,6 +72,8 @@ Arithmetic: `high(4) + (-1) = 3 = moderate`. ✅
 | 12 | Body-level `risk_of_bias` rating not contradicted by the per-study distribution, or carries `coherence_justification` | exit 1 |
 | 13 | `study_ids` unique within a result; `results[].id` unique | exit 2 |
 | 14 | `results` non-empty | exit 2 |
+| 15 | Every result has a non-empty string `certainty_statement` for the generated summary of findings | exit 2 |
+| 16 | With `--rob`: optional `evidence`, when present, is an object keyed only by that instrument's domains with non-empty string values | exit 2 |
 
 **Rule 12 predicate.** Contradiction is declared when the rating is `0` while more than half the
 resolved studies are rated high risk, or when the rating is `-2` while every resolved study is

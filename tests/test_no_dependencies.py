@@ -36,12 +36,30 @@ def _names(node) -> set[str]:
     return set()
 
 
+def _catches_missing_import(handler: ast.ExceptHandler) -> bool:
+    """Whether this handler can catch an unavailable optional dependency."""
+    if handler.type is None:  # bare except
+        return True
+    catchable = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+
+    def names(node) -> set[str]:
+        if isinstance(node, ast.Name):
+            return {node.id}
+        if isinstance(node, ast.Attribute):
+            return {node.attr}
+        if isinstance(node, ast.Tuple):
+            return set().union(*(names(item) for item in node.elts))
+        return set()
+
+    return bool(names(handler.type) & catchable)
+
+
 def collect_imports(path: pathlib.Path) -> tuple[set[str], set[str]]:
     """Return (module_level, lazy_guarded) root module names.
 
     Constitution Principle II permits an optional capability dependency only when the
-    import is LAZY (inside a function) and GUARDED (inside a try). Everything else must
-    be standard library.
+    import is LAZY (inside a function) and GUARDED (inside a try whose handler can
+    catch a missing import). Everything else must be standard library.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     module_level: set[str] = set()
@@ -55,13 +73,17 @@ def collect_imports(path: pathlib.Path) -> tuple[set[str], set[str]]:
         in_func = in_func or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
 
         if isinstance(node, ast.Try):
-            # ONLY the try BODY is guarded. An import in `except`, `else` or
-            # `finally` is not: a missing package there raises unhandled, so
-            # treating it as guarded would wave through a hard dependency.
+            # ONLY the try BODY can be guarded by this try, and only when a handler
+            # catches ImportError (or a superclass). A `try: import x` followed by
+            # only `except ValueError` still raises when x is unavailable.
+            catches_import = any(_catches_missing_import(h) for h in node.handlers)
             for stmt in node.body:
-                visit(stmt, in_func, True)
+                visit(stmt, in_func, in_try_body or catches_import)
+            # Handlers, else and finally are not protected by THIS try. Preserve
+            # an enclosing guard, though: an import inside a nested try's handler
+            # can still propagate to an outer ImportError handler.
             for stmt in node.handlers + node.orelse + node.finalbody:
-                visit(stmt, in_func, False)
+                visit(stmt, in_func, in_try_body)
             return
 
         for child in ast.iter_child_nodes(node):

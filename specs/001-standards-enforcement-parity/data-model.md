@@ -48,7 +48,7 @@ inexpressible, not merely undocumented.
 | `domains` | object | Exactly the five keys below — all required, none defaulted (FR-001) |
 | `upgrades` | object | Optional; keys restricted to the three permitted reasons (FR-006) |
 | `final` | enum | Same vocabulary as `starting_level`; must satisfy the arithmetic rule (FR-003) |
-| `certainty_statement` | string | Prose reported alongside the rating |
+| `certainty_statement` | string | **Required, non-empty.** Prose reported alongside the rating in the summary of findings |
 
 ### Nested: Domain Judgment
 

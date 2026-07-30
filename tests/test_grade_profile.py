@@ -10,6 +10,7 @@ import io
 import json
 import pathlib
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from unittest import mock
@@ -124,6 +125,13 @@ class TestGoldenOutput(unittest.TestCase):
 class TestMalformedInput(unittest.TestCase):
     """Exit 2 — the record cannot be read. Distinct from a review being wrong."""
 
+    def write(self, rec, name="record.json"):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        path = pathlib.Path(d.name) / name
+        path.write_text(json.dumps(rec), encoding="utf-8")
+        return path
+
     def assert_malformed(self, name, *needles):
         code, out, err = run(fixture(name), "--rob", str(ROB_VALID), "--strict")
         self.assertEqual(code, 2, msg=f"expected exit 2 for {name}, got {code}")
@@ -173,6 +181,28 @@ class TestMalformedInput(unittest.TestCase):
             code = gp.main()
         self.assertEqual(code, 2)
         self.assertIn("not valid JSON", err.getvalue())
+
+    def test_certainty_statement_is_required_non_empty_text(self):
+        for value in (None, "", "   "):
+            with self.subTest(value=value):
+                rec = load_record()
+                if value is None:
+                    rec["results"][0].pop("certainty_statement")
+                else:
+                    rec["results"][0]["certainty_statement"] = value
+                code, out, err = run(self.write(rec), "--strict")
+                self.assertEqual(code, 2)
+                self.assertIn("certainty_statement", err)
+                self.assertNotIn("## Evidence profile", out)
+
+    def test_malformed_appraisal_evidence_exits_two_without_artifact(self):
+        rob = json.loads(ROB_VALID.read_text(encoding="utf-8"))
+        rob["studies"][0]["evidence"] = []
+        code, out, err = run(
+            VALID, "--rob", str(self.write(rob, "rob.json")), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("evidence", err)
+        self.assertNotIn("## Evidence profile", out)
 
 
 class TestRuleViolations(unittest.TestCase):

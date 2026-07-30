@@ -245,6 +245,13 @@ class TestP2GuardedImportDetection(unittest.TestCase):
             "    except ImportError:\n        pass\n")
         self.assertIn("thirdparty", lazy)
 
+    def test_wrong_exception_does_not_guard_missing_import(self):
+        module, lazy = self._classify(
+            "def f():\n    try:\n        import thirdparty\n"
+            "    except ValueError:\n        pass\n")
+        self.assertIn("thirdparty", module)
+        self.assertNotIn("thirdparty", lazy)
+
     def test_finally_import_is_not_guarded(self):
         module, lazy = self._classify(
             "def f():\n    try:\n        pass\n    finally:\n        import thirdparty\n")

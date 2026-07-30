@@ -83,6 +83,11 @@ def mutations():
             ("confirmed_by missing", {"confirmed_by": None}),
             ("confirmed_at missing", {"confirmed_at": None}),
             ("confirmed_at wrong type", {"confirmed_at": 20260726}),
+            ("evidence wrong type", {"evidence": []}),
+            ("evidence explicit null", {"evidence": None}),
+            ("evidence unknown domain", {"evidence": {"made_up": "p. 4"}}),
+            ("evidence value wrong type", {"evidence": {first: 123}}),
+            ("evidence value blank", {"evidence": {first: "   "}}),
             ("id blank", {"id": "  "}),
             ("unknown study key", {"bogus_field": "x"}),
         ]

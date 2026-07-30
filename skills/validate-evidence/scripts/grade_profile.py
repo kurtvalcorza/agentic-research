@@ -334,8 +334,8 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
             "starting_level_justification": _opt_str(
                 r.get("starting_level_justification"), f"{ctx}.starting_level_justification"),
             "domains": domains, "upgrades": upgrades, "final": final,
-            "certainty_statement": _opt_str(r.get("certainty_statement"),
-                                            f"{ctx}.certainty_statement"),
+            "certainty_statement": _str(r.get("certainty_statement"),
+                                        f"{ctx}.certainty_statement").strip(),
             "appraised_result": _opt_str(r.get("appraised_result"),
                                          f"{ctx}.appraised_result")}
 
@@ -514,6 +514,21 @@ def _validate_appraisal_overall(instrument, domains, overall, justification, ctx
             f"confirmed_rob basis")
 
 
+def _validate_appraisal_evidence(instrument: str, value, ctx: str) -> None:
+    """Mirror rob_appraisal.py's optional-but-typed evidence schema.
+
+    The appraisal remains valid when the key is absent or the object is empty.
+    When it is supplied, however, ignoring its shape lets this standalone
+    consumer accept backing that the owning appraisal check rejects.
+    """
+    if not isinstance(value, dict):
+        raise InputError(f"{ctx}: expected an object mapping domain keys to quoted "
+                         f"supporting text, got {type(value).__name__} {value!r}")
+    _no_unknown_keys(value, set(INSTRUMENT_DOMAINS[instrument]), ctx)
+    for name, text in value.items():
+        _str(text, f"{ctx}.{name}")
+
+
 def parse_appraisal(raw: dict) -> dict:
     """Return {study_id: {'overall': str, 'confirmed': bool}} from an appraisal record.
 
@@ -562,6 +577,8 @@ def parse_appraisal(raw: dict) -> dict:
             raise InputError(f"{ctx}.domains: a confirmed appraisal must record its "
                              f"domain judgments, got {domains!r}")
         _validate_appraisal_domains(instrument, domains, ctx)
+        _validate_appraisal_evidence(
+            instrument, s.get("evidence", {}), f"{ctx}.evidence")
 
         overall = s.get("overall")
         if not isinstance(overall, str) or overall not in INSTRUMENT_OVERALLS[instrument]:
