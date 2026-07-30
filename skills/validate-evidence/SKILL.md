@@ -88,7 +88,7 @@ tables are **generated from it**. Do not hand-write the tables alongside the rec
 both guarantees they eventually disagree, and the disagreement would be invisible.
 
 ```bash
-python scripts/grade_profile.py grade-profile.json --rob ../appraise-risk-of-bias/risk-of-bias.json --strict
+python scripts/grade_profile.py grade-profile.json --rob ../appraise-risk-of-bias/appraisal/risk-of-bias.json --strict
 ```
 
 **Exit codes**: `0` clean (or violations found without `--strict`) · `1` method violation under

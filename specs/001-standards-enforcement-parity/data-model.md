@@ -146,10 +146,11 @@ cannot establish who wrote it (FR-015).
 | `location` | string | Where addressed — section and page. Mutually exclusive with `not_applicable` |
 | `not_applicable` | string | Justification for non-applicability. Mutually exclusive with `location` |
 
-An item with neither field, or with both, is unaddressed and is listed by number in the output;
-under `--strict` this fails the check (FR-020). Item topic labels are supplied by the check from
-its own table rather than by the record, and official item wording is referenced rather than
-reproduced (D-013).
+An item with neither field is unaddressed and is listed by number in the output; under `--strict`
+this is a method violation (exit 1, FR-020). An item with both fields is malformed input (exit 2)
+and emits no artifact, because the record makes mutually exclusive claims. Item topic labels are
+supplied by the check from its own table rather than by the record, and official item wording is
+referenced rather than reproduced (D-013).
 
 ---
 
