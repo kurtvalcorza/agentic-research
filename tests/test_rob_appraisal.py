@@ -307,6 +307,11 @@ class TestEvidenceIsValidated(_Tmp):
                 self.assertEqual(code, 2)
                 self.assertIn("evidence", err)
 
+    def test_explicit_null_is_not_treated_as_absent(self):
+        code, _, err = run(self.with_evidence(None), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("evidence", err)
+
     def test_non_string_supporting_text_is_rejected(self):
         code, _, err = run(self.with_evidence({"randomization": 123}), "--strict")
         self.assertEqual(code, 2)

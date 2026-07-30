@@ -132,15 +132,14 @@ def _parse_evidence(v, ctx: str, allowed=None) -> dict:
     """Evidence is optional, but if supplied it must be what the schema says.
 
     `s.get("evidence", {}) or {}` accepted anything: a string, a list and an int
-    all passed through and the record exited 0 under --strict, then went on to
-    back a confirmed_rob certainty rating. Absent is fine; wrong is not — the
-    same fail-closed rule the leaf text fields already follow.
+    all passed through, while explicit null was silently converted to {}. Those
+    records exited 0 under --strict, then went on to back a confirmed_rob
+    certainty rating. Absent is fine; wrong is not — the same fail-closed rule
+    the leaf text fields already follow.
 
     `allowed` is the instrument's domain keys, or None on the instrument-mismatch
     path where the declared instrument is the wrong yardstick to measure against.
     """
-    if v is None:
-        return {}
     if not isinstance(v, dict):
         raise InputError(f"{ctx}: expected an object mapping domain keys to quoted "
                          f"supporting text, got {type(v).__name__} {v!r}")
@@ -257,7 +256,7 @@ def _parse_study(s, i: int, seen: set) -> dict:
         return {"id": sid, "design": design, "instrument": instrument,
                 "result_assessed": result_assessed,
                 "domains": dict(domains_raw),
-                "evidence": _parse_evidence(s.get("evidence"), f"{ctx}.evidence"),
+                "evidence": _parse_evidence(s.get("evidence", {}), f"{ctx}.evidence"),
                 "overall": overall,
                 "overall_justification": _opt_str(s.get("overall_justification"),
                                                   f"{ctx}.overall_justification"),
@@ -278,7 +277,7 @@ def _parse_study(s, i: int, seen: set) -> dict:
     return {"id": sid, "design": design, "instrument": instrument,
             "result_assessed": result_assessed,
             "domains": domains,
-            "evidence": _parse_evidence(s.get("evidence"), f"{ctx}.evidence",
+            "evidence": _parse_evidence(s.get("evidence", {}), f"{ctx}.evidence",
                                         DOMAINS[instrument]),
             "overall": overall,
             "overall_justification": _opt_str(s.get("overall_justification"),

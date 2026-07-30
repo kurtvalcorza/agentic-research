@@ -94,10 +94,11 @@ executes it on every commit.
 | 10 | `evidence`, when present, is an object whose keys are that instrument's domains and whose values are non-empty strings | exit 2 |
 
 **Rule 10 is optional-but-typed.** Absent or `{}` is legal — evidence is not required. Supplying
-it in any other shape is not: a string, a list or an integer previously passed through untouched
-and the record exited 0 under `--strict`, then went on to back a `confirmed_rob` certainty
-rating. On the instrument-mismatch path the keys are not checked, because the declared instrument
-is the wrong yardstick to measure them against; the object-and-string requirements still apply.
+it in any other shape is not: `null`, a string, a list or an integer previously passed through
+untouched and the record exited 0 under `--strict`, then went on to back a `confirmed_rob`
+certainty rating. On the instrument-mismatch path the keys are not checked, because the declared
+instrument is the wrong yardstick to measure them against; the object-and-string requirements
+still apply.
 
 ## Generated artifacts
 
