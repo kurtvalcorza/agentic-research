@@ -105,6 +105,12 @@ GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
 # §3.3): the floor the loop guarantees for any review. A VERIFIED verdict must
 # have these present and zero, so an empty/partial units map fails closed.
 UNIVERSAL_FLOOR = ("U_cite_external", "U_cite_internal", "U_consistency")
+RECORD_KEYS = {
+    "schema_version", "review_type", "cycle", "units", "units_in_scope",
+    "consistency", "gates", "history", "denominators", "exclusions_logged",
+    "outcome",
+}
+CONSISTENCY_KEYS = {"score", "critical_breaks"}
 
 
 class InputError(ValueError):
@@ -166,6 +172,7 @@ def derive_consistency_unit(consistency):
         return None
     if not isinstance(consistency, dict):
         raise InputError("consistency: expected an object")
+    _reject_unknown_keys(consistency, CONSISTENCY_KEYS, "consistency")
     score = consistency.get("score")
     if score is None:
         return None       # measured requires a score; absent → fails closed
@@ -191,8 +198,29 @@ def _validate_schema_version(data):
             "unversioned or older records predate the current U_grade/U_rob_trace definitions")
 
 
-def compute(data, weights):
+def _reject_unknown_keys(value, allowed, ctx):
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise InputError(
+            f"{ctx}: unknown field(s) {', '.join(repr(k) for k in unknown)}; "
+            f"expected only {sorted(allowed)}")
+
+
+def _validate_record_schema(data):
+    """Apply the closed input schema before interpreting any optional defaults."""
+    if not isinstance(data, dict):
+        raise InputError("record: expected an object")
+    _reject_unknown_keys(data, RECORD_KEYS, "record")
     _validate_schema_version(data)
+    consistency = data.get("consistency")
+    if consistency is not None:
+        if not isinstance(consistency, dict):
+            raise InputError("consistency: expected an object")
+        _reject_unknown_keys(consistency, CONSISTENCY_KEYS, "consistency")
+
+
+def compute(data, weights):
+    _validate_record_schema(data)
     ignored_inputs: list[str] = []
     raw_units = _as_object(data.get("units"), "units")
     for key in raw_units:
@@ -480,7 +508,7 @@ def append_to_manifest(path, data, result):
 
 def dry_run_preview(data, ceiling):
     """Preview what the loop will do without running or writing anything."""
-    _validate_schema_version(data)
+    _validate_record_schema(data)
     review_type = data.get("review_type", "unspecified")
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]

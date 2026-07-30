@@ -13,12 +13,10 @@ skills, so grade_profile.py carries its own copy of the appraisal schema in orde
 to stay usable standalone. Duplication is only safe if it cannot drift, and this
 is the guard.
 
-The comparison is at the VERDICT level (does the check reject the record at all),
-not the exit code. The two legitimately classify the same defect differently: for
-rob_appraisal the appraisal IS the thing under review, so a bad instrument is a
-method violation (exit 1); for grade_profile the same file is INPUT it was handed,
-so the same defect is malformed input (exit 2). Both reject; they differ on whose
-fault it is, which is correct.
+The comparison is at the VERDICT level (does the check reject the record at all).
+Readable method violations, including a recognized instrument paired with the
+wrong design, are classified as violations by both consumers. Structurally
+malformed records remain input errors.
 
 Standard library only.
 """

@@ -383,6 +383,21 @@ class TestRiskOfBiasBasis(unittest.TestCase):
 
 
 class TestTraceability(unittest.TestCase):
+    def test_recognized_wrong_instrument_is_a_method_violation(self):
+        appraisal = json.loads(ROB_VALID.read_text(encoding="utf-8"))
+        appraisal["studies"][0]["instrument"] = "nos"
+        import tempfile
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        p = pathlib.Path(d.name) / "wrong-instrument.json"
+        p.write_text(json.dumps(appraisal), encoding="utf-8")
+
+        code, out, err = run(VALID, "--rob", str(p), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("instrument mismatch", out)
+        self.assertIn("calls for", out)
+        self.assertIn("## Evidence profile", out)
+
     def test_case_mismatch_is_unresolved_not_matched(self):
         code, out, _ = run(fixture("grade-profile.case-mismatch.json"),
                            "--rob", str(ROB_VALID), "--strict")

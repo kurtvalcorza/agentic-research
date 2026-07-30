@@ -519,7 +519,7 @@ def _validate_appraisal_overall(instrument, domains, overall, justification, ctx
             f"confirmed_rob basis")
 
 
-def _validate_appraisal_evidence(instrument: str, value, ctx: str) -> None:
+def _validate_appraisal_evidence(instrument: str | None, value, ctx: str) -> None:
     """Mirror rob_appraisal.py's optional-but-typed evidence schema.
 
     The appraisal remains valid when the key is absent or the object is empty.
@@ -529,7 +529,8 @@ def _validate_appraisal_evidence(instrument: str, value, ctx: str) -> None:
     if not isinstance(value, dict):
         raise InputError(f"{ctx}: expected an object mapping domain keys to quoted "
                          f"supporting text, got {type(value).__name__} {value!r}")
-    _no_unknown_keys(value, set(INSTRUMENT_DOMAINS[instrument]), ctx)
+    if instrument is not None:
+        _no_unknown_keys(value, set(INSTRUMENT_DOMAINS[instrument]), ctx)
     for name, text in value.items():
         _str(text, f"{ctx}.{name}")
 
@@ -573,27 +574,39 @@ def parse_appraisal(raw: dict) -> dict:
                              f"{', '.join(sorted(APPRAISAL_DESIGN_INSTRUMENT))}, got {design!r}")
         instrument = s.get("instrument")
         expected = APPRAISAL_DESIGN_INSTRUMENT[design]
-        if instrument != expected:
-            raise InputError(f"{ctx}.instrument: design '{design}' calls for "
-                             f"'{expected}', got {instrument!r}")
+        if not isinstance(instrument, str) or instrument not in INSTRUMENT_DOMAINS:
+            raise InputError(f"{ctx}.instrument: must be one of "
+                             f"{', '.join(sorted(INSTRUMENT_DOMAINS))}, got {instrument!r}")
+        instrument_mismatch = instrument != expected
 
         domains = s.get("domains")
         if not isinstance(domains, dict) or not domains:
             raise InputError(f"{ctx}.domains: a confirmed appraisal must record its "
                              f"domain judgments, got {domains!r}")
-        _validate_appraisal_domains(instrument, domains, ctx)
-        _validate_appraisal_evidence(
-            instrument, s.get("evidence", {}), f"{ctx}.evidence")
-
         overall = s.get("overall")
-        if not isinstance(overall, str) or overall not in INSTRUMENT_OVERALLS[instrument]:
-            raise InputError(f"{ctx}.overall: must be one of "
-                             f"{', '.join(sorted(INSTRUMENT_OVERALLS[instrument]))} "
-                             f"for {instrument}, got {overall!r}")
-
-        _validate_appraisal_overall(instrument, domains, overall,
-                                    _opt_str(s.get("overall_justification"),
-                                             f"{ctx}.overall_justification"), ctx)
+        overall_justification = _opt_str(
+            s.get("overall_justification"), f"{ctx}.overall_justification")
+        if instrument_mismatch:
+            # Mirror rob_appraisal.py: a recognized instrument paired with the
+            # wrong design is a readable method violation, not malformed JSON.
+            for name, value in domains.items():
+                if isinstance(value, bool) or not isinstance(
+                        value, (str, int, float, dict)):
+                    raise InputError(
+                        f"{ctx}.domains.{name}: unsupported value {value!r}")
+            overall = _str(overall, f"{ctx}.overall")
+            _validate_appraisal_evidence(
+                None, s.get("evidence", {}), f"{ctx}.evidence")
+        else:
+            _validate_appraisal_domains(instrument, domains, ctx)
+            _validate_appraisal_evidence(
+                instrument, s.get("evidence", {}), f"{ctx}.evidence")
+            if not isinstance(overall, str) or overall not in INSTRUMENT_OVERALLS[instrument]:
+                raise InputError(f"{ctx}.overall: must be one of "
+                                 f"{', '.join(sorted(INSTRUMENT_OVERALLS[instrument]))} "
+                                 f"for {instrument}, got {overall!r}")
+            _validate_appraisal_overall(
+                instrument, domains, overall, overall_justification, ctx)
 
         # Strings only — str({}) would be "{}", truthy and non-empty, and would
         # silently satisfy the confirmation test.
@@ -611,6 +624,8 @@ def parse_appraisal(raw: dict) -> dict:
             raise InputError(f"appraisal record: study {sid!r} is appraised as both "
                              f"{prior!r} and {design!r} — a study has one design")
         out[key] = {"overall": overall, "design": design, "instrument": instrument,
+                    "expected_instrument": expected,
+                    "instrument_mismatch": instrument_mismatch,
                     "result_assessed": result_assessed, "confirmed": bool(by and at)}
     return out
 
@@ -748,6 +763,15 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                     f"result: {'; '.join(wrong_target)} — the wrong risk-of-bias "
                     f"evidence cannot back this certainty rating")
 
+    mismatched = [s for s in resolved
+                  if appraisal[(s, target)]["instrument_mismatch"]]
+    for sid in mismatched:
+        item = appraisal[(sid, target)]
+        errs.append(
+            f"result {rid}: study {sid} appraisal instrument mismatch — design "
+            f"{item['design']!r} calls for {item['expected_instrument']!r}, got "
+            f"{item['instrument']!r}")
+
     unconfirmed = [s for s in resolved if not appraisal[(s, target)]["confirmed"]]
     if unconfirmed:
         errs.append(f"result {rid}: study reference(s) {', '.join(unconfirmed)} have no "
@@ -778,7 +802,9 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                 f"must match the body it describes")
 
     # Coherence: only the clearly-contradictory ends are flagged.
-    confirmed = [s for s in resolved if appraisal[(s, target)]["confirmed"]]
+    confirmed = [s for s in resolved
+                 if appraisal[(s, target)]["confirmed"]
+                 and not appraisal[(s, target)]["instrument_mismatch"]]
     if confirmed and not r["domains"]["risk_of_bias"]["coherence_justification"]:
         highs = [s for s in confirmed
                  if appraisal[(s, target)]["overall"] in HIGH_RISK_OVERALLS]

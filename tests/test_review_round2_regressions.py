@@ -103,11 +103,13 @@ class TestP1StubAppraisalRejected(_Base):
 
     def test_instrument_must_match_design_in_the_rob_file(self):
         rob = full_appraisal(instrument="quadas2")
-        code, _, err = self.run_script(
+        code, out, err = self.run_script(
             gp, fixture("grade-profile.valid.json"),
             "--rob", str(self.write(rob, "rob.json")), "--strict")
-        self.assertEqual(code, 2)
-        self.assertIn("calls for", err)
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("instrument mismatch", out)
+        self.assertIn("calls for", out)
+        self.assertIn("## Evidence profile", out)
 
     def test_overall_checked_against_the_right_instrument_vocabulary(self):
         """'unclear' is QUADAS-2 vocabulary, not RoB 2 — the union check missed this."""

@@ -119,6 +119,18 @@ class TestScopeResolution(unittest.TestCase):
 
 
 class TestFailClosed(unittest.TestCase):
+    def test_unknown_root_key_is_rejected(self):
+        d = systematic()
+        d["critical_break"] = 2
+        with self.assertRaisesRegex(ru.InputError, "critical_break"):
+            verdict(d)
+
+    def test_misspelled_consistency_key_is_rejected(self):
+        d = systematic()
+        d["consistency"] = {"score": 82, "critical_break": 2}
+        with self.assertRaisesRegex(ru.InputError, "critical_break"):
+            verdict(d)
+
     def test_unversioned_legacy_record_is_rejected(self):
         d = systematic()
         del d["schema_version"]

@@ -73,6 +73,10 @@ Inapplicable units are **absent**, not zero-to-achieve (FR-025). The existing di
 written into `units` is dropped, so a caller cannot hand-write `"U_consistency": 0` and clear the
 universal floor without a real score.
 
+The input is a closed schema. Unknown top-level fields are rejected, and the optional
+`consistency` object accepts exactly `score` and `critical_breaks`; misspellings cannot fall
+through to an optional-field default.
+
 Dropping it is correct; dropping it silently was not. The verdict carries an `ignored_inputs`
 array — empty in the normal case — naming what was received, why it was not used, and the remedy.
 It is populated **whenever the direct key is present**, in both situations:

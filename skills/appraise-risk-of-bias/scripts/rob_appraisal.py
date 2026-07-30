@@ -433,12 +433,16 @@ def _markdown_cell(value: object) -> str:
 
 def per_study_table(studies: list[dict]) -> str:
     lines = ["## Appraisal by study", "",
-             "| Study | Design | Instrument | Result assessed | Overall | Confirmed |",
-             "|:--|:--|:--|:--|:--|:--|"]
+             "| Study | Design | Instrument | Result assessed | Overall | Overall justification | Confirmed |",
+             "|:--|:--|:--|:--|:--|:--|:--|"]
     for s in studies:
         confirmed = (
             f"{_markdown_cell(s['confirmed_by'])} ({_markdown_cell(s['confirmed_at'])})"
             if s["confirmed_by"] and s["confirmed_at"] else "⚠️ **not confirmed**"
+        )
+        justification = (
+            _markdown_cell(s["overall_justification"])
+            if s.get("overall_justification") else "—"
         )
         raw_overall = s["overall"] if isinstance(s["overall"], str) else "—"
         overall = f"{MARKS.get(raw_overall, '·')} {raw_overall.replace('_', ' ')}"
@@ -447,7 +451,8 @@ def per_study_table(studies: list[dict]) -> str:
         elif s["instrument"] == "nos":
             overall += f" ({nos_total(s['domains'])}/9)"
         lines.append(f"| {_markdown_cell(s['id'])} | {s['design']} | {s['instrument']} | "
-                     f"{_markdown_cell(s['result_assessed'])} | {overall} | {confirmed} |")
+                     f"{_markdown_cell(s['result_assessed'])} | {overall} | "
+                     f"{justification} | {confirmed} |")
     return "\n".join(lines)
 
 

@@ -253,9 +253,12 @@ class TestViolations(_Tmp):
     def test_overall_override_accepted_with_justification(self):
         rec = record("risk-of-bias.overall-too-favourable.json")
         rec["studies"][0]["overall_justification"] = \
-            "Attrition was balanced across arms and a sensitivity analysis was unchanged."
+            "Attrition was balanced | across arms.\nSensitivity analysis was unchanged."
         code, out, _ = run(self.write(rec), "--strict")
         self.assertEqual(code, 0, msg=out)
+        self.assertIn(
+            "Attrition was balanced &#124; across arms.<br>Sensitivity analysis was unchanged.",
+            out)
 
     def test_nos_band_mismatch_flagged(self):
         code, out, _ = run(fixture("risk-of-bias.nos-band-mismatch.json"), "--strict")
