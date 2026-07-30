@@ -80,6 +80,29 @@ class TestValidRecord(_Tmp):
         _, out, _ = run(ALL_INSTRUMENTS)
         self.assertIn("applicability", out)
 
+    def test_escapes_identifiers_in_every_markdown_table(self):
+        rec = record()
+        rec["studies"][0]["id"] = "R1 | trial\nA"
+        rec["studies"][0]["result_assessed"] = "Mortality | readmission\nat 12 months"
+        rec["studies"][0]["confirmed_by"] = "K | reviewer\none"
+        rec["studies"][0]["confirmed_at"] = "2026-07-26 | final\nUTC"
+        quadas = next(s for s in rec["studies"] if s["instrument"] == "quadas2")
+        quadas["id"] = "D1 | diagnostic\nstudy"
+        quadas["result_assessed"] = "Sensitivity | specificity\npaired"
+        code, out, err = run(self.write(rec), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("R1 &#124; trial<br>A", out)
+        self.assertIn("Mortality &#124; readmission<br>at 12 months", out)
+        self.assertIn("K &#124; reviewer<br>one", out)
+        self.assertIn("2026-07-26 &#124; final<br>UTC", out)
+        self.assertIn("D1 &#124; diagnostic<br>study", out)
+        self.assertIn("Sensitivity &#124; specificity<br>paired", out)
+        self.assertNotIn("| R1 | trial", out)
+        # Study/result identity appears in the appraisal table, each instrument's
+        # traffic-light table, and the QUADAS-2 applicability table.
+        self.assertGreaterEqual(out.count("R1 &#124; trial<br>A"), 2)
+        self.assertEqual(out.count("D1 &#124; diagnostic<br>study"), 3)
+
 
 class TestArtifactPreservesIdentity(_Tmp):
     """Round 7: identity is (study, result), so every artifact row must say which

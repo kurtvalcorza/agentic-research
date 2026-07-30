@@ -425,21 +425,29 @@ def _mark(instrument: str, name: str, value) -> str:
     return f"{MARKS.get(v, '·')} {v.replace('_', ' ')}"
 
 
+def _markdown_cell(value: object) -> str:
+    """Render caller-controlled text without creating extra table cells or rows."""
+    return (str(value).replace("\r\n", "\n").replace("\r", "\n")
+            .replace("|", "&#124;").replace("\n", "<br>"))
+
+
 def per_study_table(studies: list[dict]) -> str:
     lines = ["## Appraisal by study", "",
              "| Study | Design | Instrument | Result assessed | Overall | Confirmed |",
              "|:--|:--|:--|:--|:--|:--|"]
     for s in studies:
-        confirmed = f"{s['confirmed_by']} ({s['confirmed_at']})" if s["confirmed_by"] \
-            and s["confirmed_at"] else "⚠️ **not confirmed**"
+        confirmed = (
+            f"{_markdown_cell(s['confirmed_by'])} ({_markdown_cell(s['confirmed_at'])})"
+            if s["confirmed_by"] and s["confirmed_at"] else "⚠️ **not confirmed**"
+        )
         raw_overall = s["overall"] if isinstance(s["overall"], str) else "—"
         overall = f"{MARKS.get(raw_overall, '·')} {raw_overall.replace('_', ' ')}"
         if s.get("instrument_mismatch"):
             overall += " ⚠️ instrument mismatch"
         elif s["instrument"] == "nos":
             overall += f" ({nos_total(s['domains'])}/9)"
-        lines.append(f"| {s['id']} | {s['design']} | {s['instrument']} | "
-                     f"{s['result_assessed']} | {overall} | {confirmed} |")
+        lines.append(f"| {_markdown_cell(s['id'])} | {s['design']} | {s['instrument']} | "
+                     f"{_markdown_cell(s['result_assessed'])} | {overall} | {confirmed} |")
     return "\n".join(lines)
 
 
@@ -460,7 +468,8 @@ def traffic_light(studies: list[dict]) -> str:
                      " | ".join(c.replace("_", " ") for c in cols) + " | Overall |")
         lines.append("|:--|:--|" + "|".join([":--"] * len(cols)) + "|:--|")
         for s in group:
-            head = f"| {s['id']} | {s['result_assessed']} | "
+            head = (f"| {_markdown_cell(s['id'])} | "
+                    f"{_markdown_cell(s['result_assessed'])} | ")
             if s.get("instrument_mismatch"):
                 lines.append(head + " | ".join(["— not appraised"] * len(cols)) +
                              " | ⚠️ instrument mismatch |")
@@ -476,7 +485,8 @@ def traffic_light(studies: list[dict]) -> str:
                 f"{c.replace('_', ' ')} (applicability)" for c in QUADAS_APPLICABILITY) + " |")
             lines.append("|:--|:--|" + "|".join([":--"] * len(QUADAS_APPLICABILITY)) + "|")
             for s in group:
-                head = f"| {s['id']} | {s['result_assessed']} | "
+                head = (f"| {_markdown_cell(s['id'])} | "
+                        f"{_markdown_cell(s['result_assessed'])} | ")
                 if s.get("instrument_mismatch"):
                     # Its domains were never validated against quadas2, so they may
                     # not be objects at all. Rendering them would crash mid-artifact.

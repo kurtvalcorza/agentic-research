@@ -220,6 +220,12 @@ def check(table: tuple, entries: dict) -> list[str]:
     return errs
 
 
+def _markdown_cell(value: object) -> str:
+    """Render caller-controlled text without creating extra table cells or rows."""
+    return (str(value).replace("\r\n", "\n").replace("\r", "\n")
+            .replace("|", "&#124;").replace("\n", "<br>"))
+
+
 def render(table: tuple, entries: dict, errs: list[str], variant: str) -> str:
     total = len(table)
     addressed = total - len(errs)
@@ -245,9 +251,9 @@ def render(table: tuple, entries: dict, errs: list[str], variant: str) -> str:
         na = (e.get("not_applicable") or "").strip() \
             if isinstance(e.get("not_applicable"), str) else ""
         if loc:
-            cell = loc
+            cell = _markdown_cell(loc)
         elif na:
-            cell = f"*n/a — {na}*"
+            cell = f"*n/a — {_markdown_cell(na)}*"
         else:
             cell = "⚠️ **not addressed**"
         shown_section = section if section != last_section else ""

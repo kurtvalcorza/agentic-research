@@ -81,6 +81,20 @@ class TestValidRecord(unittest.TestCase):
         _, out, _ = run(fixture("checklist.valid.json"))
         self.assertIn("cannot verify that the cited location actually addresses the item", out)
 
+    def test_escapes_free_text_in_checklist_cells(self):
+        rec = json.loads(fixture("checklist.valid.json").read_text(encoding="utf-8"))
+        rec["items"][0]["location"] = "Methods | search\nAppendix A"
+        na_item = next(item for item in rec["items"] if "not_applicable" in item)
+        na_item["not_applicable"] = "No pooling | narrative\nper SWiM"
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "checklist.json"
+            path.write_text(json.dumps(rec), encoding="utf-8")
+            code, out, err = run(path, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("Methods &#124; search<br>Appendix A", out)
+        self.assertIn("No pooling &#124; narrative<br>per SWiM", out)
+        self.assertNotIn("| Methods | search", out)
+
 
 class TestCompleteness(unittest.TestCase):
     def test_all_27_numbers_but_missing_subitems_still_fails(self):
