@@ -171,8 +171,27 @@ def reconcile(c: dict) -> list[str]:
     return errs
 
 
+def _mermaid_label(value: object) -> str:
+    """Render caller-controlled text inside a quoted mermaid node label.
+
+    The counts in this diagram were rigorously validated and the LABELS were not:
+    database names and exclusion reasons are caller-supplied dictionary KEYS, and
+    they went into `NODE["..."]` untouched. A reason containing a double quote
+    closed the string early, so the rest of it was parsed as diagram source —
+
+        EXFT["Reports excluded:<br/>wrong population"] --> EVIL[injected node: 20"]
+
+    which puts a fabricated node and edge into the PRISMA diagram, the headline
+    figure of the review. A quote becomes an entity; newlines become the line break
+    the label already uses.
+    """
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace('"', "&quot;").replace("\n", "<br/>")
+
+
 def _src_label(d, name: str) -> str:
-    return ", ".join(f"{k} n={_int(v, f'{name}.{k}')}" for k, v in (d or {}).items())
+    return ", ".join(f"{_mermaid_label(k)} n={_int(v, f'{name}.{k}')}"
+                     for k, v in (d or {}).items())
 
 
 def mermaid(c: dict) -> str:
@@ -187,7 +206,8 @@ def mermaid(c: dict) -> str:
     ex_ta = _int(c.get("records_excluded_title_abstract", 0), "records_excluded_title_abstract")
     not_ret = _int(c.get("reports_not_retrieved", 0), "reports_not_retrieved")
     ex_ft = c.get("reports_excluded") or {}
-    ex_ft_lines = "<br/>".join(f"{k}: {_int(v, f'reports_excluded.{k}')}" for k, v in ex_ft.items()) or "n=0"
+    ex_ft_lines = "<br/>".join(f"{_mermaid_label(k)}: {_int(v, f'reports_excluded.{k}')}"
+                              for k, v in ex_ft.items()) or "n=0"
     inc_db = _int(c.get("studies_included_databases", 0), "studies_included_databases")
     inc_other = _int(c.get("studies_included_other", 0), "studies_included_other")
     total = c.get("studies_included_total")
@@ -210,7 +230,8 @@ def mermaid(c: dict) -> str:
         oth_src = _src_label(c.get("identified_other"), "identified_other")
         o_not_ret = _int(c.get("other_reports_not_retrieved", 0), "other_reports_not_retrieved")
         o_ex_ft = c.get("other_reports_excluded") or {}
-        o_ex_ft_lines = "<br/>".join(f"{k}: {_int(v, f'other_reports_excluded.{k}')}" for k, v in o_ex_ft.items()) or "n=0"
+        o_ex_ft_lines = "<br/>".join(f"{_mermaid_label(k)}: {_int(v, f'other_reports_excluded.{k}')}"
+                                    for k, v in o_ex_ft.items()) or "n=0"
         L += ['  subgraph OTHER["Identification via other methods"]',
               f'    IDO["Records identified: n={id_other}<br/>{oth_src}"]',
               f'    OSOU["Reports sought for retrieval: n={_int(c.get("other_reports_sought",0),"other_reports_sought")}"]',

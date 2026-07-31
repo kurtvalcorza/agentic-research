@@ -84,9 +84,16 @@ appraisal as unreadable made the two checks agree that a file was bad and disagr
 of bad — and the reader lost the diagnostics one of them prints. `appraised_result` is likewise
 matched **verbatim**: a padded reference is reported as a near-miss, never normalised into a match.
 
-**Scope.** Rule 17 covers the appraisals a result actually relies on. An appraisal that backs no
-certainty rating — nothing cites it, or the citing result's basis is `heuristic` — is outside what
-this check can speak to; run `rob_appraisal.py` over that record to check it as a whole.
+**Scope.** Rule 17 covers **every** appraisal in the supplied record, cited or not. Reporting only
+the cited ones split the file's own entries against each other: a misspelled domain name in an
+uncited appraisal exited 2 while a *missing* domain in that same appraisal was accepted silently.
+A violation in an appraisal a result relies on additionally says it cannot back that result's
+`confirmed_rob` basis.
+
+The one thing scoped to cited appraisals is **human confirmation** (Rule 10). Whether a judgment
+has been signed off governs whether a rating may *rest* on it, so it is checked where a rating
+does. An appraisal awaiting sign-off for some other result is `rob_appraisal.py`'s `H_rob` to
+report, not a reason to fail this certainty record.
 
 **Rule 12 predicate.** Contradiction is declared when the rating is `0` while more than half the
 resolved studies are rated high risk, or when the rating is `-2` while every resolved study is
@@ -118,6 +125,6 @@ rating about quality of life.
 
 | Rule | Violation |
 |:--|:--|
-| `appraised_result` present when any domain declares `confirmed_rob` | exit 1 (absent); exit 2 when present but blank — a key of whitespace can match nothing, and reading it as "not supplied" would report a field the caller can see they supplied |
+| `appraised_result` present when any domain declares `confirmed_rob` | exit 1 — absent and blank alike; a blank names nothing, which is what omitting it does, and the message says which of the two it was. Read **only** when the basis is `confirmed_rob`, so a leftover blank on a `heuristic` result is not a failure |
 | It names a result the appraisal record actually covers, compared **verbatim** | exit 1 — a near-miss names its nearest neighbour rather than resolving to it |
 | Every `study_ids` entry resolves at `(study, appraised_result)` | exit 1 — studies appraised for a *different* result are reported separately from unresolved ones |

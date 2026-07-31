@@ -263,6 +263,58 @@ class TestChecksAgree(unittest.TestCase):
                          "the two checks classify the same file differently:\n  "
                          + "\n  ".join(divergences))
 
+    def _uncited(self, design, override):
+        """The same mutation, on an appraisal NO result cites.
+
+        The matrix above cites every appraised study by construction, so it could
+        not see how an uncited entry was judged — and that is where the two checks
+        diverged: a misspelled domain name in an uncited appraisal exited 2 while a
+        MISSING domain in the same entry was accepted silently.
+        """
+        rob = build(design, {})                       # four clean, cited studies
+        instrument, domains = INSTRUMENT_FIXTURES[design]
+        extra = {"id": "P9", "design": design, "instrument": instrument,
+                 "domains": copy.deepcopy(domains), "overall": "low",
+                 "result_assessed": "diagnostic accuracy at 12 months",
+                 "confirmed_by": "K. Valcorza", "confirmed_at": "2026-07-26"}
+        extra.update({k: copy.deepcopy(v) for k, v in override.items()
+                      if v is not DELETE and k != "id"})
+        for k, v in override.items():
+            if v is DELETE:
+                extra.pop(k, None)
+        rob["studies"].append(extra)
+        return rob
+
+    # Mutations that leave the appraisal VALID and only remove its human sign-off.
+    # These are the one documented divergence: rob_appraisal.py reports every
+    # unconfirmed appraisal, while grade_profile.py checks confirmation where a
+    # rating relies on it — an appraisal awaiting sign-off for some other result is
+    # not a reason to fail this certainty record. Pinned so the carve-out cannot
+    # quietly widen.
+    CONFIRMATION_ONLY = {"confirmed_by blank", "confirmed_by missing",
+                         "confirmed_at missing"}
+
+    def test_an_uncited_appraisal_is_classified_the_same_way(self):
+        divergences = []
+        for design, instrument, label, override in mutations():
+            if label.startswith("id ") or "unknown study key" in label:
+                continue        # identity mutations are about the cited set, not this
+            rob = self._uncited(design, override)
+            g, r = self._gp_exit(design, rob), self._ra_exit(rob)
+            if label in self.CONFIRMATION_ONLY:
+                if not (r != 0 and g == 0):
+                    divergences.append(
+                        f"{design}/{instrument} — {label}: expected the documented "
+                        f"confirmation carve-out (rob_appraisal rejects, "
+                        f"grade_profile accepts), got {r} and {g}")
+            elif g != r:
+                divergences.append(
+                    f"{design}/{instrument} — {label}: grade_profile exits {g}, "
+                    f"rob_appraisal exits {r}")
+        self.assertEqual(divergences, [],
+                         "the two checks disagree about an UNCITED appraisal:\n  "
+                         + "\n  ".join(divergences))
+
     def test_the_matrix_actually_covers_something(self):
         """Guard against the differential passing because it tested nothing."""
         cases = list(mutations())

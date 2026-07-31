@@ -187,6 +187,14 @@ Reuse the orchestrator's existing `manifest.json` / `execution-log.json` — do 
   these counts were computed under are unknown", rather than adopting them into the current
   version, which would assert exactly what cannot be checked.
 
+  **The field labels the record; the backend does not act on it.** Its reader is you, or a
+  resuming agent, comparing cycles in the audit trail. The one cross-cycle comparison the backend
+  makes is the floor guard's, and that reads `denominators`, which the redefinition did not touch —
+  so a legacy record remains a valid baseline deliberately, since skipping it would let a
+  denominator drop across the version boundary go unflagged. The plateau series the loop routes on
+  is `history` in your input `units.json`, a bare array of prior totals the backend can neither
+  version nor verify: comparing totals across a redefinition stays your responsibility.
+
   ```
   python scripts/review_units.py units.json --manifest manifest.json
   ```

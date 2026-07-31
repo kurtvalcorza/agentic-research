@@ -23,11 +23,13 @@ WHAT THIS CANNOT CHECK
   than a confirmed one, which is part of why systematic and umbrella reviews may
   not use it.
 
-  An appraisal in the --rob record that no result RELIES ON — because nothing cites
-  it, or because the citing result's basis is `heuristic` and so rests on no
-  appraisal at all. This check reads that record to confirm the studies a certainty
-  rating cites; an appraisal backing no rating is outside what it can speak to. Run
-  rob_appraisal.py over the appraisal record itself to check it as a whole.
+  Whether an appraisal has been signed off by a human, EXCEPT where a rating relies
+  on it. A supplied --rob record is checked as a record — every appraisal in it must
+  be structurally sound and internally coherent, cited or not — but confirmation
+  governs whether a rating MAY REST on a judgment, so it is checked only for the
+  studies a `confirmed_rob` result actually cites. An appraisal awaiting sign-off
+  for some other result is rob_appraisal.py's H_rob count to report, not a reason to
+  fail this certainty record.
 
   Whether a judgment was RIGHT. That "inconsistency: serious" was the correct call
   is a matter of expertise this script has no access to. A clean result means the
@@ -190,16 +192,17 @@ def _opt_key(v, name: str) -> str:
     exists to catch — ' mortality at 12 months' silently resolved to the unpadded
     target and the mistyped reference reported clean.
 
-    Blank is malformed rather than absent: a key made only of whitespace can match
-    nothing, and reading it as "not supplied" would report a missing field the
-    caller can see they supplied.
+    A blank value is NOT malformed input. Rejecting it here fired on every result,
+    including a `heuristic` one whose target is never read at all — so a rapid
+    review carrying a leftover empty string went from a clean profile to exit 2 and
+    no output. It is a readable record that fails to name a target, which is the
+    same thing as omitting it: reported at exit 1, by the check that actually
+    consults the field, with a message that names the fix.
     """
     if v is None:
         return ""
     if not isinstance(v, str):
         raise InputError(f"{name}: expected a string, got {type(v).__name__} {v!r}")
-    if not v.strip():
-        raise InputError(f"{name}: expected a non-empty string, got {v!r}")
     return v
 
 
@@ -708,6 +711,9 @@ def check(rec: dict, appraisal: dict | None, rob_supplied: bool) -> list[str]:
     """Return a list of method violations (empty = clean)."""
     errs: list[str] = []
     rtype = rec["review_type"]
+    # Appraisals whose violations a result already reported, so the record-level
+    # sweep below does not say the same thing twice.
+    reported: set = set()
 
     for r in rec["results"]:
         rid = r["id"]
@@ -773,7 +779,51 @@ def check(rec: dict, appraisal: dict | None, rob_supplied: bool) -> list[str]:
                             f"taken on trust")
             elif appraisal is not None:
                 errs.extend(_check_traceability(r, appraisal))
+                reported |= {(s, r["appraised_result"]) for s in r["study_ids"]
+                             if (s, r["appraised_result"]) in appraisal}
 
+    if appraisal is not None:
+        errs.extend(_check_appraisal_record(appraisal, reported))
+
+    return errs
+
+
+def _check_appraisal_record(appraisal: dict, reported: set) -> list[str]:
+    """Method violations in the supplied appraisal record that no result reported.
+
+    A supplied --rob record is judged AS A RECORD, not only where a rating happens
+    to cite it. Reporting violations solely per referenced study produced an
+    incoherent split: a misspelled domain name in an unreferenced appraisal killed
+    the run at exit 2, while a MISSING domain in that same appraisal was accepted
+    silently and a clean profile printed. Same entry, same file, opposite verdicts.
+
+    Human confirmation is deliberately not swept here. Whether a judgment has been
+    signed off governs whether a RATING MAY RELY ON IT, so it belongs to the result
+    that relies on it — an appraisal awaiting sign-off for some other result is
+    rob_appraisal.py's H_rob count, not a reason to fail this certainty record.
+    """
+    errs = []
+    for key in sorted(appraisal):
+        if key in reported:
+            continue
+        sid, target = key
+        item = appraisal[key]
+        # The instrument mismatch is carried as its own flag rather than in
+        # `violations`, because a cited appraisal reports it with the certainty
+        # result it undermines. Uncited, it is still a method violation of the
+        # record — and leaving it out of this sweep was one more instance of the
+        # split this function exists to close.
+        problems = list(item["violations"])
+        if item["instrument_mismatch"]:
+            problems.insert(0, f"design {item['design']!r} calls for "
+                               f"{item['expected_instrument']!r}, but "
+                               f"{item['instrument']!r} was applied")
+        for violation in problems:
+            errs.append(
+                f"appraisal record: study {sid} (result: {target!r}) is not a valid "
+                f"appraisal — {violation}. It backs no certainty rating here, but a "
+                f"--rob record must be a valid appraisal record; rob_appraisal.py "
+                f"reports this as a method violation")
     return errs
 
 
@@ -789,11 +839,12 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
     rid = r["id"]
     target = r["appraised_result"]
 
-    if not target:
+    if not target.strip():
+        supplied = " (it is present but blank)" if target else ""
         return [f"result {rid}: 'appraised_result' is required when the risk-of-bias "
-                f"basis is 'confirmed_rob' — it names which appraised result backs "
-                f"this certainty rating, since an appraisal targets one result, not "
-                f"a whole study"]
+                f"basis is 'confirmed_rob'{supplied} — it names which appraised result "
+                f"backs this certainty rating, since an appraisal targets one result, "
+                f"not a whole study"]
 
     known_targets = sorted({k[1] for k in appraisal})
     if target not in known_targets:
@@ -932,36 +983,78 @@ def evidence_profile(rec: dict) -> str:
     # two results may legitimately carry the same label. Rendering the label alone
     # made those rows indistinguishable and discarded the identifier every
     # diagnostic uses ("result O1: ..."), leaving the reader nothing to match on.
+    # Upgrades are a column, not a footnote. They are the only adjustment that
+    # RAISES certainty, so a row without them cannot be reconciled: `low + 2 = high`
+    # read as an unexplained jump from low to high, and the reader had no way to
+    # tell an upgrade from an arithmetic error.
     lines += ["| ID | Result | Studies | Predominant design | Start | RoB | Incons. | Indir. | "
-              "Imprec. | Pub. bias | Final |",
-              "|:--|:--|--:|:--|:--|:--:|:--:|:--:|:--:|:--:|:--|"]
+              "Imprec. | Pub. bias | Up | Final |",
+              "|:--|:--|--:|:--|:--|:--:|:--:|:--:|:--:|:--:|:--:|:--|"]
     for r in rec["results"]:
         d = r["domains"]
         # Zero renders as "0", not "+0": a downgrade should stand out from its absence.
         cells = [(str(d[n]["rating"]) if n in d else "—") for n in DOMAINS]
         final_idx = LEVELS[r["final"]]
-        # A starting level that departs from the predominant design is legal only
-        # because a justification was recorded. Marking the cell sends the reader to
-        # that justification instead of leaving an unexplained anomaly on the row.
-        start = r["starting_level"] + (" †" if r["starting_level_justification"] else "")
+        upgrade_total = sum(r["upgrades"].values())
         lines.append(
             f"| {_markdown_cell(r['id'])} | {_markdown_cell(r['label'])} | "
             f"{len(r['study_ids'])} | "
             f"{predominant_design(r['design_mix'])} | "
-            f"{start} | " + " | ".join(cells) +
+            f"{_start_cell(r)} | " + " | ".join(cells) +
+            f" | {'+' + str(upgrade_total) if upgrade_total else '0'}"
             f" | {r['final'].replace('_', ' ')} {SYMBOLS[final_idx]} |")
     lines.append("")
     for r in rec["results"]:
-        notes = []
-        if r["starting_level_justification"]:
-            notes.append(f"  - † *starting level*: "
-                         f"{_markdown_text(r['starting_level_justification'])}")
-        notes += [f"  - *{n.replace('_', ' ')}*: {_markdown_text(r['domains'][n]['note'])}"
-                  for n in DOMAINS if n in r["domains"] and r["domains"][n]["note"]]
+        notes = _result_notes(r)
         if notes:
             lines.append(f"- **{_markdown_text(r['label'])}** ({_markdown_text(r['id'])})")
             lines.extend(notes)
     return "\n".join(lines)
+
+
+def _departs_from_design(r: dict) -> bool:
+    """Whether the starting level differs from the one the predominant design implies."""
+    return r["starting_level"] != DESIGN_START[predominant_design(r["design_mix"])]
+
+
+def _start_cell(r: dict) -> str:
+    """The starting level, marked when a justification is what makes it legal.
+
+    Marking on the mere PRESENCE of a justification flagged conforming rows as
+    anomalies: a record may record its reasoning for a level that needed no
+    exception, and presenting that to a manuscript reader as a departure is the
+    opposite of what the marker is for.
+    """
+    return r["starting_level"] + (" †" if _departs_from_design(r) else "")
+
+
+def _result_notes(r: dict) -> list[str]:
+    """Every recorded rationale the result relies on, in the order it is applied.
+
+    An exception the record needs in order to be legal must be visible to the
+    reader of the artifact. Three of them were computed, honoured by the check, and
+    then dropped on the way to the page — the starting-level justification when it
+    was doing real work, the upgrades, and the risk-of-bias coherence override —
+    so a reader saw a rating with no way to reach the reasoning that permitted it.
+    """
+    notes = []
+    if r["starting_level_justification"]:
+        marker = "† " if _departs_from_design(r) else ""
+        notes.append(f"  - {marker}*starting level*: "
+                     f"{_markdown_text(r['starting_level_justification'])}")
+    for name in DOMAINS:
+        if name in r["domains"] and r["domains"][name]["note"]:
+            notes.append(f"  - *{name.replace('_', ' ')}*: "
+                         f"{_markdown_text(r['domains'][name]['note'])}")
+    rob = r["domains"].get("risk_of_bias", {})
+    if rob.get("coherence_justification"):
+        notes.append(f"  - *risk of bias — coherence override*: "
+                     f"{_markdown_text(rob['coherence_justification'])}")
+    applied = [(u, n) for u, n in r["upgrades"].items() if n]
+    if applied:
+        notes.append("  - *upgrades*: " + ", ".join(
+            f"{u.replace('_', ' ')} (+{n})" for u, n in applied))
+    return notes
 
 
 def summary_of_findings(rec: dict) -> str:
@@ -975,6 +1068,25 @@ def summary_of_findings(rec: dict) -> str:
                      f"{SYMBOLS[idx]} {r['final'].replace('_', ' ').upper()} | "
                      f"{_markdown_cell(r['certainty_statement'])} |")
     return "\n".join(lines)
+
+
+def confirmation_limitation(rec: dict, rob_supplied: bool) -> str:
+    """FR-015 — state, wherever human confirmation is CHECKED, what the check means.
+
+    With --rob this command reads `confirmed_by`/`confirmed_at` and lets them back a
+    `confirmed_rob` basis, so it checks human confirmation and owes the reader the
+    same limitation rob_appraisal.py prints. Saying only that a domain judgment
+    might be wrong invites the stronger reading — that the confirmation itself was
+    verified — which is exactly what no check here can establish.
+    """
+    if not rob_supplied:
+        return ""
+    if not any(r["domains"].get("risk_of_bias", {}).get("basis") == "confirmed_rob"
+               for r in rec["results"]):
+        return ""
+    return ("\n> A `confirmed_rob` basis rests on a confirmation record being PRESENT in the "
+            "appraisal record — a name and a date. This check cannot establish that a human "
+            "made the judgment, or who that person was.")
 
 
 def provenance(source: str) -> str:
@@ -1050,9 +1162,14 @@ def main() -> int:
     if errs:
         print(f"⚠️ **{len(errs)} issue(s)** — fix before reporting:")
         for e in errs:
-            print(f"- {e}")
+            # Escaped like every other rendering site. These messages embed
+            # caller-controlled ids and result targets, so an id containing a
+            # newline split one diagnostic into two list items — the second one
+            # free to assert whatever it liked, directly beneath a real finding.
+            print(f"- {_markdown_text(e)}")
     else:
         print("✅ Every result is complete, legal under GRADE, and arithmetically consistent.")
+    print(confirmation_limitation(rec, bool(args.rob)))
     print(provenance(source))
     return 1 if (errs and args.strict) else 0
 

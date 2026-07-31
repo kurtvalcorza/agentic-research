@@ -425,10 +425,14 @@ def _mark(instrument: str, name: str, value) -> str:
     return f"{MARKS.get(v, '·')} {v.replace('_', ' ')}"
 
 
+def _markdown_text(value: object) -> str:
+    """Render caller-controlled text without breaking out of the list item it sits in."""
+    return str(value).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
 def _markdown_cell(value: object) -> str:
     """Render caller-controlled text without creating extra table cells or rows."""
-    return (str(value).replace("\r\n", "\n").replace("\r", "\n")
-            .replace("|", "&#124;").replace("\n", "<br>"))
+    return _markdown_text(value).replace("|", "&#124;")
 
 
 def per_study_table(studies: list[dict]) -> str:
@@ -563,7 +567,10 @@ def main() -> int:
     if errs:
         print(f"⚠️ **{len(errs)} issue(s)** — fix before this appraisal feeds certainty grading:")
         for e in errs:
-            print(f"- {e}")
+            # Escaped like the tables above. A study id carrying a newline rendered
+            # one violation as two list items, and the second was free to read as a
+            # finding of its own — "every study confirmed" sitting under a real one.
+            print(f"- {_markdown_text(e)}")
     else:
         print("✅ Every appraisal uses the instrument its design calls for, carries every domain "
               "that instrument defines, and has a recorded confirmation.")

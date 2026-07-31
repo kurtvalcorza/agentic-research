@@ -454,8 +454,18 @@ def append_to_manifest(path, data, result):
     Every appended record carries the `schema_version` its numbers were computed
     under. Validating only the transient input left the written history unlabelled,
     so a manifest spanning the U_grade/U_rob_trace redefinition held old and new
-    `by_unit` values that look identical and mean different things — and a reader
-    comparing plateau history across them would be comparing two vocabularies.
+    `by_unit` values that look identical and mean different things.
+
+    WHAT THE FIELD DOES AND DOES NOT DO. It labels the record for a reader of the
+    audit trail — a human, or an agent resuming a run. Nothing in this module
+    consumes it, and that is deliberate rather than unfinished: the only
+    cross-cycle comparison made here is the floor guard's, which reads
+    `denominators`, and the redefinition did not touch those. A legacy record
+    stays a valid floor-guard baseline on purpose — skipping it would let a
+    denominator drop across the version boundary go unflagged and weaken the
+    anti-gaming guard to gain nothing. The plateau series is `history` from the
+    caller's units.json, which this module cannot version or verify at all.
+
     Records already present without a version are stamped LEGACY_SCHEMA rather than
     assumed current: an explicit "we do not know which definitions this predates"
     is the honest migration, and silently adopting them into the current version
@@ -577,12 +587,21 @@ def main():
     # Read + parse + evaluate all fail closed: a missing/unreadable file,
     # non-JSON, or malformed field types produce an {"error": ...} verdict with a
     # non-zero exit, never a traceback or a spurious VERIFIED.
+    # The read gets its own handler, wrapping ONLY the read. Catching
+    # UnicodeDecodeError across the whole block relabelled an undecodable MANIFEST
+    # as "cannot decode input" — the same mislabel, pointed at the other file.
     try:
         if args.input:
             with open(args.input, encoding="utf-8") as f:
                 raw = f.read()
         else:
             raw = sys.stdin.read()
+    except (OSError, UnicodeDecodeError) as e:
+        print(json.dumps({"error": f"cannot read {args.input or 'stdin'}: {e}"}),
+              file=sys.stderr)
+        return 2
+
+    try:
         data = json.loads(raw)
         if not isinstance(data, dict):
             raise InputError("input must be a JSON object")
@@ -600,13 +619,10 @@ def main():
     except InputError as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 2
-    except UnicodeDecodeError as e:
-        # A ValueError, so the handler below already caught it — but reported a
-        # file that is not valid UTF-8 as a "manifest error", pointing the reader
-        # at the wrong file entirely when it was the input that could not be read.
-        print(json.dumps({"error": f"cannot decode input: {e}"}), file=sys.stderr)
-        return 2
     except (ValueError, OSError) as e:
+        # Reached only by the manifest read/write now that the input read has its
+        # own handler above. UnicodeDecodeError is a ValueError, so an undecodable
+        # manifest lands here and is labelled as what it is.
         print(json.dumps({"error": f"manifest error: {e}"}), file=sys.stderr)
         return 2
 

@@ -4,9 +4,9 @@
 
 Certainty is keyed to **protocol outcomes** (GRADE as published).
 
-| ID | Result | Studies | Predominant design | Start | RoB | Incons. | Indir. | Imprec. | Pub. bias | Final |
-|:--|:--|--:|:--|:--|:--:|:--:|:--:|:--:|:--:|:--|
-| O1 | Diagnostic accuracy at 12 months | 4 | rct | high | 0 | -1 | 0 | 0 | 0 | moderate ⊕⊕⊕◯ |
+| ID | Result | Studies | Predominant design | Start | RoB | Incons. | Indir. | Imprec. | Pub. bias | Up | Final |
+|:--|:--|--:|:--|:--|:--:|:--:|:--:|:--:|:--:|:--:|:--|
+| O1 | Diagnostic accuracy at 12 months | 4 | rct | high | 0 | -1 | 0 | 0 | 0 | 0 | moderate ⊕⊕⊕◯ |
 
 - **Diagnostic accuracy at 12 months** (O1)
   - *risk of bias*: 3 of 4 low, 1 some concerns
@@ -24,3 +24,5 @@ Certainty is keyed to **protocol outcomes** (GRADE as published).
 ## Check
 
 ✅ Every result is complete, legal under GRADE, and arithmetically consistent.
+
+> A `confirmed_rob` basis rests on a confirmation record being PRESENT in the appraisal record — a name and a date. This check cannot establish that a human made the judgment, or who that person was.
