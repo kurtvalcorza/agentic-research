@@ -101,5 +101,37 @@ class TestChecklistRowStructureClaims(unittest.TestCase):
         self.assertIn("'13' is not an item", err.getvalue())
 
 
+class TestSpecificationsAreNotIgnored(unittest.TestCase):
+    """No file under specs/ may be excluded by .gitignore.
+
+    The ignore list names GENERATED ARTIFACTS — `prisma-flow.md`, `ai-disclosure.md`
+    — and those patterns are unanchored, so they match at any depth. Adding the flow
+    check's contract created `specs/.../contracts/prisma-flow.md`, which the pattern
+    silently swallowed: `git add -A` reported nothing, the commit went out without
+    it, and CI was the first thing to notice a file that existed on every developer
+    machine and in no clone.
+
+    A specification is never generated output, so the two categories must not be
+    able to collide by name again.
+    """
+
+    def test_no_specification_file_is_git_ignored(self):
+        import subprocess
+        specs = sorted((REPO / "specs").rglob("*.md"))
+        self.assertTrue(specs, "no specification files found to check")
+        try:
+            proc = subprocess.run(
+                ["git", "check-ignore", "--no-index", "--stdin"],
+                input="\n".join(str(p) for p in specs),
+                capture_output=True, text=True, cwd=REPO, timeout=30)
+        except (OSError, subprocess.SubprocessError) as exc:   # pragma: no cover
+            self.skipTest(f"git unavailable: {exc}")
+        ignored = [line for line in proc.stdout.splitlines() if line.strip()]
+        self.assertEqual(
+            ignored, [],
+            "these specification files are excluded by .gitignore, so they exist "
+            "locally and in no clone:\n  " + "\n  ".join(ignored))
+
+
 if __name__ == "__main__":
     unittest.main()

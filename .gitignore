@@ -17,3 +17,10 @@ verification/
 *.jsonl
 ai-disclosure.md
 prisma-flow.md
+# These names are GENERATED ARTIFACTS, and the patterns above are unanchored, so
+# they match at any depth. That silently swallowed the flow check's contract when
+# it was added — `git add -A` reported nothing, the commit went out without it, and
+# CI was the first thing to notice. Specification documents are never generated
+# output, so exempt the directory that holds them.
+!specs/**/contracts/prisma-flow.md
+!specs/**/contracts/ai-disclosure.md
