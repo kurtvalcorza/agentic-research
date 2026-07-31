@@ -320,23 +320,60 @@ class TestChecksAgree(unittest.TestCase):
     # comparison so the messages can address their own reader — one says "study R1
     # (result: …)", the other names the certainty result the appraisal undermines —
     # while the CLAIM inside has to match.
+    # The study id is CAPTURED, not stripped. Discarding it meant "which study is
+    # at fault" and "how many studies are at fault" both fell outside the
+    # comparison: reporting a four-study body's violations for only the first study
+    # left this guard, and the whole suite, green.
     PREFIXES = re.compile(
-        r"^(?:- )?(?:result [^:]+: study \S+ \(result: .*?\) appraisal is not valid — "
-        r"|appraisal record: study \S+ \(result: .*?\) is not a valid appraisal — "
-        r"|study \S+ \(result: .*?\): )")
+        r"^- (?:result [^:]+: study (?P<a>\S+) \(result: .*?\) appraisal is not valid — "
+        r"|appraisal record: study (?P<b>\S+) \(result: .*?\) is not a valid appraisal — "
+        r"|study (?P<c>\S+) \(result: .*?\): )(?P<claim>.*)$")
     SUFFIXES = re.compile(
         r"(?:\. rob_appraisal\.py reports this as a method violation.*"
         r"|\. It backs no certainty rating here.*)$")
+    # Diagnostics that are deliberately outside this comparison, enumerated rather
+    # than matched loosely. Two kinds:
+    #   * HUMAN CONFIRMATION — the documented carve-out. rob_appraisal reports it
+    #     per appraisal; grade_profile reports it per result, for the studies a
+    #     rating relies on. Same rule, different reporting unit by design.
+    #   * The certainty record's OWN rules — a missing domain, the arithmetic, the
+    #     design_mix reconcile, unresolved study references. rob_appraisal knows
+    #     nothing about a certainty record, so it has no counterpart to compare.
+    # Anything else unparsed raises: a normaliser that drops what it cannot read
+    # turns a divergence into an empty set, and two empty sets compare equal.
+    NOT_PER_APPRAISAL = re.compile(
+        r"^- (?:"
+        r"result \S+: study reference\(s\)"
+        r"|result \S+: study \S+ is appraised as "
+        r"|result \S+: (?!study )"
+        r"|study \S+ \(result: .*?\): no human confirmation"
+        r")")
 
     def _claims(self, text: str) -> set:
+        """(study, claim) pairs. An unrecognised diagnostic raises rather than
+        vanishing — a normaliser that drops what it cannot read turns a divergence
+        into an empty set, and two empty sets compare equal."""
         out = set()
-        for line in text.splitlines():
+        # Only the diagnostics section. Both checks print "## Check" above their
+        # violations; above it are the generated tables and their notes, which are
+        # artifact content and share the list-item shape.
+        if "## Check" not in text:
+            return out
+        for line in text.split("## Check", 1)[1].splitlines():
             if not line.startswith("- "):
                 continue
-            stripped = self.PREFIXES.sub("", line)
-            if stripped == line:
-                continue                    # not a per-appraisal violation
-            out.add(self.SUFFIXES.sub("", stripped).strip())
+            # Excluded shapes are tested FIRST: rob_appraisal's confirmation message
+            # shares the per-appraisal prefix, so matching that prefix first would
+            # pull the carve-out back into the comparison.
+            if self.NOT_PER_APPRAISAL.match(line):
+                continue
+            m = self.PREFIXES.match(line)
+            if not m:
+                raise AssertionError(
+                    f"the differential cannot read this diagnostic, so it would "
+                    f"silently drop it:\n    {line}")
+            sid = m.group("a") or m.group("b") or m.group("c")
+            out.add((sid, self.SUFFIXES.sub("", m.group("claim")).strip()))
         return out
 
     def test_both_checks_name_the_same_violation(self):
@@ -349,7 +386,7 @@ class TestChecksAgree(unittest.TestCase):
         report an incoherent overall where rob_appraisal reported an absent domain,
         and every exit code stayed 1, so nothing noticed.
         """
-        divergences = []
+        divergences, compared = [], 0
         for design, instrument, label, override in mutations():
             rob = build(design, override)
             gp_out = io.StringIO()
@@ -364,10 +401,7 @@ class TestChecksAgree(unittest.TestCase):
                     redirect_stdout(ra_out), redirect_stderr(io.StringIO()):
                 ra.main()
             g, r = self._claims(gp_out.getvalue()), self._claims(ra_out.getvalue())
-            # rob_appraisal also reports missing confirmations, which grade_profile
-            # reports in its own per-result wording; compare only what both emit.
-            r = {c for c in r if "human confirmation" not in c}
-            g = {c for c in g if "human confirmation" not in c}
+            compared += len(g | r)
             if g != r:
                 divergences.append(
                     f"{design}/{instrument} — {label}:\n      grade_profile: {sorted(g)}"
@@ -375,6 +409,11 @@ class TestChecksAgree(unittest.TestCase):
         self.assertEqual(divergences, [],
                          "the two checks name DIFFERENT violations in the same file:\n  "
                          + "\n  ".join(divergences))
+        # A comparison of two empty sets is not evidence of agreement. Most
+        # mutations are exit-2 cases with no diagnostics at all, so assert the
+        # guard actually looked at some.
+        self.assertGreater(compared, 40,
+                           "the claim comparison ran but compared almost nothing")
 
     def test_the_matrix_actually_covers_something(self):
         """Guard against the differential passing because it tested nothing."""

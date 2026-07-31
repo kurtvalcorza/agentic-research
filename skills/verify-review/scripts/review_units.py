@@ -604,8 +604,19 @@ def main():
               file=sys.stderr)
         return 2
 
+    # Parsing the input is the INPUT's business, so it gets its own handler too.
+    # Leaving json.loads inside the block below meant a truncated units.json was
+    # reported as "manifest error" — naming a file the caller may never have passed.
+    # That is the mislabel this was twice supposed to remove, surviving each time in
+    # whatever the narrowing left behind.
     try:
         data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"error": f"{args.input or 'stdin'} is not valid JSON: {e}"}),
+              file=sys.stderr)
+        return 2
+
+    try:
         if not isinstance(data, dict):
             raise InputError("input must be a JSON object")
 
@@ -623,9 +634,10 @@ def main():
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 2
     except (ValueError, OSError) as e:
-        # Reached only by the manifest read/write now that the input read has its
-        # own handler above. UnicodeDecodeError is a ValueError, so an undecodable
-        # manifest lands here and is labelled as what it is.
+        # The input's read and its JSON parse both have their own handlers above, so
+        # what remains here is the manifest's own read, parse and write. An
+        # undecodable or malformed manifest is a ValueError and lands here, labelled
+        # as what it is.
         print(json.dumps({"error": f"manifest error: {e}"}), file=sys.stderr)
         return 2
 

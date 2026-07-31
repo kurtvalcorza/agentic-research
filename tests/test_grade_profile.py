@@ -316,7 +316,7 @@ class TestUpgradeLegality(unittest.TestCase):
         rec["results"][0]["study_ids"] = ids
         code, out, _ = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
         self.assertEqual(code, 1)
-        self.assertIn("already starts at high", out)
+        self.assertIn("starting at 'high'", out)
 
     def test_upgrade_on_a_diagnostic_accuracy_body_is_flagged(self):
         """The rule is about the STARTING LEVEL, not about randomization.
@@ -331,7 +331,7 @@ class TestUpgradeLegality(unittest.TestCase):
         rec["results"][0]["study_ids"] = ids
         code, out, _ = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
         self.assertEqual(code, 1)
-        self.assertIn("already starts at high", out)
+        self.assertIn("starting at 'high'", out)
 
     def test_upgrade_over_a_downgrade_is_flagged(self):
         rec = self._rec_with_upgrade("observational", True)
@@ -415,7 +415,7 @@ class TestTraceability(unittest.TestCase):
         code, out, err = run(VALID, "--rob", str(p), "--strict")
         self.assertEqual(code, 1, msg=err)
         self.assertIn("calls for", out)          # same claim text as rob_appraisal.py
-        self.assertIn("calls for", out)
+        self.assertIn("was applied", out)
         self.assertIn("## Evidence profile", out)
 
     def test_case_mismatch_is_unresolved_not_matched(self):

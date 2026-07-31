@@ -771,25 +771,34 @@ def check(rec: dict, appraisal: dict | None,
 
         upgrade_total = sum(r["upgrades"].values())
 
-        # Rule 6 — upgrading is for bodies that start BELOW high. Testing for `rct`
-        # named the commonest such body rather than the property: `dta` also starts
-        # high, so a +2 on a diagnostic-accuracy body was accepted and then silently
-        # absorbed by the ceiling.
-        if upgrade_total and DESIGN_START[pred] == "high":
-            errs.append(f"result {rid}: upgrades applied to a body of {pred} studies, which "
-                        f"already starts at high — GRADE permits upgrading only where "
-                        f"certainty starts below high")
+        # Rule 6 — upgrading is for results that START below high. Two wrong
+        # predicates have stood here. `pred == "rct"` named the commonest body that
+        # starts high rather than the property. Replacing it with the DESIGN's
+        # implied start was no better: it ignores the record's declared level, which
+        # Rule 4 lets a justification move. An observational body justified up to
+        # high then took +2 and had it silently absorbed by the ceiling — the exact
+        # fail-open the previous fix claimed to close — while a dta body justified
+        # DOWN to low was rejected by a message asserting it "already starts at
+        # high", which its own record contradicts.
+        if upgrade_total and LEVELS[r["starting_level"]] >= LEVELS["high"]:
+            errs.append(f"result {rid}: upgrades applied to a result starting at "
+                        f"'{r['starting_level']}' — GRADE permits upgrading only where "
+                        f"certainty starts below high, so the adjustment could only be "
+                        f"absorbed by the ceiling")
 
-        if not missing:
-            downgrades, _, computed, _ = arithmetic(r)
-            # Rule 5 — no upgrade over an unresolved downgrade. Needs every domain.
-            if upgrade_total and downgrades < 0:
-                applied = [n for n, d in r["domains"].items() if d["rating"] < 0]
+        # Rule 5 — no upgrade over an unresolved downgrade. Decidable from the
+        # domains that ARE present: a recorded -1 is unresolved whether or not some
+        # other domain is missing, and only the arithmetic below needs the full set.
+        if upgrade_total:
+            applied = [n for n, d in r["domains"].items() if d["rating"] < 0]
+            if applied:
                 errs.append(f"result {rid}: upgrades applied while downgrade(s) remain "
                             f"({', '.join(applied)}) — GRADE does not permit raising certainty "
                             f"over unresolved serious concerns")
 
+        if not missing:
             # Rule 5 (arithmetic) — the reconciliation, reported like the flow diagram's.
+            downgrades, _, computed, _ = arithmetic(r)
             declared = LEVELS[r["final"]]
             if computed != declared:
                 errs.append(
@@ -1029,11 +1038,15 @@ def evidence_profile(rec: dict, appraisal: dict | None = None) -> str:
     if provisional:
         lines += ["> ⚠️ **PROVISIONAL** — at least one result's risk-of-bias domain rests on an "
                   "estimate rather than a confirmed appraisal.", ""]
-        # The disclosure is the record-level exception: for a rapid review it is
-        # the ONLY thing that makes a heuristic basis legal, and the artifact
+        # The disclosure is the record-level exception: for a RAPID review it is
+        # the only thing that makes a heuristic basis legal, and the artifact
         # printed the generic warning while the shortcut it discloses — what the
         # reviewer actually skipped — appeared nowhere on the page.
-        if rec["streamlined_method_disclosed"]:
+        #
+        # Only for a rapid review. Nothing licenses a heuristic basis in a
+        # systematic or umbrella one, so rendering the disclosure there presents an
+        # exception as though it permitted a shortcut the record still fails on.
+        if rec["review_type"] == "rapid" and rec["streamlined_method_disclosed"]:
             lines += [f"> **Streamlined method disclosed:** "
                       f"{_markdown_text(rec['streamlined_method_disclosed'])}", ""]
     # The ID is a column, not a decoration: only `id` is required to be unique, so
@@ -1144,7 +1157,13 @@ def _result_notes(r: dict, appraisal: dict | None = None) -> list[str]:
     # An appraisal's own override is the exception one level down: it is what makes
     # an otherwise-invalid appraisal legal, and a rating resting on that appraisal
     # inherits the exception without ever showing it.
-    if appraisal is not None and r["appraised_result"]:
+    #
+    # Only where a rating actually rests on it. A heuristic basis rests on no
+    # appraisal at all, so listing human-signed overrides beneath a banner saying
+    # this result's risk of bias is an ESTIMATE credits it with backing it does not
+    # have — the same overclaim, one level down.
+    rests_on_appraisal = r["domains"].get("risk_of_bias", {}).get("basis") == "confirmed_rob"
+    if appraisal is not None and rests_on_appraisal and r["appraised_result"]:
         overrides = [(s, appraisal[(s, r["appraised_result"])]["overall_justification"])
                      for s in r["study_ids"]
                      if (s, r["appraised_result"]) in appraisal

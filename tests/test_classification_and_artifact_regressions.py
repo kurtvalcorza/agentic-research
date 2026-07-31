@@ -75,6 +75,41 @@ class _Base(unittest.TestCase):
         return self.run_module(gp, "grade_profile.py", self.write(rec, "rec.json"),
                                "--rob", fixture("risk-of-bias.valid.json"), *args)
 
+    # Instrument and a clean domain set per design, so a test can build a --rob
+    # record whose DESIGNS match the design_mix under test. Without it the
+    # distribution reconcile fires first and the test measures the wrong rule.
+    INSTRUMENTS = {
+        "rct": ("rob2", {"randomization": "low", "deviations": "low",
+                         "missing_data": "low", "measurement": "low",
+                         "selection_of_result": "low"}),
+        "nrsi": ("robins_i", {"confounding": "low", "participant_selection": "low",
+                              "intervention_classification": "low",
+                              "deviations": "low", "missing_data": "low",
+                              "outcome_measurement": "low",
+                              "selection_of_result": "low"}),
+        "observational": ("nos", {"selection": 4, "comparability": 2,
+                                  "outcome_or_exposure": 3}),
+        "dta": ("quadas2", {
+            "patient_selection": {"risk_of_bias": "low", "applicability": "low"},
+            "index_test": {"risk_of_bias": "low", "applicability": "low"},
+            "reference_standard": {"risk_of_bias": "low", "applicability": "low"},
+            "flow_and_timing": {"risk_of_bias": "low"}}),
+    }
+
+    def rob_for(self, design, study_ids=("P1", "P3", "P5", "P7")):
+        instrument, domains = self.INSTRUMENTS[design]
+        return {"schema_version": "1.0", "studies": [
+            {"id": sid, "design": design, "instrument": instrument,
+             "domains": json.loads(json.dumps(domains)), "overall": "low",
+             "result_assessed": TARGET,
+             "confirmed_by": "K. Valcorza", "confirmed_at": "2026-07-26"}
+            for sid in study_ids]}
+
+    def run_gp_matching(self, rec, design, *args):
+        return self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(self.rob_for(design), "rob.json"), *args)
+
 
 class TestAppraisedResultIsMatchedVerbatim(_Base):
     """The value is a lookup key, and normalising one side of an exact comparison
@@ -443,6 +478,255 @@ class TestTheAppraisalRecordIsJudgedAsARecord(_Base):
         self.assertNotIn("record a coherence_justification", out)
 
 
+class TestOneMissingDomainConcealsNothing(_Base):
+    """The rules that do not need a full domain set must still run.
+
+    Stopping at the first missing domain hid every later violation, so the reviewer
+    fixed one thing, re-ran, and met the next — staged discovery of work that was
+    knowable on the first pass. The contract now claims this; nothing asserted it,
+    and re-inserting the `continue` left the whole suite green.
+    """
+
+    def broken_result(self):
+        rec = self.profile(
+            design_mix={"rct": 0, "nrsi": 0, "observational": 4, "dta": 0,
+                        "case_series": 0},
+            starting_level="high", final="moderate")   # departs, unjustified
+        del rec["results"][0]["domains"]["publication_bias"]
+        return rec
+
+    def test_a_missing_domain_does_not_hide_the_starting_level_rule(self):
+        code, out, err = self.run_gp(self.broken_result(), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("missing downgrade domain(s) publication_bias", out)
+        self.assertIn("does not match the predominant design", out)
+
+    def test_a_missing_domain_does_not_hide_the_basis_rule(self):
+        rec = self.broken_result()
+        rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+        code, out, err = self.run_gp(rec, "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("missing downgrade domain(s)", out)
+        self.assertIn("requires confirmed appraisal", out)
+
+    def test_a_missing_domain_does_not_hide_traceability(self):
+        rec = self.broken_result()
+        rec["results"][0]["appraised_result"] = "a target nothing appraises"
+        code, out, err = self.run_gp(rec, "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("missing downgrade domain(s)", out)
+        self.assertIn("does not appear in the appraisal record", out)
+
+    def test_an_unresolved_downgrade_still_blocks_an_upgrade(self):
+        """Decidable from the domains present: a recorded -1 is unresolved whether
+        or not some other domain was ever written down."""
+        rec = self.broken_result()
+        rec["results"][0]["starting_level"] = "low"
+        rec["results"][0]["domains"]["inconsistency"]["rating"] = -1
+        rec["results"][0]["upgrades"] = {"large_effect": 2, "dose_response": 0,
+                                         "opposing_confounding": 0}
+        code, out, err = self.run_gp(rec, "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("upgrades applied while downgrade(s) remain", out)
+
+    def test_the_arithmetic_alone_waits_for_a_full_domain_set(self):
+        """The one rule that genuinely cannot be decided: reporting a sum over an
+        incomplete set would name a number the record never claimed."""
+        code, out, _ = self.run_gp(self.broken_result(), "--strict")
+        self.assertNotIn("difference of", out)
+
+
+class TestUpgradeLegalityUsesTheDeclaredStart(_Base):
+    """The rule is about where certainty STARTS, which Rule 4 lets a justification
+    move — so it must read the record's declared level, not the design's implied one.
+    """
+
+    def body(self, design, start, **over):
+        rec = self.profile(
+            design_mix={d: (4 if d == design else 0) for d in gp.DESIGNS},
+            starting_level=start,
+            upgrades={"large_effect": 2, "dose_response": 0, "opposing_confounding": 0},
+            **over)
+        for name in gp.DOMAINS:
+            rec["results"][0]["domains"][name]["rating"] = 0
+        rec["results"][0]["final"] = gp.LEVEL_NAMES[
+            max(1, min(4, gp.LEVELS[start] + 2))]
+        return rec
+
+    def test_an_observational_body_justified_up_to_high_may_not_upgrade(self):
+        """The fail-open the previous fix left open: keying on the DESIGN's implied
+        start, a body justified up to high took +2 and had it absorbed by the
+        ceiling — recorded, illegal, and invisible."""
+        rec = self.body("observational", "high",
+                        appraised_result=TARGET,
+                        starting_level_justification="Population-based, complete follow-up.")
+        code, out, err = self.run_gp_matching(rec, "observational", "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("upgrades applied to a result starting at 'high'", out)
+
+    def test_a_dta_body_justified_down_to_low_may_upgrade(self):
+        """And the mirror image: rejected by a message asserting it 'already starts
+        at high', which its own record contradicts."""
+        rec = self.body("dta", "low",
+                        appraised_result=TARGET,
+                        starting_level_justification="Index test applied outside its "
+                                                     "validated population.")
+        code, out, err = self.run_gp_matching(rec, "dta", "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+
+    def test_the_message_names_the_declared_level(self):
+        rec = self.body("rct", "high")
+        _, out, _ = self.run_gp(rec)
+        self.assertIn("starting at 'high'", out)
+        self.assertNotIn("already starts at high", out)
+
+
+class TestTheUnitCountIsEmittedNotCounted(_Base):
+    """`U_grade` is the number of failing RESULTS, and the loop is told to read this
+    line rather than count diagnostics. Only a zero was ever pinned — where the two
+    definitions coincide — so replacing the count with `len(errs)` stayed green."""
+
+    def two_broken_results(self):
+        rec = self.profile(
+            design_mix={"rct": 0, "nrsi": 0, "observational": 4, "dta": 0,
+                        "case_series": 0},
+            starting_level="high", final="high",
+            upgrades={"large_effect": 2, "dose_response": 0, "opposing_confounding": 0})
+        rec["results"][0]["domains"]["inconsistency"]["rating"] = -1
+        second = json.loads(json.dumps(rec["results"][0]))
+        second["id"] = "O2"
+        rec["results"].append(second)
+        return rec
+
+    def test_one_result_with_several_violations_counts_once(self):
+        rec = self.two_broken_results()
+        del rec["results"][1]
+        code, out, err = self.run_gp(rec, "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertGreater(out.count("\n- result O1:"), 1, msg=out)   # several messages
+        self.assertIn("**U_grade: 1** result(s)", out)                 # one result
+
+    def test_two_broken_results_count_twice_and_are_named(self):
+        code, out, err = self.run_gp(self.two_broken_results(), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("**U_grade: 2** result(s)", out)
+        self.assertIn("(O1, O2)", out)
+
+    def test_a_clean_record_reports_zero(self):
+        code, out, err = self.run_gp(
+            self.profile(appraised_result="diagnostic accuracy at 12 months"), "--strict")
+        self.assertEqual(code, 0, msg=err)
+        self.assertIn("**U_grade: 0** result(s)", out)
+
+    def test_record_level_violations_are_excluded_and_said_to_be(self):
+        """They belong to the --rob record, not to a certainty result, so counting
+        them into U_grade would book work against a result that has none."""
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        extra = json.loads(json.dumps(rob["studies"][0]))
+        extra["id"] = "P9"
+        extra["domains"] = {"randomization": "low"}
+        rob["studies"].append(extra)
+        code, out, err = self.run_module(
+            gp, "grade_profile.py",
+            self.write(self.profile(appraised_result="diagnostic accuracy at 12 months"),
+                       "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("**U_grade: 0** result(s)", out)
+        self.assertIn("belong to the appraisal record", out)
+
+
+class TestTheArtifactMarkers(_Base):
+    """Both markers were introduced with prose in the contract and no assertion."""
+
+    def clamped(self):
+        rec = self.profile(
+            design_mix={"rct": 0, "nrsi": 0, "observational": 4, "dta": 0,
+                        "case_series": 0},
+            starting_level="low", final="very_low")
+        for name in gp.DOMAINS:
+            rec["results"][0]["domains"][name]["rating"] = 0
+        rec["results"][0]["domains"]["inconsistency"]["rating"] = -2
+        rec["results"][0]["domains"]["indirectness"]["rating"] = -2
+        rec["results"][0]["appraised_result"] = TARGET
+        return rec
+
+    def test_a_clamped_sum_is_marked_and_explained(self):
+        code, out, err = self.run_gp_matching(self.clamped(), "observational", "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("⌁", out)
+        self.assertIn("certainty bound", out)
+        self.assertIn("held at very_low(1)", out)
+
+    def test_an_unclamped_sum_is_not_marked(self):
+        _, out, _ = self.run_gp(
+            self.profile(appraised_result="diagnostic accuracy at 12 months"))
+        self.assertNotIn("⌁", out)
+
+    def test_an_unjustified_departure_carries_no_dagger(self):
+        """The marker points at a footnote. Marking a departure with no justification
+        promised the reader an explanation the record never wrote."""
+        rec = self.profile(
+            design_mix={"rct": 0, "nrsi": 0, "observational": 4, "dta": 0,
+                        "case_series": 0},
+            starting_level="high", final="moderate")
+        code, out, _ = self.run_gp(rec, "--strict")
+        self.assertEqual(code, 1)                      # reported as a violation
+        self.assertNotIn("†", out)
+
+
+class TestExceptionsAreNotShownWhereTheyDoNotApply(_Base):
+    """Rendering an exception that licenses nothing credits the record with an
+    allowance it never had — the same overclaim as hiding one, inverted."""
+
+    def test_a_disclosure_is_not_shown_for_a_systematic_review(self):
+        rec = self.profile()
+        rec["streamlined_method_disclosed"] = "SHORTCUT TEXT"
+        rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+        code, out, err = self.run_module(gp, "grade_profile.py",
+                                         self.write(rec, "rec.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)             # nothing licenses it here
+        self.assertIn("requires confirmed appraisal", out)
+        self.assertNotIn("SHORTCUT TEXT", out)
+
+    def test_a_disclosure_is_shown_for_a_rapid_review(self):
+        rec = self.profile()
+        rec["review_type"] = "rapid"
+        rec["streamlined_method_disclosed"] = "SHORTCUT TEXT"
+        rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+        code, out, err = self.run_module(gp, "grade_profile.py",
+                                         self.write(rec, "rec.json"), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("SHORTCUT TEXT", out)
+
+    def test_appraisal_overrides_are_not_shown_under_a_heuristic_basis(self):
+        """A heuristic basis rests on no appraisal, so listing human-signed
+        overrides beneath a PROVISIONAL banner credits it with backing it lacks."""
+        rec = self.profile(appraised_result="diagnostic accuracy at 12 months")
+        rec["review_type"] = "rapid"
+        rec["streamlined_method_disclosed"] = "Single-reviewer screening."
+        rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        for s in rob["studies"]:
+            s["overall_justification"] = "OVERRIDE TEXT"
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertNotIn("OVERRIDE TEXT", out)
+
+    def test_appraisal_overrides_are_shown_under_a_confirmed_basis(self):
+        rec = self.profile(appraised_result="diagnostic accuracy at 12 months")
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        for s in rob["studies"]:
+            s["overall_justification"] = "OVERRIDE TEXT"
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("OVERRIDE TEXT", out)
+
+
 class TestDiagnosticsCannotBeForged(_Base):
     """Both checks render violations as markdown list items, and both interpolated
     caller-controlled ids into them raw. A newline in an id split one violation
@@ -593,22 +877,44 @@ class TestEveryRecordedExceptionIsRendered(_Base):
                               msg=f"{field} is honoured by the check and invisible "
                                   f"in the artifact")
 
-    def test_the_exception_list_is_not_missing_a_field(self):
-        """Derive the set from the parser so the list above cannot go stale.
+    # The parser's complete key sets. Pinned, so that ADDING ANY FIELD fails this
+    # test until someone answers the question that matters — does it make an
+    # otherwise-illegal state legal? A previous version derived the exception list
+    # by matching name suffixes, which asks "is it spelled like an exception?" and
+    # so missed a live `starting_level_waiver` entirely. Names are not purposes; a
+    # frozen schema forces the classification instead of guessing it.
+    SCHEMA_KEYS = {
+        "RECORD_KEYS": {"schema_version", "review_type", "synthesis_mode",
+                        "streamlined_method_disclosed", "results"},
+        "RESULT_KEYS": {"id", "label", "study_ids", "design_mix", "starting_level",
+                        "starting_level_justification", "domains", "upgrades",
+                        "final", "certainty_statement", "appraised_result"},
+        "DOMAIN_KEYS": {"rating", "note", "basis", "coherence_justification"},
+        "APPRAISAL_STUDY_KEYS": {"id", "design", "instrument", "result_assessed",
+                                 "domains", "evidence", "overall",
+                                 "overall_justification", "confirmed_by",
+                                 "confirmed_at"},
+    }
 
-        The previous version was a two-entry literal that claimed a new field
-        "cannot be added to the parser without also being rendered" — while two
-        live ones were already absent from it.
+    def test_the_schema_has_not_gained_a_field_without_classifying_it(self):
+        """Adding a field must force a decision, not slip past a naming convention.
+
+        If this fails because you added a field: decide whether it can make an
+        otherwise-illegal state legal. If it can, add it to EXCEPTION_FIELDS and
+        render it in the artifact — an exception the record needs in order to be
+        legal must be visible to the reader. If it cannot, add it here and say so.
         """
-        declared = set()
-        for keys in (gp.RESULT_KEYS, gp.DOMAIN_KEYS, gp.RECORD_KEYS,
-                     gp.APPRAISAL_STUDY_KEYS):
-            declared |= {k for k in keys
-                         if k.endswith("_justification") or k.endswith("_disclosed")}
-        self.assertEqual(
-            declared, set(self.EXCEPTION_FIELDS),
-            "the schema gained or lost a field whose purpose is to permit an "
-            "otherwise-illegal state; add it to EXCEPTION_FIELDS and render it")
+        for name, expected in self.SCHEMA_KEYS.items():
+            with self.subTest(key_set=name):
+                self.assertEqual(getattr(gp, name), expected)
+
+    def test_every_pinned_exception_is_a_real_schema_field(self):
+        """The other direction: an EXCEPTION_FIELDS entry the parser does not accept
+        would be rendered-and-tested vapour."""
+        known = set().union(*self.SCHEMA_KEYS.values())
+        for field in self.EXCEPTION_FIELDS:
+            with self.subTest(field=field):
+                self.assertIn(field, known)
 
 
 class TestTheDaggerMarksADeparture(_Base):

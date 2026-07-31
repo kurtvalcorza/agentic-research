@@ -288,7 +288,7 @@ class TestScenarioThreeTable(unittest.TestCase):
         "grade-profile.bad-arithmetic.json": "difference of",
         "grade-profile.illegal-upgrade.json": "upgrades",
         "grade-profile.aggregate-certainty.json": "not permitted",
-        "grade-profile.typo-domain.json": "unrecognised key",
+        "grade-profile.typo-domain.json": "indirectnes",   # the misspelling, not the message shape
         "grade-profile.no-version.json": "schema_version",
         "grade-profile.quoted-count.json": "must be a JSON number",
     }
@@ -325,6 +325,10 @@ class TestScenarioThreeTable(unittest.TestCase):
             f"python skills/validate-evidence/scripts/grade_profile.py "
             f"tests/fixtures/grade-profile.typo-domain.json --rob {rob} --strict")
         self.assertIn("unrecognised key", err)
+        # The misspelling itself, not merely the shape of the message: an unrelated
+        # record with any unknown key satisfies "unrecognised key" at the same exit
+        # code, so the needle has to name the typo this row exists to demonstrate.
+        self.assertIn("indirectnes", err)
         self.assertNotIn("missing downgrade domain", err)
         self.assertNotIn("missing downgrade domain", out)
 
