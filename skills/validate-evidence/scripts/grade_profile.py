@@ -684,6 +684,10 @@ def parse_appraisal(raw: dict) -> dict:
                     "expected_instrument": expected,
                     "instrument_mismatch": instrument_mismatch,
                     "result_assessed": result_assessed, "confirmed": bool(by and at),
+                    # Kept for the artifact, not for the check: an overall_justification
+                    # is what makes an otherwise-invalid appraisal legal, so a rating
+                    # resting on it must show it.
+                    "overall_justification": overall_justification,
                     # Method violations of the appraisal itself, carried rather than
                     # raised so this check classifies them the way their owning check
                     # does: exit 1 with diagnostics, not exit 2 with none.
@@ -707,16 +711,43 @@ def predominant_design(mix: dict) -> str:
 
 # --- checking ----------------------------------------------------------------
 
-def check(rec: dict, appraisal: dict | None, rob_supplied: bool) -> list[str]:
-    """Return a list of method violations (empty = clean)."""
+def arithmetic(r: dict) -> tuple[int, int, int, bool]:
+    """(downgrades, upgrades, computed level, whether the sum was CLAMPED).
+
+    GRADE certainty is bounded at high and very low, so a sum outside that range is
+    pulled back to the bound. The clamp is what makes `high +2 = high` "consistent"
+    — true, and invisible on the page, so a reader checking the arithmetic in the
+    rendered row found it not adding up and could not tell whether the record was
+    wrong or the renderer was. Both callers derive it here so they cannot disagree.
+
+    Meaningful only when every domain is present; the caller checks that first.
+    """
+    downgrades = sum(d["rating"] for d in r["domains"].values())
+    upgrades = sum(r["upgrades"].values())
+    raw = LEVELS[r["starting_level"]] + downgrades + upgrades
+    computed = max(1, min(4, raw))
+    return downgrades, upgrades, computed, raw != computed
+
+
+def check(rec: dict, appraisal: dict | None,
+          rob_supplied: bool) -> tuple[list[str], set]:
+    """Return (method violations, ids of the results that have at least one).
+
+    The id set is what `U_grade` is DEFINED as — results that fail, not diagnostics
+    emitted. One result can raise four, and a loop counting messages would record
+    four units of outstanding work for one broken result, corrupting the weighted
+    total and the plateau history that routes the whole review.
+    """
     errs: list[str] = []
     rtype = rec["review_type"]
     # Appraisals whose violations a result already reported, so the record-level
     # sweep below does not say the same thing twice.
     reported: set = set()
+    failing: set = set()
 
     for r in rec["results"]:
         rid = r["id"]
+        before = len(errs)
 
         # Rule 1 — every domain present. A missing domain is reported by name; it is
         # NEVER read as a judgment of "no concern".
@@ -724,9 +755,11 @@ def check(rec: dict, appraisal: dict | None, rob_supplied: bool) -> list[str]:
         if missing:
             errs.append(f"result {rid}: missing downgrade domain(s) {', '.join(missing)} — "
                         f"an absent domain is not a judgment of 'no concern'")
-            continue  # arithmetic below would be meaningless
 
-        # Rule 4 — starting level anchored to the predominant design.
+        # Rule 4 — starting level anchored to the predominant design. Decidable
+        # without the domains, so it is checked even when one is absent: skipping
+        # every remaining rule on a missing domain hid work the reviewer would only
+        # discover on the next cycle, one violation at a time.
         pred = predominant_design(r["design_mix"])
         expected = DESIGN_START[pred]
         if r["starting_level"] != expected and not r["starting_level_justification"]:
@@ -736,56 +769,88 @@ def check(rec: dict, appraisal: dict | None, rob_supplied: bool) -> list[str]:
                 f"{sum(r['design_mix'].values())}), which implies '{expected}'. "
                 f"Record a starting_level_justification if the deviation is intended")
 
-        downgrades = sum(d["rating"] for d in r["domains"].values())
         upgrade_total = sum(r["upgrades"].values())
 
-        # Rules 5/6 — upgrades are for non-randomized bodies with no downgrade applied.
-        if upgrade_total:
-            if pred == "rct":
-                errs.append(f"result {rid}: upgrades applied to a body of randomized trials — "
-                            f"GRADE permits upgrading only for non-randomized evidence")
-            if downgrades < 0:
+        # Rule 6 — upgrading is for bodies that start BELOW high. Testing for `rct`
+        # named the commonest such body rather than the property: `dta` also starts
+        # high, so a +2 on a diagnostic-accuracy body was accepted and then silently
+        # absorbed by the ceiling.
+        if upgrade_total and DESIGN_START[pred] == "high":
+            errs.append(f"result {rid}: upgrades applied to a body of {pred} studies, which "
+                        f"already starts at high — GRADE permits upgrading only where "
+                        f"certainty starts below high")
+
+        if not missing:
+            downgrades, _, computed, _ = arithmetic(r)
+            # Rule 5 — no upgrade over an unresolved downgrade. Needs every domain.
+            if upgrade_total and downgrades < 0:
                 applied = [n for n, d in r["domains"].items() if d["rating"] < 0]
                 errs.append(f"result {rid}: upgrades applied while downgrade(s) remain "
                             f"({', '.join(applied)}) — GRADE does not permit raising certainty "
                             f"over unresolved serious concerns")
 
-        # Rule 5 (arithmetic) — the reconciliation, reported like the flow diagram's.
-        computed = max(1, min(4, LEVELS[r["starting_level"]] + downgrades + upgrade_total))
-        declared = LEVELS[r["final"]]
-        if computed != declared:
-            errs.append(
-                f"result {rid}: {r['starting_level']}({LEVELS[r['starting_level']]}) "
-                f"{downgrades:+d} downgrades {upgrade_total:+d} upgrades = "
-                f"{LEVEL_NAMES[computed]}({computed}), but final = "
-                f"{r['final']}({declared}) — difference of {declared - computed:+d}")
+            # Rule 5 (arithmetic) — the reconciliation, reported like the flow diagram's.
+            declared = LEVELS[r["final"]]
+            if computed != declared:
+                errs.append(
+                    f"result {rid}: {r['starting_level']}({LEVELS[r['starting_level']]}) "
+                    f"{downgrades:+d} downgrades {upgrade_total:+d} upgrades = "
+                    f"{LEVEL_NAMES[computed]}({computed}), but final = "
+                    f"{r['final']}({declared}) — difference of {declared - computed:+d}")
 
-        # Rule 9 — the basis for the risk-of-bias domain.
-        basis = r["domains"]["risk_of_bias"]["basis"]
-        if basis == "heuristic":
-            if rtype in CONFIRMED_ROB_REQUIRED:
-                errs.append(f"result {rid}: risk_of_bias basis is 'heuristic', but a "
-                            f"{rtype} review requires confirmed appraisal")
-            elif rtype == "rapid" and not rec["streamlined_method_disclosed"]:
-                errs.append(f"result {rid}: risk_of_bias basis is 'heuristic' for a rapid "
-                            f"review without 'streamlined_method_disclosed' — the shortcut "
-                            f"must be stated")
-        else:
-            # Rule 11 — a confirmed basis claimed with nothing to check it against
-            # is not accepted on trust.
-            if not rob_supplied:
-                errs.append(f"result {rid}: risk_of_bias basis is 'confirmed_rob' but no "
-                            f"appraisal record was supplied (--rob) — the claim cannot be "
-                            f"taken on trust")
-            elif appraisal is not None:
-                errs.extend(_check_traceability(r, appraisal))
-                reported |= {(s, r["appraised_result"]) for s in r["study_ids"]
-                             if (s, r["appraised_result"]) in appraisal}
+        # Rule 9 — the basis for the risk-of-bias domain. Independently decidable,
+        # so an absent publication_bias domain must not conceal a certainty rating
+        # resting on an appraisal that cannot back it.
+        if "risk_of_bias" in r["domains"]:
+            basis = r["domains"]["risk_of_bias"]["basis"]
+            if basis == "heuristic":
+                if rtype in CONFIRMED_ROB_REQUIRED:
+                    errs.append(f"result {rid}: risk_of_bias basis is 'heuristic', but a "
+                                f"{rtype} review requires confirmed appraisal")
+                elif rtype == "rapid" and not rec["streamlined_method_disclosed"]:
+                    errs.append(f"result {rid}: risk_of_bias basis is 'heuristic' for a rapid "
+                                f"review without 'streamlined_method_disclosed' — the shortcut "
+                                f"must be stated")
+            else:
+                # Rule 11 — a confirmed basis claimed with nothing to check it against
+                # is not accepted on trust.
+                if not rob_supplied:
+                    errs.append(f"result {rid}: risk_of_bias basis is 'confirmed_rob' but no "
+                                f"appraisal record was supplied (--rob) — the claim cannot be "
+                                f"taken on trust")
+                elif appraisal is not None:
+                    errs.extend(_check_traceability(r, appraisal))
+                    reported |= {(s, r["appraised_result"]) for s in r["study_ids"]
+                                 if (s, r["appraised_result"]) in appraisal}
+
+        if len(errs) > before:
+            failing.add(rid)
 
     if appraisal is not None:
         errs.extend(_check_appraisal_record(appraisal, reported))
 
-    return errs
+    return errs, failing
+
+
+def _appraisal_problems(item: dict) -> list[str]:
+    """Everything wrong with one appraisal, in rob_appraisal.py's own words.
+
+    ONE source for the claim text, wrapped differently by each reporting site: a
+    cited appraisal names the certainty result it undermines, an uncited one names
+    the record. Two checks can agree a file is bad and disagree about WHY, and a
+    reviewer fixing what one names is then told by the other that something else is
+    wrong — so the wording is shared, and `test_differential_appraisal.py` compares
+    the claims rather than only the exit codes.
+    """
+    problems = []
+    if item["instrument_mismatch"]:
+        # The instrument is the root cause, so it is reported first and alone: the
+        # domains were never measured against it, exactly as the sibling stops here.
+        problems.append(f"design {item['design']!r} calls for "
+                        f"{item['expected_instrument']}, but {item['instrument']} "
+                        f"was applied")
+    problems += item["violations"]
+    return problems
 
 
 def _check_appraisal_record(appraisal: dict, reported: set) -> list[str]:
@@ -813,12 +878,7 @@ def _check_appraisal_record(appraisal: dict, reported: set) -> list[str]:
         # result it undermines. Uncited, it is still a method violation of the
         # record — and leaving it out of this sweep was one more instance of the
         # split this function exists to close.
-        problems = list(item["violations"])
-        if item["instrument_mismatch"]:
-            problems.insert(0, f"design {item['design']!r} calls for "
-                               f"{item['expected_instrument']!r}, but "
-                               f"{item['instrument']!r} was applied")
-        for violation in problems:
+        for violation in _appraisal_problems(item):
             errs.append(
                 f"appraisal record: study {sid} (result: {target!r}) is not a valid "
                 f"appraisal — {violation}. It backs no certainty rating here, but a "
@@ -879,23 +939,13 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                     f"result: {'; '.join(wrong_target)} — the wrong risk-of-bias "
                     f"evidence cannot back this certainty rating")
 
-    mismatched = [s for s in resolved
-                  if appraisal[(s, target)]["instrument_mismatch"]]
-    for sid in mismatched:
-        item = appraisal[(sid, target)]
-        errs.append(
-            f"result {rid}: study {sid} appraisal instrument mismatch — design "
-            f"{item['design']!r} calls for {item['expected_instrument']!r}, got "
-            f"{item['instrument']!r}")
-
-    # Method violations of the appraisal record itself, reported here rather than
-    # raised during parsing so that a readable-but-invalid appraisal exits 1 with
-    # diagnostics, exactly as rob_appraisal.py reports it. An appraisal its own
-    # instrument rejects cannot back a confirmed_rob basis, so it is also excluded
+    # Method violations of the appraisal, reported here rather than raised during
+    # parsing so that a readable-but-invalid appraisal exits 1 with diagnostics,
+    # exactly as rob_appraisal.py reports it. An appraisal its own instrument
+    # rejects cannot back a confirmed_rob basis, so such a study is also excluded
     # from the coherence comparison below.
-    invalid = [s for s in resolved if appraisal[(s, target)]["violations"]]
-    for sid in invalid:
-        for violation in appraisal[(sid, target)]["violations"]:
+    for sid in resolved:
+        for violation in _appraisal_problems(appraisal[(sid, target)]):
             errs.append(
                 f"result {rid}: study {sid} (result: {target!r}) appraisal is not "
                 f"valid — {violation}. rob_appraisal.py reports this as a method "
@@ -972,13 +1022,20 @@ def _markdown_cell(value: object) -> str:
     return _markdown_text(value).replace("|", "&#124;")
 
 
-def evidence_profile(rec: dict) -> str:
+def evidence_profile(rec: dict, appraisal: dict | None = None) -> str:
     lines = ["## Evidence profile", "", _keyed_as(rec), ""]
     provisional = any(r["domains"].get("risk_of_bias", {}).get("basis") == "heuristic"
                       for r in rec["results"])
     if provisional:
         lines += ["> ⚠️ **PROVISIONAL** — at least one result's risk-of-bias domain rests on an "
                   "estimate rather than a confirmed appraisal.", ""]
+        # The disclosure is the record-level exception: for a rapid review it is
+        # the ONLY thing that makes a heuristic basis legal, and the artifact
+        # printed the generic warning while the shortcut it discloses — what the
+        # reviewer actually skipped — appeared nowhere on the page.
+        if rec["streamlined_method_disclosed"]:
+            lines += [f"> **Streamlined method disclosed:** "
+                      f"{_markdown_text(rec['streamlined_method_disclosed'])}", ""]
     # The ID is a column, not a decoration: only `id` is required to be unique, so
     # two results may legitimately carry the same label. Rendering the label alone
     # made those rows indistinguishable and discarded the identifier every
@@ -996,25 +1053,42 @@ def evidence_profile(rec: dict) -> str:
         cells = [(str(d[n]["rating"]) if n in d else "—") for n in DOMAINS]
         final_idx = LEVELS[r["final"]]
         upgrade_total = sum(r["upgrades"].values())
+        bound = " ⌁" if (_all_domains_present(r) and arithmetic(r)[3]) else ""
         lines.append(
             f"| {_markdown_cell(r['id'])} | {_markdown_cell(r['label'])} | "
             f"{len(r['study_ids'])} | "
             f"{predominant_design(r['design_mix'])} | "
             f"{_start_cell(r)} | " + " | ".join(cells) +
             f" | {'+' + str(upgrade_total) if upgrade_total else '0'}"
-            f" | {r['final'].replace('_', ' ')} {SYMBOLS[final_idx]} |")
+            f" | {r['final'].replace('_', ' ')} {SYMBOLS[final_idx]}{bound} |")
     lines.append("")
     for r in rec["results"]:
-        notes = _result_notes(r)
+        notes = _result_notes(r, appraisal)
         if notes:
             lines.append(f"- **{_markdown_text(r['label'])}** ({_markdown_text(r['id'])})")
             lines.extend(notes)
     return "\n".join(lines)
 
 
+def _all_domains_present(r: dict) -> bool:
+    return all(d in r["domains"] for d in DOMAINS)
+
+
 def _departs_from_design(r: dict) -> bool:
     """Whether the starting level differs from the one the predominant design implies."""
     return r["starting_level"] != DESIGN_START[predominant_design(r["design_mix"])]
+
+
+def _is_justified_departure(r: dict) -> bool:
+    """A departure from the design's implied level that a justification permits.
+
+    Both the marker and its footnote hang off this ONE predicate. Marking on the
+    departure while noting on the justification made them disagree in exactly the
+    violating case — an UNJUSTIFIED departure printed a † pointing at a footnote
+    that did not exist, so without --strict the artifact promised the reader an
+    explanation the record never gave.
+    """
+    return _departs_from_design(r) and bool(r["starting_level_justification"])
 
 
 def _start_cell(r: dict) -> str:
@@ -1025,10 +1099,10 @@ def _start_cell(r: dict) -> str:
     exception, and presenting that to a manuscript reader as a departure is the
     opposite of what the marker is for.
     """
-    return r["starting_level"] + (" †" if _departs_from_design(r) else "")
+    return r["starting_level"] + (" †" if _is_justified_departure(r) else "")
 
 
-def _result_notes(r: dict) -> list[str]:
+def _result_notes(r: dict, appraisal: dict | None = None) -> list[str]:
     """Every recorded rationale the result relies on, in the order it is applied.
 
     An exception the record needs in order to be legal must be visible to the
@@ -1039,9 +1113,22 @@ def _result_notes(r: dict) -> list[str]:
     """
     notes = []
     if r["starting_level_justification"]:
-        marker = "† " if _departs_from_design(r) else ""
+        marker = "† " if _is_justified_departure(r) else ""
         notes.append(f"  - {marker}*starting level*: "
                      f"{_markdown_text(r['starting_level_justification'])}")
+    if _all_domains_present(r):
+        _, _, computed, clamped = arithmetic(r)
+        if clamped:
+            # The bound is why `high +2 = high` reconciles. Unmarked, the rendered
+            # row simply does not add up, and the reader cannot tell whether the
+            # record is wrong or the table is.
+            raw = LEVELS[r["starting_level"]] + sum(
+                d["rating"] for d in r["domains"].values()) + sum(r["upgrades"].values())
+            notes.append(
+                f"  - ⌁ *certainty bound*: {r['starting_level']}"
+                f"({LEVELS[r['starting_level']]}) with the adjustments below sums to "
+                f"{raw}, held at {LEVEL_NAMES[computed]}({computed}) — GRADE certainty "
+                f"does not run above high or below very low")
     for name in DOMAINS:
         if name in r["domains"] and r["domains"][name]["note"]:
             notes.append(f"  - *{name.replace('_', ' ')}*: "
@@ -1054,6 +1141,17 @@ def _result_notes(r: dict) -> list[str]:
     if applied:
         notes.append("  - *upgrades*: " + ", ".join(
             f"{u.replace('_', ' ')} (+{n})" for u, n in applied))
+    # An appraisal's own override is the exception one level down: it is what makes
+    # an otherwise-invalid appraisal legal, and a rating resting on that appraisal
+    # inherits the exception without ever showing it.
+    if appraisal is not None and r["appraised_result"]:
+        overrides = [(s, appraisal[(s, r["appraised_result"])]["overall_justification"])
+                     for s in r["study_ids"]
+                     if (s, r["appraised_result"]) in appraisal
+                     and appraisal[(s, r["appraised_result"])]["overall_justification"]]
+        for sid, text in overrides:
+            notes.append(f"  - *appraisal override — {_markdown_text(sid)}*: "
+                         f"{_markdown_text(text)}")
     return notes
 
 
@@ -1147,7 +1245,7 @@ def main() -> int:
 
     try:
         rec = parse(data)
-        errs = check(rec, appraisal, rob_supplied=bool(args.rob))
+        errs, failing = check(rec, appraisal, rob_supplied=bool(args.rob))
     except InputError as e:
         # No artifact on malformed input: a record that cannot be read must not
         # produce a document that looks authoritative.
@@ -1155,7 +1253,7 @@ def main() -> int:
         return 2
 
     print(f"# GRADE certainty — {rec['review_type']} review\n")
-    print(evidence_profile(rec))
+    print(evidence_profile(rec, appraisal))
     print()
     print(summary_of_findings(rec))
     print("\n## Check\n")
@@ -1169,6 +1267,19 @@ def main() -> int:
             print(f"- {_markdown_text(e)}")
     else:
         print("✅ Every result is complete, legal under GRADE, and arithmetically consistent.")
+    # U_grade is DEFINED as the number of RESULTS this check fails, so the number
+    # has to be emitted rather than counted off the diagnostics. One result can
+    # raise four messages, and a loop counting messages books four units of
+    # outstanding work for one broken result — inflating the weighted total and the
+    # plateau history that routes the whole review.
+    named = ", ".join(_markdown_text(rid) for rid in sorted(failing))
+    print(f"\n**U_grade: {len(failing)}** result(s) with at least one issue"
+          f"{' (' + named + ')' if failing else ''}.")
+    record_level = len(errs) - sum(1 for e in errs if e.startswith("result "))
+    if record_level:
+        print(f"\n> {record_level} further violation(s) belong to the appraisal record "
+              f"supplied via `--rob`, not to a certainty result, so they are outside "
+              f"`U_grade`. `rob_appraisal.py` reports them against that record.")
     print(confirmation_limitation(rec, bool(args.rob)))
     print(provenance(source))
     return 1 if (errs and args.strict) else 0

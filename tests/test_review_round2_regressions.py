@@ -119,7 +119,7 @@ class TestP1StubAppraisalRejected(_Base):
             gp, fixture("grade-profile.valid.json"),
             "--rob", str(self.write(rob, "rob.json")), "--strict")
         self.assertEqual(code, 1, msg=err)
-        self.assertIn("instrument mismatch", out)
+        self.assertIn("was applied", out)        # same claim text as rob_appraisal.py
         self.assertIn("calls for", out)
         self.assertIn("## Evidence profile", out)
 

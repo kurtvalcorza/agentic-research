@@ -50,7 +50,7 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_extract` | 1 | `extract-synthesis` | extraction fields flagged unreconciled |
 | `U_prisma` | 1 | `prisma-flow` | arms failing reconciliation (`prisma_flow.py --strict`) |
 | `U_consistency` | 1 | `validate-consistency` | `critical_breaks + max(0, 75 − score)` (graded) |
-| `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level |
+| `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level. **Read the `U_grade: N` line the check prints; do not count diagnostics.** One result can raise four, and counting messages books four units of work for one broken result |
 | `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve at the named `(study, result)` target (`grade_profile.py --rob`); matching but unconfirmed appraisals are excluded and counted only by `H_rob` |
 | `U_checklist` | 1 | `prisma-flow` | PRISMA rows neither located nor justified (`prisma_checklist.py --strict`), over all **42** addressable rows |
 
@@ -81,7 +81,7 @@ The **predicate uses raw counts** (every unit must reach 0); the **weights only 
 
 | Gate | From | Counts |
 |:-----|:-----|:-------|
-| `H_rob` | `appraise-risk-of-bias` | studies without a **human-confirmed** rating |
+| `H_rob` | `appraise-risk-of-bias` | **appraisals** without a human-confirmed rating — identity is `(study, result)`, so a study appraised for two results and confirmed for neither contributes 2. Never deduplicate the producer's count to studies: the gate counts sign-offs still owed |
 | `H_screen_adj` | `screen-literature` | conflicts requiring human adjudication |
 | `H_cite_manual` | `verify-sources` | citations only resolvable as `UNVERIFIED (manual)` |
 | `H_numeric` | `extract-synthesis` | numeric results (effect sizes / sample sizes / CIs) awaiting **human numeric verification** |

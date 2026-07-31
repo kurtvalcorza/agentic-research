@@ -25,4 +25,6 @@ Certainty is keyed to **protocol outcomes** (GRADE as published).
 
 ✅ Every result is complete, legal under GRADE, and arithmetically consistent.
 
+**U_grade: 0** result(s) with at least one issue.
+
 > A `confirmed_rob` basis rests on a confirmation record being PRESENT in the appraisal record — a name and a date. This check cannot establish that a human made the judgment, or who that person was.

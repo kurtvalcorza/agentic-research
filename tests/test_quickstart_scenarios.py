@@ -38,11 +38,14 @@ from _load import load, fixture  # noqa: E402
 REPO = pathlib.Path(__file__).resolve().parent.parent
 QUICKSTART = REPO / "specs" / "001-standards-enforcement-parity" / "quickstart.md"
 
-# ANY fenced block, whatever its info string. Matching only ```bash meant a
-# scenario written in a ```sh or ```console fence was invisible to this runner —
-# a module whose whole purpose is "an unchecked command fails the suite" must not
-# have a way to opt out of it by accident.
-CODE_BLOCK = re.compile(r"^```[^\n]*\n(.*?)^```", re.S | re.M)
+# ANY fenced block, whatever its info string, and at Markdown's permitted fence
+# indentation of up to three spaces (a block nested under a list item is indented).
+# Matching only ```bash at column zero meant a scenario written in a ```sh fence,
+# or nested under a bullet, was invisible to this runner — and the minimum-command
+# guard still passed, because other scenarios were found. A module whose whole
+# purpose is "an unchecked command fails the suite" must not have a way to opt out
+# of it by accident.
+CODE_BLOCK = re.compile(r"^ {0,3}```[^\n]*\n(.*?)^ {0,3}```", re.S | re.M)
 # `# exit N` on the command itself or on a continuation line beneath it, and the
 # `echo $?    # N` idiom the guide also uses.
 EXIT_COMMENT = re.compile(r"#\s*exit\s+(\d+)")
@@ -274,14 +277,59 @@ class TestScenarioThreeTable(unittest.TestCase):
                     f"tests/fixtures/{name} --rob {rob} --strict")
                 self.assertEqual(code, expected, msg=f"{name}\n{out}\n{err}")
 
-    def test_each_failure_is_its_own_failure(self):
+    # The defect each row NAMES, as a substring of the message that row's fixture
+    # must actually produce. Without this the table's third column was enforced by
+    # nothing: a fixture could stop exercising its named defect and start tripping
+    # an unrelated rule at the same exit code, and the runner would not notice.
+    # Proved by swapping missing-domain's content for bad-arithmetic's — the suite
+    # stayed green.
+    ROW_EVIDENCE = {
+        "grade-profile.missing-domain.json": "missing downgrade domain",
+        "grade-profile.bad-arithmetic.json": "difference of",
+        "grade-profile.illegal-upgrade.json": "upgrades",
+        "grade-profile.aggregate-certainty.json": "not permitted",
+        "grade-profile.typo-domain.json": "unrecognised key",
+        "grade-profile.no-version.json": "schema_version",
+        "grade-profile.quoted-count.json": "must be a JSON number",
+    }
+
+    def test_each_row_shows_the_defect_it_names(self):
         """"Each must fail for its own reason, not a generic one" — the guide's words.
 
-        The cheapest way for this table to go quietly wrong is for a record to stop
-        exercising its named defect and start tripping the basis-claimed-without-an
-        -appraisal rule instead, which also exits 1. Supplying `--rob` removes that
-        possibility; this asserts it stayed removed.
+        An exit code cannot say that. Every method violation maps to 1 and every
+        malformed record to 2, so a row can go on passing long after it has stopped
+        demonstrating the thing the table says it demonstrates.
         """
+        rob = str(fixture("risk-of-bias.valid.json"))
+        for name, expected in self.rows():
+            with self.subTest(fixture=name):
+                self.assertIn(name, self.ROW_EVIDENCE,
+                              f"{name} is in the table but pinned to no message; "
+                              f"add the defect it names to ROW_EVIDENCE")
+                _, out, err = run_command(
+                    f"python skills/validate-evidence/scripts/grade_profile.py "
+                    f"tests/fixtures/{name} --rob {rob} --strict")
+                where = err if expected == 2 else out
+                self.assertIn(self.ROW_EVIDENCE[name], where,
+                              msg=f"{name}\n{out}\n{err}")
+
+    def test_the_typo_row_is_not_reported_as_a_missing_domain(self):
+        """The guide calls this "the one worth watching", and nothing watched it.
+
+        A completeness check that reads a misspelling as an omission reports the
+        right verdict for the wrong reason, and passes once the reviewer "fixes"
+        the wrong thing. The distinction the prose promises is now asserted.
+        """
+        rob = str(fixture("risk-of-bias.valid.json"))
+        _, out, err = run_command(
+            f"python skills/validate-evidence/scripts/grade_profile.py "
+            f"tests/fixtures/grade-profile.typo-domain.json --rob {rob} --strict")
+        self.assertIn("unrecognised key", err)
+        self.assertNotIn("missing downgrade domain", err)
+        self.assertNotIn("missing downgrade domain", out)
+
+    def test_each_failure_is_its_own_failure(self):
+        """The generic failure this table must never be demonstrating."""
         rob = str(fixture("risk-of-bias.valid.json"))
         for name, expected in self.rows():
             if expected != 1:

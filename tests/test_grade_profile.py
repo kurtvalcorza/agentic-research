@@ -46,7 +46,7 @@ def appraisal_for(design_counts):
     now agree: a mix claiming observational studies backed by an RCT appraisal is
     exactly the certainty inflation the check exists to catch.
     """
-    inst = {"rct": "rob2", "nrsi": "robins_i", "observational": "nos"}
+    inst = {"rct": "rob2", "nrsi": "robins_i", "observational": "nos", "dta": "quadas2"}
     doms = {
         "rob2": {"randomization": "low", "deviations": "low", "missing_data": "low",
                  "measurement": "low", "selection_of_result": "low"},
@@ -55,6 +55,12 @@ def appraisal_for(design_counts):
                      "missing_data": "low", "outcome_measurement": "low",
                      "selection_of_result": "low"},
         "nos": {"selection": 4, "comparability": 2, "outcome_or_exposure": 3},
+        # dta was missing, so no test in this module could build a
+        # diagnostic-accuracy body — which is the other design that starts high.
+        "quadas2": {"patient_selection": {"risk_of_bias": "low", "applicability": "low"},
+                    "index_test": {"risk_of_bias": "low", "applicability": "low"},
+                    "reference_standard": {"risk_of_bias": "low", "applicability": "low"},
+                    "flow_and_timing": {"risk_of_bias": "low"}},
     }
     studies, n = [], 1
     for design, count in design_counts.items():
@@ -279,9 +285,8 @@ class TestUpgradeLegality(unittest.TestCase):
     def _rec_with_upgrade(self, design, downgrade):
         rec = load_record()
         r = rec["results"][0]
-        r["design_mix"] = {"rct": 0, "nrsi": 0, "observational": 4, "case_series": 0} \
-            if design == "observational" else {"rct": 4, "nrsi": 0, "observational": 0, "case_series": 0}
-        r["starting_level"] = "low" if design == "observational" else "high"
+        r["design_mix"] = {d: (4 if d == design else 0) for d in gp.DESIGNS}
+        r["starting_level"] = gp.DESIGN_START[design]
         for name in gp.DOMAINS:
             r["domains"][name]["rating"] = -1 if (downgrade and name == "inconsistency") else 0
         r["upgrades"] = {"large_effect": 1, "dose_response": 0, "opposing_confounding": 0}
@@ -311,7 +316,22 @@ class TestUpgradeLegality(unittest.TestCase):
         rec["results"][0]["study_ids"] = ids
         code, out, _ = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
         self.assertEqual(code, 1)
-        self.assertIn("only for non-randomized evidence", out)
+        self.assertIn("already starts at high", out)
+
+    def test_upgrade_on_a_diagnostic_accuracy_body_is_flagged(self):
+        """The rule is about the STARTING LEVEL, not about randomization.
+
+        Testing for `rct` named the commonest body that starts high rather than the
+        property that matters: `dta` starts high too, so an upgrade on a
+        diagnostic-accuracy body was accepted and then silently absorbed by the
+        ceiling — recorded, illegal, and invisible.
+        """
+        rec = self._rec_with_upgrade("dta", False)
+        rob, ids = appraisal_for({"dta": 4})
+        rec["results"][0]["study_ids"] = ids
+        code, out, _ = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("already starts at high", out)
 
     def test_upgrade_over_a_downgrade_is_flagged(self):
         rec = self._rec_with_upgrade("observational", True)
@@ -394,7 +414,7 @@ class TestTraceability(unittest.TestCase):
 
         code, out, err = run(VALID, "--rob", str(p), "--strict")
         self.assertEqual(code, 1, msg=err)
-        self.assertIn("instrument mismatch", out)
+        self.assertIn("calls for", out)          # same claim text as rob_appraisal.py
         self.assertIn("calls for", out)
         self.assertIn("## Evidence profile", out)
 

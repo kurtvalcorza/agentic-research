@@ -39,7 +39,7 @@ the in-scope set instead.
 | `U_grade` | 1 | certainty check | Results violating any certainty rule |
 | `U_rob_trace` | 1 | certainty check with `--rob` | References not resolving at the named `(study, result)` target; matching but unconfirmed appraisals are excluded |
 | `U_checklist` | 1 | checklist check | Rows neither located nor justified |
-| `H_rob` | gate | appraisal check | Studies lacking confirmation |
+| `H_rob` | gate | appraisal check | **Appraisals** lacking confirmation, keyed `(study, result)` — one study appraised for two results counts twice |
 
 ## In-scope resolution by review type
 

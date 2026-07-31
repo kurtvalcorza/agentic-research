@@ -58,12 +58,12 @@ Arithmetic: `high(4) + (-1) = 3 = moderate`. ✅
 
 | # | Rule | Violation type |
 |:--:|:--|:--|
-| 1 | All five domain keys present | exit 1 — reported by name as missing, never read as `0` |
+| 1 | All five domain keys present | exit 1 — reported by name as missing, never read as `0`. Every independently decidable rule below still runs, so one absent domain cannot conceal the rest of the result's problems |
 | 2 | `rating` ∈ {0, −1, −2} | exit 2 — outside vocabulary |
 | 3 | Misspelled domain key | exit 2 — **not** treated as a missing domain |
 | 4 | `starting_level` matches predominant `design_mix` entry, or carries `starting_level_justification` | exit 1 |
 | 5 | `clamp(index(starting) + Σdomains + Σupgrades, 1, 4)` equals `index(final)` | exit 1 — reports both sides and the difference |
-| 6 | Upgrades non-zero only when body is non-randomized **and** all domain ratings are `0` | exit 1 |
+| 6 | Upgrades non-zero only when the predominant design starts **below high** (so not `rct` and not `dta`) **and** all domain ratings are `0` | exit 1 |
 | 7 | Upgrade keys ⊆ {`large_effect`, `dose_response`, `opposing_confounding`}; `large_effect` is `0`/`1`/`2`, while the other two are `0`/`1` only | exit 2 |
 | 8 | No `overall_certainty` or any cross-result aggregate key | exit 2 |
 | 9 | `basis` is `confirmed_rob` or `heuristic`; `heuristic` stamps output PROVISIONAL, and fails under `--strict` for `systematic` and `umbrella`; permitted for `rapid` only with `streamlined_method_disclosed` | exit 1 |
@@ -106,8 +106,27 @@ judgement, because the check may only assert what is decidable (constitution Pri
    judgment with its note, and the final certainty with its symbol. A `starting_level` permitted
    only by a `starting_level_justification` is marked `†` and the justification is printed with
    the notes, so the departure never appears unexplained.
+   The `†` marks a **departure that a justification permits** — not merely that a justification
+   was recorded. An unjustified departure carries no marker, because it is reported as a violation
+   instead; a marker there would point at a footnote the record never wrote.
+
+   Applied `upgrades` get their own column and are named with their levels in the notes: they are
+   the only adjustment that RAISES certainty, so a row without them cannot be reconciled. Where the
+   sum runs past high or below very low, the bound is marked `⌁` and explained, since a clamped row
+   otherwise simply does not add up on the page.
+
+   A `coherence_justification`, an appraisal's `overall_justification` where a rating rests on it,
+   and `streamlined_method_disclosed` are all rendered for the same reason: **an exception the
+   record needs in order to be legal must be visible to the reader of the artifact.**
+
 2. **Summary of findings** — one row per result: its **id**, the plain-language finding, the
    certainty symbol, and the certainty statement.
+
+Below the check, `U_grade: N` reports the number of RESULTS carrying at least one violation — the
+count `verify-review` consumes. It is emitted rather than left to be counted off the diagnostics
+because one result can raise four, and a loop counting messages books four units of outstanding
+work for one broken result. Violations belonging to the `--rob` record rather than to a result are
+reported separately and excluded from that count.
 
 Both tables carry the result id because only `id` is required to be unique — two results may share
 a label, and every diagnostic names the id, so a table without it cannot be matched to the check

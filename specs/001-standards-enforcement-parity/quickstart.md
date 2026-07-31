@@ -119,7 +119,8 @@ the judgment.
 
 Then the failing cases: an instrument applied to the wrong design (exit 1), a domain outside the
 instrument's vocabulary (exit 2), an overall more favourable than the worst domain without
-justification (exit 1), and a study lacking confirmation (exit 1, `H_rob: 1`).
+justification (exit 1), and an appraisal lacking confirmation (exit 1, `H_rob: 1` — the gate
+counts appraisals, not studies, since identity is `(study, result)`).
 
 ---
 

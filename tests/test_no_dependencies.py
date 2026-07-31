@@ -12,6 +12,8 @@ from __future__ import annotations
 import ast
 import pathlib
 import sys
+import tempfile
+import textwrap
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -70,7 +72,20 @@ def collect_imports(path: pathlib.Path) -> tuple[set[str], set[str]]:
             (lazy_guarded if (in_func and in_try_body) else module_level).update(_names(node))
             return
 
-        in_func = in_func or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            # A function body is DEFERRED: it runs when the function is called,
+            # which is not where it was defined. An enclosing try therefore cannot
+            # catch an ImportError raised inside it, so the guard must not
+            # propagate across the boundary —
+            #     try:
+            #         def load(): import thirdparty      # NOT guarded by this try
+            #     except ImportError: ...
+            # counted as lazy_guarded and let an unguarded dependency through.
+            # A function defined and also called inside the try would be guarded at
+            # runtime, but that is not statically decidable: fail closed.
+            for child in ast.iter_child_nodes(node):
+                visit(child, True, False)
+            return
 
         if isinstance(node, ast.Try):
             # ONLY the try BODY can be guarded by this try, and only when a handler
@@ -96,6 +111,73 @@ def collect_imports(path: pathlib.Path) -> tuple[set[str], set[str]]:
 def top_level_imports(path: pathlib.Path) -> set[str]:
     m, l = collect_imports(path)
     return m | l
+
+
+class TestTheClassifierItself(unittest.TestCase):
+    """The guard that decides what counts as guarded, tested on synthetic sources.
+
+    Every other test in this module asks the classifier a question about the real
+    tree, so a classifier that answers "guarded" too readily reports a clean repo
+    for the wrong reason. These cases are the ones where a wrong answer would let a
+    dependency through.
+    """
+
+    def classify(self, source: str):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        p = pathlib.Path(d.name) / "sample.py"
+        p.write_text(textwrap.dedent(source), encoding="utf-8")
+        return collect_imports(p)
+
+    def test_a_deferred_function_body_does_not_inherit_the_try(self):
+        """The function runs when it is CALLED, which the enclosing try cannot see."""
+        module_level, lazy = self.classify("""
+            try:
+                def load():
+                    import thirdparty
+                    return thirdparty
+            except ImportError:
+                load = None
+        """)
+        self.assertIn("thirdparty", module_level)
+        self.assertNotIn("thirdparty", lazy)
+
+    def test_a_nested_function_inside_a_guarded_function_is_still_deferred(self):
+        """Two levels down, the same rule: the inner body runs when IT is called."""
+        module_level, lazy = self.classify("""
+            def outer():
+                try:
+                    def inner():
+                        import thirdparty
+                    return inner
+                except ImportError:
+                    return None
+        """)
+        self.assertIn("thirdparty", module_level)
+        self.assertNotIn("thirdparty", lazy)
+
+    def test_an_import_guarded_inside_the_function_still_counts(self):
+        """The legitimate shape: lazy AND guarded, both inside the function."""
+        module_level, lazy = self.classify("""
+            def load():
+                try:
+                    import thirdparty
+                except ImportError:
+                    return None
+        """)
+        self.assertIn("thirdparty", lazy)
+        self.assertNotIn("thirdparty", module_level)
+
+    def test_a_handler_that_cannot_catch_it_is_not_a_guard(self):
+        module_level, lazy = self.classify("""
+            def load():
+                try:
+                    import thirdparty
+                except ValueError:
+                    return None
+        """)
+        self.assertIn("thirdparty", module_level)
+        self.assertNotIn("thirdparty", lazy)
 
 
 class TestNoThirdPartyImports(unittest.TestCase):

@@ -411,6 +411,37 @@ class TestTheAppraisalRecordIsJudgedAsARecord(_Base):
         code, out, err = self.run_with(self.record_with_an_uncited_appraisal())
         self.assertEqual(code, 0, msg=out + err)
 
+    def test_an_invalid_appraisal_does_not_also_drive_the_coherence_rule(self):
+        """Pins the filter that keeps invalid appraisals out of the Rule 12 comparison.
+
+        Removing it left the suite green, even though it decides whether an
+        appraisal its own instrument rejects can trigger — or suppress — a
+        body-level coherence contradiction. Reporting a judgment DERIVED from an
+        appraisal that is not valid tells the reviewer to fix a second thing that
+        will disappear when they fix the first.
+        """
+        rob = json.loads(
+            fixture("risk-of-bias.mostly-high.json").read_text(encoding="utf-8"))
+        rec = json.loads(
+            fixture("grade-profile.incoherent-rob.json").read_text(encoding="utf-8"))
+        # Baseline: valid appraisals, so the coherence rule is what fires.
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("coherence_justification", out)
+
+        # Now make every appraisal invalid. The violation is reported; the derived
+        # coherence contradiction is not.
+        for s in rob["studies"]:
+            s["domains"].pop(sorted(s["domains"])[0])
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec2.json"),
+            "--rob", self.write(rob, "rob2.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("which are absent", out)
+        self.assertNotIn("record a coherence_justification", out)
+
 
 class TestDiagnosticsCannotBeForged(_Base):
     """Both checks render violations as markdown list items, and both interpolated
@@ -511,22 +542,73 @@ class TestEveryRecordedExceptionIsRendered(_Base):
         self.assertIn("coherence override", out)
         self.assertIn("moved the estimate 2%", out)
 
-    def test_every_exception_field_reaches_the_artifact(self):
-        """One assertion per exception the schema allows, so a NEW one cannot be
-        added to the parser without also being rendered."""
-        exceptions = {
-            "starting_level_justification": "Recorded rationale AAA.",
-            "coherence_justification": "Recorded rationale BBB.",
-        }
+    # Every field in the schema whose PURPOSE is to make an otherwise-illegal state
+    # legal, with how to place it in a record. Derived from the parser's own key
+    # sets by the test below, so a new one cannot be added without either being
+    # rendered or failing here — the previous version hardcoded two of these and
+    # was already missing the other two while claiming to be exhaustive.
+    EXCEPTION_FIELDS = {
+        "starting_level_justification": "RECORDED RATIONALE AAA",
+        "coherence_justification": "RECORDED RATIONALE BBB",
+        "streamlined_method_disclosed": "RECORDED RATIONALE CCC",
+        "overall_justification": "RECORDED RATIONALE DDD",
+    }
+
+    def record_using_every_exception(self):
+        """A rapid review that needs all four at once."""
         rec = self.profile(
             appraised_result="diagnostic accuracy at 12 months",
-            starting_level_justification=exceptions["starting_level_justification"])
-        rec["results"][0]["domains"]["risk_of_bias"]["coherence_justification"] = \
-            exceptions["coherence_justification"]
-        _, out, _ = self.run_gp(rec)
-        for field, text in exceptions.items():
+            design_mix={"rct": 0, "nrsi": 0, "observational": 4, "dta": 0,
+                        "case_series": 0},
+            starting_level="high", final="moderate",
+            starting_level_justification=self.EXCEPTION_FIELDS[
+                "starting_level_justification"])
+        rec["review_type"] = "rapid"
+        rec["streamlined_method_disclosed"] = self.EXCEPTION_FIELDS[
+            "streamlined_method_disclosed"]
+        rob_domain = rec["results"][0]["domains"]["risk_of_bias"]
+        rob_domain["basis"] = "heuristic"
+        rob_domain["coherence_justification"] = self.EXCEPTION_FIELDS[
+            "coherence_justification"]
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        for s in rob["studies"]:
+            s["overall_justification"] = self.EXCEPTION_FIELDS["overall_justification"]
+        return rec, rob
+
+    def test_every_exception_field_reaches_the_artifact(self):
+        rec, rob = self.record_using_every_exception()
+        # The appraisal override is only visible where a rating rests on it, so
+        # render the confirmed-basis variant for that one.
+        _, heuristic_out, _ = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"))
+        confirmed = json.loads(json.dumps(rec))
+        confirmed["results"][0]["domains"]["risk_of_bias"]["basis"] = "confirmed_rob"
+        _, confirmed_out, _ = self.run_module(
+            gp, "grade_profile.py", self.write(confirmed, "rec2.json"),
+            "--rob", self.write(rob, "rob.json"))
+        combined = heuristic_out + confirmed_out
+        for field, text in self.EXCEPTION_FIELDS.items():
             with self.subTest(field=field):
-                self.assertIn(text, out)
+                self.assertIn(text, combined,
+                              msg=f"{field} is honoured by the check and invisible "
+                                  f"in the artifact")
+
+    def test_the_exception_list_is_not_missing_a_field(self):
+        """Derive the set from the parser so the list above cannot go stale.
+
+        The previous version was a two-entry literal that claimed a new field
+        "cannot be added to the parser without also being rendered" — while two
+        live ones were already absent from it.
+        """
+        declared = set()
+        for keys in (gp.RESULT_KEYS, gp.DOMAIN_KEYS, gp.RECORD_KEYS,
+                     gp.APPRAISAL_STUDY_KEYS):
+            declared |= {k for k in keys
+                         if k.endswith("_justification") or k.endswith("_disclosed")}
+        self.assertEqual(
+            declared, set(self.EXCEPTION_FIELDS),
+            "the schema gained or lost a field whose purpose is to permit an "
+            "otherwise-illegal state; add it to EXCEPTION_FIELDS and render it")
 
 
 class TestTheDaggerMarksADeparture(_Base):
@@ -591,6 +673,22 @@ class TestConfirmationAuthenticityIsDisclosed(_Base):
         code, out, err = self.run_module(gp, "grade_profile.py",
                                          self.write(rec, "rec.json"), "--strict")
         self.assertEqual(code, 0, msg=out + err)
+        self.assertNotIn("cannot establish that a human", out)
+
+    def test_a_confirmed_basis_without_rob_still_omits_it(self):
+        """Pins the --rob guard SEPARATELY from the confirmed-basis one.
+
+        The test above uses a record that satisfies both guards at once, so either
+        one alone would carry it — deleting the --rob check left the whole suite
+        green. Here the basis IS confirmed_rob and no appraisal record is supplied:
+        nothing read a confirmation, so nothing may be said about one.
+        """
+        code, out, err = self.run_module(
+            gp, "grade_profile.py",
+            self.write(self.profile(appraised_result="diagnostic accuracy at 12 months"),
+                       "rec.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)          # the claim is not taken on trust
+        self.assertIn("no appraisal record was supplied", out)
         self.assertNotIn("cannot establish that a human", out)
 
 

@@ -96,9 +96,12 @@ PLATEAU_K = 3              # consecutive flat-or-worse cycles -> PLATEAU
 SOFT_ADVISORY_CYCLE = 10   # advisory only; does NOT stop the loop
 CEILING = 25               # hard backstop
 
-# H_rob is DEFINED AS the count rob_appraisal.py reports (studies lacking
-# confirmed_by/confirmed_at). The key and its semantics are unchanged; only where
-# the number is meant to come from is.
+# H_rob is DEFINED AS the count rob_appraisal.py reports: APPRAISALS lacking
+# confirmed_by/confirmed_at, not studies. Identity is (study, result), so one study
+# appraised for two results and confirmed for neither contributes 2 — a human signs
+# off on a judgment about one result, not on a study wholesale, and the gate counts
+# the sign-offs still owed. Describing it as studies would invite an assembler to
+# deduplicate the producer's count and understate the human workload.
 #
 # NOTE what this module cannot do: it computes a verdict from the counts it is
 # GIVEN. It does not run the checks or verify that a count came from a real run, so

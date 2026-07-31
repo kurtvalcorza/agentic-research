@@ -34,6 +34,7 @@ import copy
 import io
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -313,6 +314,66 @@ class TestChecksAgree(unittest.TestCase):
                     f"rob_appraisal exits {r}")
         self.assertEqual(divergences, [],
                          "the two checks disagree about an UNCITED appraisal:\n  "
+                         + "\n  ".join(divergences))
+
+    # Wording each check wraps around the shared violation text. Stripped before
+    # comparison so the messages can address their own reader — one says "study R1
+    # (result: …)", the other names the certainty result the appraisal undermines —
+    # while the CLAIM inside has to match.
+    PREFIXES = re.compile(
+        r"^(?:- )?(?:result [^:]+: study \S+ \(result: .*?\) appraisal is not valid — "
+        r"|appraisal record: study \S+ \(result: .*?\) is not a valid appraisal — "
+        r"|study \S+ \(result: .*?\): )")
+    SUFFIXES = re.compile(
+        r"(?:\. rob_appraisal\.py reports this as a method violation.*"
+        r"|\. It backs no certainty rating here.*)$")
+
+    def _claims(self, text: str) -> set:
+        out = set()
+        for line in text.splitlines():
+            if not line.startswith("- "):
+                continue
+            stripped = self.PREFIXES.sub("", line)
+            if stripped == line:
+                continue                    # not a per-appraisal violation
+            out.add(self.SUFFIXES.sub("", stripped).strip())
+        return out
+
+    def test_both_checks_name_the_same_violation(self):
+        """Exit codes are still too coarse: every method violation maps to 1.
+
+        Two checks can agree a file is bad and disagree about WHY — and then a
+        reviewer fixing what one names is still told by the other that something
+        else is wrong. That is what happened to the guard added upstream of this
+        one: neutering the "stop at the missing domain" rule made grade_profile
+        report an incoherent overall where rob_appraisal reported an absent domain,
+        and every exit code stayed 1, so nothing noticed.
+        """
+        divergences = []
+        for design, instrument, label, override in mutations():
+            rob = build(design, override)
+            gp_out = io.StringIO()
+            argv = ["gp.py", str(self._write(self._profile_for(design), "p.json")),
+                    "--rob", str(self._write(rob, "r.json")), "--strict"]
+            with mock.patch.object(sys, "argv", argv), redirect_stdout(gp_out), \
+                    redirect_stderr(io.StringIO()):
+                gp.main()
+            ra_out = io.StringIO()
+            with mock.patch.object(sys, "argv",
+                                   ["ra.py", str(self._write(rob, "r2.json")), "--strict"]), \
+                    redirect_stdout(ra_out), redirect_stderr(io.StringIO()):
+                ra.main()
+            g, r = self._claims(gp_out.getvalue()), self._claims(ra_out.getvalue())
+            # rob_appraisal also reports missing confirmations, which grade_profile
+            # reports in its own per-result wording; compare only what both emit.
+            r = {c for c in r if "human confirmation" not in c}
+            g = {c for c in g if "human confirmation" not in c}
+            if g != r:
+                divergences.append(
+                    f"{design}/{instrument} — {label}:\n      grade_profile: {sorted(g)}"
+                    f"\n      rob_appraisal: {sorted(r)}")
+        self.assertEqual(divergences, [],
+                         "the two checks name DIFFERENT violations in the same file:\n  "
                          + "\n  ".join(divergences))
 
     def test_the_matrix_actually_covers_something(self):
