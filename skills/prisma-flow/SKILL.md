@@ -54,8 +54,11 @@ python scripts/prisma_checklist.py checklist.json --strict
 
 PRISMA 2020 is customarily cited as "27 items", but several expand into lettered sub-items
 (10a–b, 13a–f, 16a–b, 20a–d, 23a–d, 24a–c). **Completeness is evaluated over the 42 rows.**
-A record addressing all 27 top-level numbers while omitting the sub-items is 27/42 complete, and
-the check reports the fifteen gaps rather than passing.
+Only **21** of the 27 customary numbers exist as rows; the other six (`10`, `13`, `16`, `20`,
+`23`, `24`) exist *only* as their lettered rows. So a record listing a bare `13` is not an
+incomplete record — it is malformed input (exit 2), because `13` is not an addressable row. A
+record addressing those 21 plus the FIRST letter of each expanding item is 27/42 complete, and the
+check reports the fifteen gaps rather than passing.
 
 Each row needs either a `location` in the manuscript or an explicit `not_applicable`
 justification — an empty value addresses nothing. Unaddressed rows are listed **above** the table

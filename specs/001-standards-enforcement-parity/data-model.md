@@ -68,7 +68,8 @@ Keys are exactly `risk_of_bias`, `inconsistency`, `indirectness`, `imprecision`,
 Permitted keys: `large_effect` accepts `0`, `1`, or `2`; `dose_response` and
 `opposing_confounding` accept `0` or `1`. Any other key or out-of-range value is malformed input,
 which is what makes both unsupported reasons and unsupported two-level upgrades unrepresentable
-(FR-006). A non-zero upgrade is legal only when the body is non-randomized **and** every domain
+(FR-006). A non-zero upgrade is legal only when the body is non-randomized, the declared
+`starting_level` is below `high`, **and** every domain
 rating is `0` (FR-005).
 
 ### Validation: certainty arithmetic

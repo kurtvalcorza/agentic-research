@@ -635,6 +635,7 @@ def parse_appraisal(raw: dict) -> dict:
         overall_justification = _opt_str(
             s.get("overall_justification"), f"{ctx}.overall_justification")
         violations: list[str] = []
+        override_load_bearing = False
         if instrument_mismatch:
             # Mirror rob_appraisal.py: a recognized instrument paired with the
             # wrong design is a readable method violation, not malformed JSON.
@@ -664,6 +665,14 @@ def parse_appraisal(raw: dict) -> dict:
                 # that disappears the moment the first is fixed.
                 violations += _validate_appraisal_overall(
                     instrument, domains, overall, overall_justification, ctx)
+                # Whether the override is LOAD-BEARING: would this appraisal have
+                # been a method violation without it? An override that suppresses a
+                # real violation has to reach the artifact even when no certainty
+                # rating rests on the appraisal, because it is doing the work that
+                # makes the supplied record legal.
+                if overall_justification:
+                    override_load_bearing = bool(_validate_appraisal_overall(
+                        instrument, domains, overall, "", ctx))
 
         # Strings only — str({}) would be "{}", truthy and non-empty, and would
         # silently satisfy the confirmation test.
@@ -686,8 +695,10 @@ def parse_appraisal(raw: dict) -> dict:
                     "result_assessed": result_assessed, "confirmed": bool(by and at),
                     # Kept for the artifact, not for the check: an overall_justification
                     # is what makes an otherwise-invalid appraisal legal, so a rating
-                    # resting on it must show it.
+                    # resting on it must show it — and so must the record, when the
+                    # override is what suppressed a violation.
                     "overall_justification": overall_justification,
+                    "override_load_bearing": override_load_bearing,
                     # Method violations of the appraisal itself, carried rather than
                     # raised so this check classifies them the way their owning check
                     # does: exit 1 with diagnostics, not exit 2 with none.
@@ -748,6 +759,7 @@ def check(rec: dict, appraisal: dict | None,
     for r in rec["results"]:
         rid = r["id"]
         before = len(errs)
+        gate_here = 0
 
         # Rule 1 — every domain present. A missing domain is reported by name; it is
         # NEVER read as a judgment of "no concern".
@@ -771,20 +783,33 @@ def check(rec: dict, appraisal: dict | None,
 
         upgrade_total = sum(r["upgrades"].values())
 
-        # Rule 6 — upgrading is for results that START below high. Two wrong
-        # predicates have stood here. `pred == "rct"` named the commonest body that
-        # starts high rather than the property. Replacing it with the DESIGN's
-        # implied start was no better: it ignores the record's declared level, which
-        # Rule 4 lets a justification move. An observational body justified up to
-        # high then took +2 and had it silently absorbed by the ceiling — the exact
-        # fail-open the previous fix claimed to close — while a dta body justified
-        # DOWN to low was rejected by a message asserting it "already starts at
-        # high", which its own record contradicts.
-        if upgrade_total and LEVELS[r["starting_level"]] >= LEVELS["high"]:
-            errs.append(f"result {rid}: upgrades applied to a result starting at "
-                        f"'{r['starting_level']}' — GRADE permits upgrading only where "
-                        f"certainty starts below high, so the adjustment could only be "
-                        f"absorbed by the ceiling")
+        # Rule 6 — TWO independent bars, and three previous versions of this check
+        # enforced one of them while dropping the other:
+        #
+        #   `pred == "rct"`            caught randomized bodies, missed dta.
+        #   `DESIGN_START[pred]`       caught the design, ignored the declared level,
+        #                              so a body justified UP to high took +2 and had
+        #                              it absorbed by the ceiling.
+        #   `LEVELS[starting_level]`   caught the declared level, ignored the design,
+        #                              so an RCT body justified DOWN to low could be
+        #                              upgraded straight back to high.
+        #
+        # That last one is the worst of the three, because Rule 4 tells the reviewer
+        # to add the justification: step one reports the starting level, step two
+        # accepts a randomized body raised to high ⊕⊕⊕⊕ on large-effect. GRADE
+        # reserves rating-up for NON-RANDOMIZED evidence, and nothing may be raised
+        # above high. Both bars, named separately so the message says which one bit.
+        if upgrade_total:
+            if DESIGN_START[pred] == "high":
+                errs.append(
+                    f"result {rid}: upgrades applied to a body of {pred} studies — "
+                    f"GRADE reserves rating up for non-randomized evidence, whatever "
+                    f"starting level the record declares")
+            elif LEVELS[r["starting_level"]] >= LEVELS["high"]:
+                errs.append(
+                    f"result {rid}: upgrades applied to a result already declaring a "
+                    f"starting level of '{r['starting_level']}' — nothing rates above "
+                    f"high, so the adjustment could only be absorbed by the ceiling")
 
         # Rule 5 — no upgrade over an unresolved downgrade. Decidable from the
         # domains that ARE present: a recorded -1 is unresolved whether or not some
@@ -828,11 +853,18 @@ def check(rec: dict, appraisal: dict | None,
                                 f"appraisal record was supplied (--rob) — the claim cannot be "
                                 f"taken on trust")
                 elif appraisal is not None:
-                    errs.extend(_check_traceability(r, appraisal))
+                    trace_errs, gate_errs = _check_traceability(r, appraisal)
+                    errs.extend(trace_errs)
+                    errs.extend(gate_errs)
+                    gate_here = len(gate_errs)
                     reported |= {(s, r["appraised_result"]) for s in r["study_ids"]
                                  if (s, r["appraised_result"]) in appraisal}
 
-        if len(errs) > before:
+        # Human-gate violations are reported but never booked as U_grade: a result
+        # whose ONLY outstanding item is a missing signature is finished as far as
+        # this check is concerned, and must reach BLOCKED_ON_HUMAN rather than
+        # keeping the auto-repair loop turning until it declares a plateau.
+        if len(errs) - before - gate_here > 0:
             failing.add(rid)
 
     if appraisal is not None:
@@ -903,17 +935,23 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
     An appraisal targets one result. Resolving on study id alone let a study
     appraised for mortality back a certainty rating about quality of life, which is
     the wrong risk-of-bias evidence for that claim.
+
+    Returns (violations, HUMAN-GATE violations). The second list is reported like
+    any other, but must not be counted into U_grade: a missing signature is not
+    auto-reducible work, and booking it as such made the loop route the agent back
+    to this check to repair something only a person can clear. The contract says it
+    three times — an unconfirmed appraisal belongs exclusively to H_rob.
     """
-    errs = []
+    errs, gate = [], []
     rid = r["id"]
     target = r["appraised_result"]
 
     if not target.strip():
         supplied = " (it is present but blank)" if target else ""
-        return [f"result {rid}: 'appraised_result' is required when the risk-of-bias "
+        return ([f"result {rid}: 'appraised_result' is required when the risk-of-bias "
                 f"basis is 'confirmed_rob'{supplied} — it names which appraised result "
                 f"backs this certainty rating, since an appraisal targets one result, "
-                f"not a whole study"]
+                f"not a whole study"], [])
 
     known_targets = sorted({k[1] for k in appraisal})
     if target not in known_targets:
@@ -923,9 +961,9 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
         near = {t.strip().lower(): t for t in known_targets}.get(target.strip().lower())
         hint = (f"; nearest is {near!r} — targets are matched exactly, including "
                 f"surrounding whitespace" if near else "")
-        return [f"result {rid}: appraised_result {target!r} does not appear in the "
-                f"appraisal record (it appraises: "
-                f"{', '.join(repr(t) for t in known_targets)}){hint}"]
+        return ([f"result {rid}: appraised_result {target!r} does not appear in the "
+                 f"appraisal record (it appraises: "
+                 f"{', '.join(repr(t) for t in known_targets)}){hint}"], [])
 
     resolved, unresolved, wrong_target = [], [], []
     for sid in r["study_ids"]:
@@ -962,8 +1000,10 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
 
     unconfirmed = [s for s in resolved if not appraisal[(s, target)]["confirmed"]]
     if unconfirmed:
-        errs.append(f"result {rid}: study reference(s) {', '.join(unconfirmed)} have no "
-                    f"human confirmation, so they cannot back a 'confirmed_rob' basis")
+        gate.append(f"result {rid}: study reference(s) {', '.join(unconfirmed)} have no "
+                    f"human confirmation, so they cannot back a 'confirmed_rob' basis "
+                    f"— this is a HUMAN GATE (H_rob), not auto-reducible work, so it "
+                    f"is excluded from U_grade")
 
     # Design distribution, reconciled against the appraisals actually resolved.
     if r["design_mix"].get("case_series"):
@@ -1009,7 +1049,7 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                 f"result {rid}: risk_of_bias downgraded -2 (very serious) while all "
                 f"{len(confirmed)} confirmed studies are low risk — record a "
                 f"coherence_justification if this is intended")
-    return errs
+    return errs, gate
 
 
 # --- generation --------------------------------------------------------------
@@ -1043,10 +1083,15 @@ def evidence_profile(rec: dict, appraisal: dict | None = None) -> str:
         # printed the generic warning while the shortcut it discloses — what the
         # reviewer actually skipped — appeared nowhere on the page.
         #
-        # Only for a rapid review. Nothing licenses a heuristic basis in a
-        # systematic or umbrella one, so rendering the disclosure there presents an
-        # exception as though it permitted a shortcut the record still fails on.
-        if rec["review_type"] == "rapid" and rec["streamlined_method_disclosed"]:
+        # Suppressed only where the heuristic basis is ILLEGAL — systematic and
+        # umbrella — because there the disclosure licenses nothing and printing it
+        # implies an allowance the record still fails on. Gating on `rapid` instead
+        # was too narrow: scoping and narrative reviews may use a heuristic basis
+        # legally, so their disclosure was dropped from a PASSING artifact and two
+        # records differing in a recorded methodological shortcut rendered
+        # byte-identically.
+        if (rec["review_type"] not in CONFIRMED_ROB_REQUIRED
+                and rec["streamlined_method_disclosed"]):
             lines += [f"> **Streamlined method disclosed:** "
                       f"{_markdown_text(rec['streamlined_method_disclosed'])}", ""]
     # The ID is a column, not a decoration: only `id` is required to be unique, so
@@ -1075,12 +1120,46 @@ def evidence_profile(rec: dict, appraisal: dict | None = None) -> str:
             f" | {'+' + str(upgrade_total) if upgrade_total else '0'}"
             f" | {r['final'].replace('_', ' ')} {SYMBOLS[final_idx]}{bound} |")
     lines.append("")
+    shown: set = set()
     for r in rec["results"]:
         notes = _result_notes(r, appraisal)
         if notes:
             lines.append(f"- **{_markdown_text(r['label'])}** ({_markdown_text(r['id'])})")
             lines.extend(notes)
+        # Only what the notes ACTUALLY rendered, which is the same condition
+        # _result_notes uses. Marking every cited study as shown regardless meant a
+        # heuristic result naming an appraised_result suppressed the record-level
+        # block without ever printing the override itself.
+        if (appraisal is not None and r["appraised_result"]
+                and r["domains"].get("risk_of_bias", {}).get("basis") == "confirmed_rob"):
+            shown |= {(s, r["appraised_result"]) for s in r["study_ids"]}
+    lines += _unattached_overrides(appraisal, shown)
     return "\n".join(lines)
+
+
+def _unattached_overrides(appraisal: dict | None, shown: set) -> list[str]:
+    """Load-bearing overrides in the --rob record that no result's notes carried.
+
+    An `overall_justification` that suppresses a real method violation is what
+    makes the supplied record legal. Rendering it only where a rating RESTS on it
+    was too narrow: with a heuristic basis, or an appraisal nothing cites, the run
+    exits 0 while the human sign-off that suppressed the violation appears on no
+    page the reviewer reads. Deleting that same justification exits 1 — so the
+    artifact was hiding precisely the thing holding it clean.
+    """
+    if appraisal is None:
+        return []
+    rows = [(key, item) for key, item in sorted(appraisal.items())
+            if item["override_load_bearing"] and key not in shown]
+    if not rows:
+        return []
+    lines = ["", "**Appraisal overrides in the supplied record.** Each of these "
+                 "suppressed a method violation that `rob_appraisal.py` would "
+                 "otherwise report; no certainty rating here rests on them."]
+    for (sid, target), item in rows:
+        lines.append(f"- *{_markdown_text(sid)}* (result: {_markdown_text(target)}): "
+                     f"{_markdown_text(item['overall_justification'])}")
+    return lines
 
 
 def _all_domains_present(r: dict) -> bool:

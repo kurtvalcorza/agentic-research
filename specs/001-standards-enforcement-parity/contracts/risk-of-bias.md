@@ -111,10 +111,13 @@ still apply.
 
 ## Generated artifacts
 
-1. **Per-appraisal table** — id, design, instrument, result assessed, each domain judgment,
-   overall, overall justification, confirmation status. One row per appraisal, so a study
-   contributing to two results appears twice. The header states both figures — *N appraisals
-   of M studies* — because they differ, and the study count is the manuscript-facing one.
+1. **Per-appraisal table** — id, design, instrument, result assessed, overall, overall
+   justification, confirmation status. The per-domain judgments are **not** in this table; they
+   are the traffic-light grid below, which exists to carry them. The two artifacts are
+   complementary, and a reader sent here looking for domain columns will not find them.
+   One row per appraisal, so a study contributing to two results appears twice. The header states
+   both figures — *N appraisals of M studies* — because they differ, and the study count is the
+   manuscript-facing one.
 2. **Traffic-light summary** — (study, result) × domain grid. Every row names the result it
    assesses, so a study appraised for two outcomes does not render as two identically-labelled
    rows carrying different judgments. Encoded with **both** a symbol and a text label rather than

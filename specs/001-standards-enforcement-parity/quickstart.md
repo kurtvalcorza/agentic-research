@@ -132,7 +132,8 @@ python skills/prisma-flow/scripts/prisma_checklist.py tests/fixtures/checklist.p
 ```
 
 **Expected**: exit 1, with unaddressed rows listed by number **above** the table and counted.
-Critically, a record addressing all 27 top-level numbers but omitting sub-items such as `13d` or
+Critically, a record addressing the 21 bare-numbered rows plus one letter of each expanding item,
+but omitting the remaining sub-items such as `13d` or
 `20b` must still fail — completeness is over the 42 addressable rows. Confirms SC-004.
 
 ---
@@ -165,7 +166,7 @@ it. Confirms FR-026 and constitution Principle V.
 ## Scenario 10 — No unbacked claims remain
 
 Read the README's standards table. Every row must name an enforcing check or carry an explicit
-non-enforcement note, and the runnable-checks table must list all nine scripts including
+non-enforcement note, and the runnable-checks table must list every runnable check including
 `review_units.py`. Confirms SC-001 and FR-036.
 
 This one is a human read rather than a command, and it is the scenario most likely to be skipped —

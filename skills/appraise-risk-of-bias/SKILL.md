@@ -48,7 +48,7 @@ Like screening and extraction, RoB is ideally done by **two independent assessor
 Present the worksheet. The human confirms or overrides each domain + the overall. **Nothing proceeds to GRADE until this is done.** Record overrides (provenance).
 
 ### Step 6 — Emit the appraisal + hand to GRADE
-Write `appraisal/risk-of-bias.md`: a per-study table (study → instrument → domain ratings → overall → overall justification → confirmed-by) + a traffic-light summary. Hand the confirmed overall ratings to `validate-evidence` as the "risk of bias" input to GRADE.
+Write `appraisal/risk-of-bias.md`: a per-study table (study → design → instrument → result assessed → overall → overall justification → confirmed-by; the per-domain ratings live in the traffic-light grid, not here) + a traffic-light summary. Hand the confirmed overall ratings to `validate-evidence` as the "risk of bias" input to GRADE.
 
 ## Output — the record is the source, the tables are generated
 

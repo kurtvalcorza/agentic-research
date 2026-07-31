@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import io
 import json
+import pathlib
+import re
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from unittest import mock
 
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _load import load  # noqa: E402
 
 pf = load("skills/prisma-flow/scripts/prisma_flow.py")
@@ -21,6 +24,7 @@ pf = load("skills/prisma-flow/scripts/prisma_flow.py")
 def counts_template1(**overrides):
     """A reconciling databases-and-registers-only flow (PRISMA 2020 Template 1)."""
     c = {
+        "schema_version": "1.0",
         "identified_databases": {"OpenAlex": 412, "CrossRef": 88},
         "identified_registers": {"PROSPERO": 0},
         "duplicates_removed": 96,
@@ -230,3 +234,69 @@ class TestMain(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSharedCliContractConformance(unittest.TestCase):
+    """contracts/cli-contract.md binds ALL FOUR checks — "a check that deviates is
+    non-conforming regardless of whether its own rules are correct".
+
+    This one, the oldest, enforced neither the schema version nor a closed key set
+    while the three added by this feature enforced both. A misspelled count key
+    dropped silently out of the record, the remaining arithmetic reconciled, and
+    the diagram printed an authoritative ✅ over a number nobody had checked.
+    """
+
+    def run_record(self, rec, *args):
+        out, err = io.StringIO(), io.StringIO()
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        p = pathlib.Path(d.name) / "counts.json"
+        p.write_text(json.dumps(rec), encoding="utf-8")
+        with mock.patch.object(sys, "argv", ["prisma_flow.py", str(p), *args]), \
+                redirect_stdout(out), redirect_stderr(err):
+            code = pf.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_missing_schema_version_is_malformed(self):
+        rec = counts_template1()
+        del rec["schema_version"]
+        code, out, err = self.run_record(rec, "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("schema_version", err)
+        self.assertNotIn("✅", out)
+
+    def test_an_unrecognised_schema_version_is_malformed(self):
+        code, _, err = self.run_record(counts_template1(schema_version="9.9"), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("schema_version", err)
+
+    def test_an_unhashable_schema_version_does_not_raise(self):
+        """isinstance before set membership: `[] in {"1.0"}` is a TypeError, which
+        would surface as a traceback and exit 1 rather than the documented 2."""
+        code, _, err = self.run_record(counts_template1(schema_version=[]), "--strict")
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", err)
+
+    def test_a_misspelled_count_key_is_rejected_not_ignored(self):
+        """The fail-open this closes: read past, the count drops out of the record
+        and the arithmetic still reconciles over what is left."""
+        code, out, err = self.run_record(
+            counts_template1(recrods_screenedd=999), "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("recrods_screenedd", err)
+        self.assertNotIn("✅", out)
+        self.assertNotIn("```mermaid", out)      # no artifact on malformed input
+
+    def test_a_conforming_record_still_passes(self):
+        code, out, err = self.run_record(counts_template1(), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("✅", out)
+
+    def test_every_key_the_script_reads_is_in_the_closed_schema(self):
+        """A key the script consumes but the schema omits would be rejected as
+        unknown — the check refusing its own documented input."""
+        source = pathlib.Path(
+            pf.__file__ if hasattr(pf, "__file__") else "").read_text(encoding="utf-8")
+        consumed = set(re.findall(r'c\.get\("([a-z_]+)"', source))
+        self.assertTrue(consumed)
+        self.assertEqual(consumed - pf.RECORD_KEYS, set())

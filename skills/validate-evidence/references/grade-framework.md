@@ -111,7 +111,7 @@ ever disagree again, DETAILS.md governs and this file is the defect.*
 
 ---
 
-## Upgrade Factors (Observational Only)
+## Upgrade Factors (Observational Only, and Only Below the Ceiling)
 
 ### 1. Large Effect (+1 or +2)
 - RR >2 or <0.5 (no bias) → +1

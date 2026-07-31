@@ -110,6 +110,19 @@ class _Base(unittest.TestCase):
             gp, "grade_profile.py", self.write(rec, "rec.json"),
             "--rob", self.write(self.rob_for(design), "rob.json"), *args)
 
+    def body(self, design, start, **over):
+        """A result of one design at a declared starting level, carrying a +2."""
+        rec = self.profile(
+            design_mix={d: (4 if d == design else 0) for d in gp.DESIGNS},
+            starting_level=start,
+            upgrades={"large_effect": 2, "dose_response": 0, "opposing_confounding": 0},
+            **over)
+        for name in gp.DOMAINS:
+            rec["results"][0]["domains"][name]["rating"] = 0
+        rec["results"][0]["final"] = gp.LEVEL_NAMES[
+            max(1, min(4, gp.LEVELS[start] + 2))]
+        return rec
+
 
 class TestAppraisedResultIsMatchedVerbatim(_Base):
     """The value is a lookup key, and normalising one side of an exact comparison
@@ -530,55 +543,106 @@ class TestOneMissingDomainConcealsNothing(_Base):
         self.assertIn("upgrades applied while downgrade(s) remain", out)
 
     def test_the_arithmetic_alone_waits_for_a_full_domain_set(self):
-        """The one rule that genuinely cannot be decided: reporting a sum over an
-        incomplete set would name a number the record never claimed."""
-        code, out, _ = self.run_gp(self.broken_result(), "--strict")
+        """The one rule that genuinely cannot be decided over a partial domain set.
+
+        The fixture must be one whose PARTIAL sum does not reconcile, or the test
+        cannot see the guard at all: the first version used a record that added up
+        either way, so removing `if not missing` left it — and the whole suite —
+        green while the check reported a sum the record never claimed.
+        """
+        rec = self.profile(starting_level="low", final="very_low")
+        for name in gp.DOMAINS:
+            rec["results"][0]["domains"][name]["rating"] = 0
+        # The absent domain is the one carrying the downgrade, so low(2) -1 =
+        # very_low(1) reconciles over the full set and low(2) +0 does not.
+        rec["results"][0]["domains"]["publication_bias"]["rating"] = -1
+        del rec["results"][0]["domains"]["publication_bias"]
+        code, out, err = self.run_gp(rec, "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("missing downgrade domain(s) publication_bias", out)
         self.assertNotIn("difference of", out)
 
 
-class TestUpgradeLegalityUsesTheDeclaredStart(_Base):
-    """The rule is about where certainty STARTS, which Rule 4 lets a justification
-    move — so it must read the record's declared level, not the design's implied one.
+class TestUpgradeLegalityHasTwoBars(_Base):
+    """Rating up is barred by the DESIGN and, separately, by the DECLARED level.
+
+    Three versions of this rule each enforced one bar and dropped the other, and
+    the third — testing the declared level alone — was the worst, because Rule 4
+    tells the reviewer to add the very justification that unlocks it:
+
+        step 1, no justification:  exit 1, "starting_level 'low' does not match
+                                   the predominant design 'rct' … record a
+                                   starting_level_justification"
+        step 2, justification added, nothing else changed:  exit 0, high ⊕⊕⊕⊕
+
+    A randomized body rated down for study limitations and then raised back to
+    high on large-effect is the most consequential fail-open this check exists to
+    prevent. Both bars are asserted here, in both directions.
     """
 
-    def body(self, design, start, **over):
-        rec = self.profile(
-            design_mix={d: (4 if d == design else 0) for d in gp.DESIGNS},
-            starting_level=start,
-            upgrades={"large_effect": 2, "dose_response": 0, "opposing_confounding": 0},
-            **over)
-        for name in gp.DOMAINS:
-            rec["results"][0]["domains"][name]["rating"] = 0
-        rec["results"][0]["final"] = gp.LEVEL_NAMES[
-            max(1, min(4, gp.LEVELS[start] + 2))]
-        return rec
+    def test_a_randomized_body_may_not_upgrade_however_it_is_declared(self):
+        for start in ("very_low", "low", "moderate", "high"):
+            with self.subTest(starting_level=start):
+                rec = self.body("rct", start, appraised_result=TARGET,
+                                starting_level_justification="Downgraded for attrition.")
+                code, out, err = self.run_gp_matching(rec, "rct", "--strict")
+                self.assertEqual(code, 1, msg=out + err)
+                self.assertIn("reserves rating up for non-randomized evidence", out)
+
+    def test_a_diagnostic_accuracy_body_may_not_upgrade_however_it_is_declared(self):
+        for start in ("low", "high"):
+            with self.subTest(starting_level=start):
+                rec = self.body("dta", start, appraised_result=TARGET,
+                                starting_level_justification="Index test applied "
+                                                             "outside its population.")
+                code, out, err = self.run_gp_matching(rec, "dta", "--strict")
+                self.assertEqual(code, 1, msg=out + err)
+                self.assertIn("reserves rating up for non-randomized evidence", out)
+
+    def test_the_design_bar_is_not_reachable_by_adding_a_justification(self):
+        """The staged trap, walked end to end."""
+        rec = self.body("rct", "low", appraised_result=TARGET)
+        code, out, _ = self.run_gp_matching(rec, "rct", "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("does not match the predominant design", out)
+
+        rec["results"][0]["starting_level_justification"] = "Downgraded for attrition."
+        code, out, _ = self.run_gp_matching(rec, "rct", "--strict")
+        self.assertEqual(code, 1, msg=out)      # NOT unlocked by the justification
+        self.assertIn("reserves rating up for non-randomized evidence", out)
+
+
+class TestUpgradeLegalityUsesTheDeclaredStart(_Base):
+    """The second bar: nothing rates above high, whatever the design implies."""
 
     def test_an_observational_body_justified_up_to_high_may_not_upgrade(self):
-        """The fail-open the previous fix left open: keying on the DESIGN's implied
-        start, a body justified up to high took +2 and had it absorbed by the
-        ceiling — recorded, illegal, and invisible."""
+        """Keying on the DESIGN's implied start alone, a body justified up to high
+        took +2 and had it absorbed by the ceiling — recorded, illegal, invisible."""
         rec = self.body("observational", "high",
                         appraised_result=TARGET,
                         starting_level_justification="Population-based, complete follow-up.")
         code, out, err = self.run_gp_matching(rec, "observational", "--strict")
         self.assertEqual(code, 1, msg=err)
-        self.assertIn("upgrades applied to a result starting at 'high'", out)
+        self.assertIn("already declaring a starting level of 'high'", out)
 
-    def test_a_dta_body_justified_down_to_low_may_upgrade(self):
-        """And the mirror image: rejected by a message asserting it 'already starts
-        at high', which its own record contradicts."""
-        rec = self.body("dta", "low",
-                        appraised_result=TARGET,
-                        starting_level_justification="Index test applied outside its "
-                                                     "validated population.")
-        code, out, err = self.run_gp_matching(rec, "dta", "--strict")
+    def test_an_observational_body_starting_low_may_still_upgrade(self):
+        """The legitimate case both bars must leave alone — otherwise the rule stops
+        modelling GRADE and starts forbidding rating up altogether."""
+        rec = self.body("observational", "low", appraised_result=TARGET)
+        code, out, err = self.run_gp_matching(rec, "observational", "--strict")
         self.assertEqual(code, 0, msg=out + err)
 
-    def test_the_message_names_the_declared_level(self):
-        rec = self.body("rct", "high")
-        _, out, _ = self.run_gp(rec)
-        self.assertIn("starting at 'high'", out)
-        self.assertNotIn("already starts at high", out)
+    def test_the_message_names_which_bar_bit(self):
+        """A reviewer told "upgrades are not permitted" cannot tell whether to
+        change the design mix, the starting level, or the upgrade itself."""
+        _, design_bar, _ = self.run_gp_matching(
+            self.body("rct", "high", appraised_result=TARGET), "rct")
+        self.assertIn("body of rct studies", design_bar)
+        _, level_bar, _ = self.run_gp_matching(
+            self.body("observational", "high", appraised_result=TARGET,
+                      starting_level_justification="Population-based."),
+            "observational")
+        self.assertIn("already declaring a starting level of 'high'", level_bar)
 
 
 class TestTheUnitCountIsEmittedNotCounted(_Base):
@@ -715,6 +779,76 @@ class TestExceptionsAreNotShownWhereTheyDoNotApply(_Base):
         self.assertEqual(code, 0, msg=out + err)
         self.assertNotIn("OVERRIDE TEXT", out)
 
+    def test_a_load_bearing_override_is_shown_even_under_a_heuristic_basis(self):
+        """The inverse failure, created by the fix above.
+
+        An `overall_justification` that suppresses a real method violation is what
+        makes the SUPPLIED RECORD legal. Gating its rendering on a rating resting on
+        it meant the run exited 0 while the human sign-off holding it clean appeared
+        on no page — and deleting that same justification exited 1. The artifact was
+        hiding precisely the thing keeping it green.
+        """
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        rob["studies"][0]["domains"]["measurement"] = "high"      # now incoherent…
+        rob["studies"][0]["overall"] = "low"
+        rob["studies"][0]["overall_justification"] = "LOAD BEARING OVERRIDE"  # …suppressed
+        rec = self.profile(appraised_result=TARGET)
+        rec["review_type"] = "rapid"
+        rec["streamlined_method_disclosed"] = "Single-reviewer screening."
+        rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("LOAD BEARING OVERRIDE", out)
+        self.assertIn("suppressed a method violation", out)
+
+    def test_deleting_that_override_reports_the_violation_it_suppressed(self):
+        """The other half of the pair: what the override is holding back."""
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        rob["studies"][0]["domains"]["measurement"] = "high"
+        rob["studies"][0]["overall"] = "low"
+        rec = self.profile(appraised_result=TARGET)
+        rec["review_type"] = "rapid"
+        rec["streamlined_method_disclosed"] = "Single-reviewer screening."
+        rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("more favourable than its worst domain", out)
+
+    def test_an_inert_override_is_not_advertised(self):
+        """An override on an already-valid appraisal suppresses nothing, so listing
+        it would credit the record with an exception it never needed."""
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        for s in rob["studies"]:
+            s["overall_justification"] = "INERT OVERRIDE"
+        rec = self.profile(appraised_result=TARGET)
+        rec["review_type"] = "rapid"
+        rec["streamlined_method_disclosed"] = "Single-reviewer screening."
+        rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertNotIn("INERT OVERRIDE", out)
+
+    def test_a_disclosure_survives_where_the_heuristic_basis_is_legal(self):
+        """Scoping and narrative reviews may use a heuristic basis, so gating the
+        disclosure on `rapid` dropped it from a PASSING artifact — two records
+        differing in a recorded shortcut rendered byte-identically."""
+        for rtype in ("scoping", "narrative", "rapid"):
+            with self.subTest(review_type=rtype):
+                rec = self.profile()
+                rec["review_type"] = rtype
+                rec["streamlined_method_disclosed"] = "DISCLOSED SHORTCUT"
+                rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
+                code, out, err = self.run_module(
+                    gp, "grade_profile.py", self.write(rec, "rec.json"), "--strict")
+                self.assertEqual(code, 0, msg=out + err)
+                self.assertIn("DISCLOSED SHORTCUT", out)
+
     def test_appraisal_overrides_are_shown_under_a_confirmed_basis(self):
         rec = self.profile(appraised_result="diagnostic accuracy at 12 months")
         rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
@@ -725,6 +859,80 @@ class TestExceptionsAreNotShownWhereTheyDoNotApply(_Base):
             "--rob", self.write(rob, "rob.json"), "--strict")
         self.assertEqual(code, 0, msg=out + err)
         self.assertIn("OVERRIDE TEXT", out)
+
+
+class TestAHumanGateIsNotAutoReducibleWork(_Base):
+    """The loop's core promise: clear everything mechanical, then HAND OFF.
+
+    Three documents say a matching but unconfirmed appraisal belongs exclusively to
+    `H_rob`. `U_rob_trace` implemented that; `U_grade` did not — so a review whose
+    only outstanding item was a signature booked a unit of auto-reducible work,
+    never reached `auto_units_zero`, and reported PLATEAU instead of
+    BLOCKED_ON_HUMAN while the routing table sent the agent back to this check to
+    repair something only a person can clear.
+    """
+
+    def test_an_unconfirmed_appraisal_is_reported_but_not_counted(self):
+        """Still a violation — the rating is not yet backed — but not a UNIT.
+
+        The exit code and the unit count answer different questions. Exit 1 says
+        this record is not finished; `U_grade` says how much of what remains the
+        loop can repair on its own. A missing signature is none of it.
+        """
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", fixture("grade-profile.valid.json"),
+            "--rob", fixture("risk-of-bias.unconfirmed.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)                   # not finished
+        self.assertIn("have no human confirmation", out)     # still reported
+        self.assertIn("HUMAN GATE (H_rob)", out)             # and named as a gate
+        self.assertIn("**U_grade: 0**", out)                 # not booked as work
+
+    def test_a_real_defect_alongside_it_is_still_counted(self):
+        """The exclusion must not swallow the result whenever a gate is pending."""
+        rec = self.profile(appraised_result=TARGET, final="high")   # arithmetic wrong
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", fixture("risk-of-bias.unconfirmed.json"), "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("have no human confirmation", out)
+        self.assertIn("**U_grade: 1**", out)
+
+    def test_the_loop_then_reaches_the_handoff_state(self):
+        """End to end: the count this check emits, fed to the backend that routes on it."""
+        units = {"schema_version": "1.0", "review_type": "systematic", "cycle": 4,
+                 "units": {"U_cite_external": 0, "U_cite_internal": 0, "U_screen": 0,
+                           "U_extract": 0, "U_prisma": 0, "U_grade": 0,
+                           "U_rob_trace": 0, "U_checklist": 0},
+                 "units_in_scope": ["U_screen", "U_prisma", "U_grade", "U_rob_trace",
+                                    "U_checklist", "U_extract"],
+                 "consistency": {"score": 90, "critical_breaks": 0},
+                 "gates": {"H_rob": 1, "H_screen_adj": 0, "H_cite_manual": 0,
+                           "H_numeric": 0},
+                 "history": [1, 1, 1]}
+        code, out, err = self.run_module(ru, "review_units.py",
+                                         self.write(units, "units.json"))
+        self.assertEqual(code, 1, msg=err)
+        verdict = json.loads(out)
+        self.assertEqual(verdict["state"], "BLOCKED_ON_HUMAN")
+        self.assertTrue(verdict["auto_units_zero"])
+        self.assertEqual(verdict["gates_remaining"], 1)
+
+    def test_and_would_have_plateaued_on_the_old_count(self):
+        """The same record with U_grade booked at 1, which is what the check used to
+        emit — the state the loop actually reached."""
+        units = {"schema_version": "1.0", "review_type": "systematic", "cycle": 4,
+                 "units": {"U_cite_external": 0, "U_cite_internal": 0, "U_screen": 0,
+                           "U_extract": 0, "U_prisma": 0, "U_grade": 1,
+                           "U_rob_trace": 0, "U_checklist": 0},
+                 "units_in_scope": ["U_screen", "U_prisma", "U_grade", "U_rob_trace",
+                                    "U_checklist", "U_extract"],
+                 "consistency": {"score": 90, "critical_breaks": 0},
+                 "gates": {"H_rob": 1, "H_screen_adj": 0, "H_cite_manual": 0,
+                           "H_numeric": 0},
+                 "history": [1, 1, 1]}
+        _, out, _ = self.run_module(ru, "review_units.py",
+                                    self.write(units, "units.json"))
+        self.assertEqual(json.loads(out)["state"], "PLATEAU")
 
 
 class TestDiagnosticsCannotBeForged(_Base):
@@ -761,7 +969,7 @@ class TestDiagnosticsCannotBeForged(_Base):
         """The flow diagram is the headline figure of a systematic review, and its
         labels are caller-supplied dictionary KEYS — validated nowhere, while every
         count beside them was validated rigorously."""
-        counts = {"identified_databases_registers": 30, "duplicates_removed": 0,
+        counts = {"schema_version": "1.0", "duplicates_removed": 0,
                   "records_screened": 30, "records_excluded_title_abstract": 10,
                   "reports_sought": 20, "reports_not_retrieved": 0,
                   "reports_assessed": 20,
@@ -772,7 +980,8 @@ class TestDiagnosticsCannotBeForged(_Base):
         self.assertIn("&quot;", out)
 
     def test_a_database_name_cannot_gain_a_node(self):
-        counts = {"identified_databases": {'OpenAlex"] --> EVIL[injected': 30},
+        counts = {"schema_version": "1.0",
+                  "identified_databases": {'OpenAlex"] --> EVIL[injected': 30},
                   "duplicates_removed": 0, "records_screened": 30,
                   "records_excluded_title_abstract": 10, "reports_sought": 20,
                   "reports_not_retrieved": 0, "reports_assessed": 20,

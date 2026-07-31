@@ -33,6 +33,7 @@ TWO-ARM MODEL (PRISMA 2020)
 INPUT — a JSON counts object (file arg or stdin). Other-methods fields are
 optional; omit them (or leave them zero) for a Template-1 databases-only flow:
 {
+  "schema_version": "1.0",
   "identified_databases": {"OpenAlex": 412, "CrossRef": 88},
   "identified_registers": {"PROSPERO": 0},
   "identified_other": {"citation searching": 23, "websites": 0, "organisations": 0},
@@ -66,8 +67,49 @@ from __future__ import annotations
 import argparse, json, math, sys
 
 
+SCHEMA_VERSIONS = {"1.0"}
+
+# The closed record schema. contracts/cli-contract.md binds ALL FOUR checks —
+# "a check that deviates is non-conforming regardless of whether its own rules are
+# correct" — and this one, the oldest, enforced neither the version nor the key
+# set. A misspelled count key therefore dropped silently out of the record while
+# the remaining arithmetic reconciled and the diagram printed an authoritative ✅,
+# which is the precise fail-open the unknown-key rule exists to prevent.
+RECORD_KEYS = {
+    "schema_version",
+    "identified_databases", "identified_registers", "identified_other",
+    "duplicates_removed", "removed_other_reasons",
+    "records_screened", "records_excluded_title_abstract",
+    "reports_sought", "reports_not_retrieved", "reports_assessed",
+    "reports_excluded", "studies_included_databases",
+    "other_reports_sought", "other_reports_not_retrieved", "other_reports_assessed",
+    "other_reports_excluded", "studies_included_other", "studies_included_total",
+}
+
+
 class CountError(ValueError):
     """A count value is not a non-negative integer."""
+
+
+def validate_record(c) -> None:
+    """Apply the shared closed-schema rules before any count is read.
+
+    Raises CountError, which main() already reports as exit 2 with no artifact.
+    """
+    if not isinstance(c, dict):
+        raise CountError("record: expected an object of counts")
+    version = c.get("schema_version")
+    # isinstance first: an unhashable value raises TypeError on set membership,
+    # which would surface as a traceback and exit 1 instead of the documented 2.
+    if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
+        raise CountError(f"record: unrecognised or missing schema_version {version!r} "
+                         f"(recognised: {', '.join(sorted(SCHEMA_VERSIONS))})")
+    unknown = sorted(set(c) - RECORD_KEYS)
+    if unknown:
+        raise CountError(
+            f"record: unrecognised key(s) {', '.join(repr(k) for k in unknown)}. "
+            f"A misspelled count is not an absent one: read past, it drops out of "
+            f"the record while the remaining arithmetic still reconciles")
 
 
 def _int(v, name: str) -> int:
@@ -282,6 +324,12 @@ def main() -> int:
         return 2
     if not isinstance(c, dict):
         sys.stderr.write("prisma_flow: input must be a JSON object of counts\n")
+        return 2
+
+    try:
+        validate_record(c)
+    except CountError as e:
+        sys.stderr.write(f"prisma_flow: {e}\n")
         return 2
 
     try:

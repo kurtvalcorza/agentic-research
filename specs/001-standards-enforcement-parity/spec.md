@@ -162,8 +162,9 @@ listed explicitly. Delivers value alone as a submission artifact.
    runs, **Then** those items are listed and the check fails in enforcing mode.
 3. **Given** an item marked not-applicable with a stated justification, **When** the check runs,
    **Then** it is accepted and the justification appears in the output.
-4. **Given** a scoping review, **When** the check runs, **Then** the reporting-item set
-   appropriate to scoping reviews is applied rather than the systematic-review set.
+4. **Given** a scoping review, **When** the check runs, **Then** the check REFUSES with exit 2
+   and names PRISMA-ScR as untranscribed, rather than approximating it or falling back to the
+   systematic-review set. See the note under FR-022.
 
 ---
 
@@ -271,7 +272,10 @@ confirming it passes, and by confirming the suite runs automatically when change
   predominant study design in the body of evidence, permitting deviation only when an explicit
   justification is recorded.
 - **FR-005**: The system MUST permit certainty to be raised only when the body of evidence is
-  non-randomized and no downgrade has been applied.
+  non-randomized, the result's declared starting level is below the maximum, and no downgrade has
+  been applied. The declared level is a separate bar because a recorded justification may move it
+  (FR-004): a body already declared at the maximum can absorb an upgrade into the ceiling, and a
+  randomized body declared *below* the maximum must not be raised back up on that account.
 - **FR-006**: The system MUST restrict reasons for raising certainty to the three the framework
   defines, so that any other reason is unrepresentable.
 - **FR-007**: The system MUST reject any attempt to express a single aggregate certainty across
@@ -334,6 +338,14 @@ confirming it passes, and by confirming the suite runs automatically when change
   artifact.
 - **FR-022**: The system MUST apply the reporting-item set appropriate to the review type,
   including the variant used for scoping reviews.
+
+  > **Deliberately unenforced for scoping reviews, and the check says so.** The PRISMA-ScR item
+  > table has not been transcribed, and the three options were: ship an approximation of it,
+  > silently fall back to the systematic-review table, or refuse. The first two would produce a
+  > completed-looking checklist for items nobody had checked, so the check REFUSES — exit 2, no
+  > artifact, naming what is missing. Recorded here because a requirement that reads as built when
+  > it is not is exactly the overclaim this specification exists to prevent. See
+  > `contracts/prisma-checklist.md` and the README's ⚠️ row.
 
 **Verification loop**
 

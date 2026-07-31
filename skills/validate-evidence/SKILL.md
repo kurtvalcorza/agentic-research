@@ -108,7 +108,7 @@ pass. It is a file path, never an import, so this skill stays copyable on its ow
 | 3 | A **misspelled** domain key is malformed input, not a missing domain |
 | 4 | `starting_level` matches the **predominant** design, unless justified |
 | 5 | `clamp(start + Σdomains + Σupgrades, 1, 4)` equals `final`, with the discrepancy reported |
-| 6 | Upgrades only on non-randomized bodies with no downgrade applied |
+| 6 | Upgrades only on non-randomized bodies **that declare a starting level below `high`**, with no downgrade applied. Two bars: the design, and the declared level a justification may have moved |
 | 7 | Upgrade reasons limited to the three GRADE defines — "importance of findings" is unrepresentable |
 | 8 | Any cross-result aggregate certainty is **rejected**; GRADE defines none |
 | 9 | `basis` is `confirmed_rob` or `heuristic`; heuristic marks output PROVISIONAL and fails for systematic and umbrella reviews |
