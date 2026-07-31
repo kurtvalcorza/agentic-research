@@ -13,10 +13,18 @@ skills, so grade_profile.py carries its own copy of the appraisal schema in orde
 to stay usable standalone. Duplication is only safe if it cannot drift, and this
 is the guard.
 
-The comparison is at the VERDICT level (does the check reject the record at all).
-Readable method violations, including a recognized instrument paired with the
-wrong design, are classified as violations by both consumers. Structurally
-malformed records remain input errors.
+The comparison is at the EXIT-CODE level, not merely "does it reject". Comparing
+acceptance alone was not enough: three findings in one round were records both
+checks rejected and classified differently — a missing appraisal domain, an
+overall more favourable than its worst domain, and an empty `domains` object were
+readable method violations (exit 1, with diagnostics) to rob_appraisal.py and
+malformed input (exit 2, no artifact) to grade_profile.py. A guard that asks only
+"did both reject?" cannot see that, which is why all three survived it.
+
+So the contract under test is: readable method violations — including a
+recognized instrument paired with the wrong design, an incomplete appraisal, and
+an incoherent overall judgment — are exit 1 in BOTH checks; structurally
+malformed records are exit 2 in both.
 
 Standard library only.
 """
@@ -58,6 +66,10 @@ INSTRUMENT_FIXTURES = {
 # invisible to it and register as a false divergence.
 STUDY_IDS = ["P1", "P3", "P5", "P7"]
 
+# Sentinel for "remove this key entirely". An absent key and a key set to null are
+# different inputs, and only one of them can be written as a JSON value.
+DELETE = object()
+
 
 def mutations():
     """Every way the schema allows an appraisal to be wrong, per design."""
@@ -75,6 +87,11 @@ def mutations():
             ("extra domain", {"domains": dict(domains, extra_key="low")}),
             ("missing domain", {"domains": {k: v for k, v in list(domains.items())[1:]}}),
             ("empty domains", {"domains": {}}),
+            # Absent is not the same input as present-and-empty: both checks default
+            # the key, so both must reach the incomplete-appraisal violation rather
+            # than one of them treating the absence as unreadable.
+            ("domains key absent", {"domains": DELETE}),
+            ("evidence key absent", {"evidence": DELETE}),
             ("domain wrong type", {"domains": dict(domains, **{first: []})}),
             ("confirmed_by object", {"confirmed_by": {}}),
             ("confirmed_by blank", {"confirmed_by": "   "}),
@@ -154,7 +171,10 @@ def build(design, override):
              "domains": copy.deepcopy(domains), "overall": "low",
              "result_assessed": 'diagnostic accuracy at 12 months',
              "confirmed_by": "K. Valcorza", "confirmed_at": "2026-07-26"}
-        s.update(copy.deepcopy(body))
+        s.update({k: copy.deepcopy(v) for k, v in body.items() if v is not DELETE})
+        for k, v in body.items():
+            if v is DELETE:
+                s.pop(k, None)
         if id_override and n == 0:
             s["id"] = override["id"]
         studies.append(s)
@@ -187,20 +207,24 @@ class TestChecksAgree(unittest.TestCase):
         r["final"] = gp.LEVEL_NAMES[max(1, min(4, start - 1))]
         return rec
 
-    def _gp_rejects(self, design, rob):
+    def _gp_exit(self, design, rob):
         out, err = io.StringIO(), io.StringIO()
         argv = ["gp.py", str(self._write(self._profile_for(design), "p.json")),
                 "--rob", str(self._write(rob, "r.json")), "--strict"]
         with mock.patch.object(sys, "argv", argv), redirect_stdout(out), redirect_stderr(err):
-            code = gp.main()
-        return code != 0
+            return gp.main()
 
-    def _ra_rejects(self, rob):
+    def _ra_exit(self, rob):
         out, err = io.StringIO(), io.StringIO()
         argv = ["ra.py", str(self._write(rob, "r2.json")), "--strict"]
         with mock.patch.object(sys, "argv", argv), redirect_stdout(out), redirect_stderr(err):
-            code = ra.main()
-        return code != 0
+            return ra.main()
+
+    def _gp_rejects(self, design, rob):
+        return self._gp_exit(design, rob) != 0
+
+    def _ra_rejects(self, rob):
+        return self._ra_exit(rob) != 0
 
     def test_both_checks_reach_the_same_verdict(self):
         divergences = []
@@ -215,6 +239,28 @@ class TestChecksAgree(unittest.TestCase):
                     f"{'rejects' if r else 'ACCEPTS'}")
         self.assertEqual(divergences, [],
                          "the two checks disagree about the same file:\n  "
+                         + "\n  ".join(divergences))
+
+    def test_both_checks_classify_the_same_file_the_same_way(self):
+        """The stronger claim: agreeing to reject is not agreeing.
+
+        1 and 2 mean different things to a caller — one says "your review breaks a
+        rule, here are the diagnostics", the other says "this file cannot be read,
+        no artifact was produced". A record that draws both answers leaves the
+        reader unable to tell which is true of their file, and the check that says
+        2 withholds the diagnostics the other one prints.
+        """
+        divergences = []
+        for design, instrument, label, override in mutations():
+            rob = build(design, override)
+            g = self._gp_exit(design, rob)
+            r = self._ra_exit(rob)
+            if g != r:
+                divergences.append(
+                    f"{design}/{instrument} — {label}: grade_profile exits {g}, "
+                    f"rob_appraisal exits {r}")
+        self.assertEqual(divergences, [],
+                         "the two checks classify the same file differently:\n  "
                          + "\n  ".join(divergences))
 
     def test_the_matrix_actually_covers_something(self):

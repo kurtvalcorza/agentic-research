@@ -51,6 +51,10 @@ Fail-closed details:
   - With `--manifest`, an UNLOGGED denominator drop (content removed without
     `exclusions_logged`) HOLDS a would-be VERIFIED as BLOCKED_ON_HUMAN for
     adjudication (anti-gaming, §5).
+  - Each manifest record carries the `schema_version` its counts were computed
+    under; records written before that field existed are stamped `"unversioned"`
+    rather than assumed current, so a history spanning a unit redefinition cannot
+    be read as one continuous series.
 
 OUTPUT: a JSON verdict on stdout. Exit code 0 only when VERIFIED; non-zero
 otherwise (so it can gate a pipeline like `prisma_flow.py --strict`).
@@ -63,6 +67,10 @@ import sys
 
 # --- configuration (single source of truth for weights / thresholds) --------
 SCHEMA_VERSION = "1.0"
+# Stamped on manifest records written before this field existed. It says the
+# definitions those counts were computed under are UNKNOWN — which is the whole
+# point; adopting them into SCHEMA_VERSION would assert something unverifiable.
+LEGACY_SCHEMA = "unversioned"
 
 # Q1: fabricated/unverifiable citations dominate routing and the climb gradient.
 DEFAULT_WEIGHTS = {
@@ -442,6 +450,16 @@ def append_to_manifest(path, data, result):
     Creates the manifest (and the array) if absent; preserves any other keys.
     Records per-cycle denominators and a floor-guard status so an anti-gaming
     content-removal is detectable across cycles, not just by convention.
+
+    Every appended record carries the `schema_version` its numbers were computed
+    under. Validating only the transient input left the written history unlabelled,
+    so a manifest spanning the U_grade/U_rob_trace redefinition held old and new
+    `by_unit` values that look identical and mean different things — and a reader
+    comparing plateau history across them would be comparing two vocabularies.
+    Records already present without a version are stamped LEGACY_SCHEMA rather than
+    assumed current: an explicit "we do not know which definitions this predates"
+    is the honest migration, and silently adopting them into the current version
+    would be the overclaim this field exists to prevent.
     """
     try:
         with open(path, encoding="utf-8") as f:
@@ -454,6 +472,12 @@ def append_to_manifest(path, data, result):
     history = manifest.setdefault("verification_units", [])
     if not isinstance(history, list):
         raise ValueError("manifest.verification_units exists but is not an array")
+
+    # Migrate before appending, so the file never holds a versioned record beside an
+    # ambiguous one that merely looks contemporary.
+    for rec in history:
+        if isinstance(rec, dict) and "schema_version" not in rec:
+            rec["schema_version"] = LEGACY_SCHEMA
 
     # denominator values are validated numeric so a crafted non-numeric value
     # cannot silently blind the cross-cycle floor-guard comparison.
@@ -487,6 +511,10 @@ def append_to_manifest(path, data, result):
 
     gates_in = _as_object(data.get("gates"), "gates")
     record = {
+        # The version the counts in this record were computed under. Without it, a
+        # by_unit value from before the U_grade/U_rob_trace redefinition is
+        # indistinguishable from one after it.
+        "schema_version": SCHEMA_VERSION,
         "cycle": result["cycle"],
         "state": result["state"],
         "weighted_total": result["weighted_total"],
@@ -571,6 +599,12 @@ def main():
             result["floor_guard"] = record["floor_guard"]
     except InputError as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
+        return 2
+    except UnicodeDecodeError as e:
+        # A ValueError, so the handler below already caught it — but reported a
+        # file that is not valid UTF-8 as a "manifest error", pointing the reader
+        # at the wrong file entirely when it was the input that could not be read.
+        print(json.dumps({"error": f"cannot decode input: {e}"}), file=sys.stderr)
         return 2
     except (ValueError, OSError) as e:
         print(json.dumps({"error": f"manifest error: {e}"}), file=sys.stderr)

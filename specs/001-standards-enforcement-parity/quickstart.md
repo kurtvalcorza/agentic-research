@@ -21,9 +21,10 @@ python --version    # 3.11+
 python -m unittest discover -s tests -v
 ```
 
-**Expected**: all eleven test modules pass — nine covering the nine scripts, plus the coercion
-conformance and dependency-freedom modules — exit code 0, no network access. Confirms SC-006 and
-SC-007: every check that can fail a review run is covered, and the suite needs no installation.
+**Expected**: every test module passes — one per runnable check, plus the cross-cutting guards
+(coercion conformance, dependency freedom, contract examples, the differential between the two
+appraisal checks, and the runner for this guide) — exit code 0, no network access. Confirms SC-006
+and SC-007: every check that can fail a review run is covered, and the suite needs no installation.
 
 ---
 
@@ -31,12 +32,18 @@ SC-007: every check that can fail a review run is covered, and the suite needs n
 
 ```bash
 python skills/validate-evidence/scripts/grade_profile.py \
-  tests/fixtures/grade-profile.valid.json --strict
+  tests/fixtures/grade-profile.valid.json \
+  --rob tests/fixtures/risk-of-bias.valid.json --strict
 echo $?    # 0
 ```
 
 **Expected**: the evidence profile and summary-of-findings tables print, headed with whether
 certainty is keyed to outcomes or themes, followed by `✅`. Exit 0.
+
+`--rob` is not optional here: the record's risk-of-bias basis is `confirmed_rob`, and that claim is
+never taken on trust, so without an appraisal record to check it against the command exits 1. The
+passing scenario has to supply what the passing record requires — see Scenario 4, which exercises
+the same pair in the other direction.
 
 ---
 
@@ -90,7 +97,7 @@ trust, and near-miss identifiers surface rather than being reconciled.
 
 ```bash
 python skills/validate-evidence/scripts/grade_profile.py tests/fixtures/grade-profile.incoherent-rob.json \
-  --rob tests/fixtures/risk-of-bias.mostly-high.json --strict
+  --rob tests/fixtures/risk-of-bias.mostly-high.json --strict     # exit 1
 ```
 
 **Expected**: exit 1, reporting that a body-level judgment of no risk-of-bias concern is
@@ -103,6 +110,7 @@ contradicted by a study set in which high-risk studies predominate. Adding
 
 ```bash
 python skills/appraise-risk-of-bias/scripts/rob_appraisal.py tests/fixtures/risk-of-bias.valid.json --strict
+                                                                                       # exit 0
 ```
 
 **Expected**: exit 0; per-study table and traffic-light summary print; `H_rob: 0`. Output carries
@@ -119,6 +127,7 @@ justification (exit 1), and a study lacking confirmation (exit 1, `H_rob: 1`).
 
 ```bash
 python skills/prisma-flow/scripts/prisma_checklist.py tests/fixtures/checklist.partial.json --strict
+                                                                                       # exit 1
 ```
 
 **Expected**: exit 1, with unaddressed rows listed by number **above** the table and counted.
@@ -131,6 +140,7 @@ Critically, a record addressing all 27 top-level numbers but omitting sub-items 
 
 ```bash
 python skills/verify-review/scripts/review_units.py tests/fixtures/units.systematic-missing-checklist.json
+                                                                                       # exit 1
 ```
 
 **Expected**: the verdict is not `VERIFIED`; `U_checklist` appears under `missing_units`. Confirms
@@ -167,7 +177,9 @@ which is precisely why it is listed as a scenario rather than left as a document
 Test fixtures live in `tests/fixtures/`, named `<record>.<defect>.json` with valid records named
 `<record>.valid.json` (T003).
 
-**All fixtures referenced above now exist**, and every scenario in this guide was executed end to
-end during T058. Each behaved exactly as documented — same exit codes, same messages. Where a
-scenario and the implementation had diverged, the implementation was corrected rather than the
-guide.
+**All fixtures referenced above now exist**, and every command in this guide is executed by
+`tests/test_quickstart_scenarios.py` on every run — including the fixture table in Scenario 3.
+That runner is why the guide can claim to be current: "executed once during T058" was a claim about
+the past that nothing rechecked, and Scenario 2 had silently drifted to exit 1 by the time anyone
+looked. Every `python skills/...` line must declare its expected exit in a trailing comment, and
+an undeclared command fails the suite rather than going unchecked.

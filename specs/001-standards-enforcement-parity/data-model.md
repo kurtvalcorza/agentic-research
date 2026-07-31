@@ -41,7 +41,7 @@ inexpressible, not merely undocumented.
 | `id` | string | Unique within `results` |
 | `label` | string | Human-readable; appears in the generated profile |
 | `study_ids` | array of string | Non-empty; unique within the result (FR-042) |
-| `appraised_result` | string | **Required** when any domain declares `basis: confirmed_rob` — names the appraised target these studies are relied on for. Each `study_ids` entry must resolve at `(study, appraised_result)`, so a study appraised for a *different* result does not count (FR-017) |
+| `appraised_result` | string | **Required** when any domain declares `basis: confirmed_rob` — names the appraised target these studies are relied on for. Each `study_ids` entry must resolve at `(study, appraised_result)`, so a study appraised for a *different* result does not count (FR-017). Matched **verbatim** against `result_assessed`, whitespace included: a padded reference is reported as a near-miss, never normalised into a match. A present-but-blank value is malformed input (exit 2) |
 | `design_mix` | object | Counts by design: `rct`, `nrsi`, `observational`, `dta`, `case_series`. Whole non-negative numbers; must total `len(study_ids)` |
 | `starting_level` | enum | `high` \| `moderate` \| `low` \| `very_low` |
 | `starting_level_justification` | string | Required when `starting_level` disagrees with the predominant entry in `design_mix` (FR-004) |

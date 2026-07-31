@@ -23,6 +23,12 @@ WHAT THIS CANNOT CHECK
   than a confirmed one, which is part of why systematic and umbrella reviews may
   not use it.
 
+  An appraisal in the --rob record that no result RELIES ON — because nothing cites
+  it, or because the citing result's basis is `heuristic` and so rests on no
+  appraisal at all. This check reads that record to confirm the studies a certainty
+  rating cites; an appraisal backing no rating is outside what it can speak to. Run
+  rob_appraisal.py over the appraisal record itself to check it as a whole.
+
   Whether a judgment was RIGHT. That "inconsistency: serious" was the correct call
   is a matter of expertise this script has no access to. A clean result means the
   profile is complete, legal and arithmetically sound — nothing more. It also
@@ -173,6 +179,28 @@ def _opt_str(v, name: str) -> str:
     if not isinstance(v, str):
         raise InputError(f"{name}: expected a string, got {type(v).__name__} {v!r}")
     return v.strip()
+
+
+def _opt_key(v, name: str) -> str:
+    """An optional text field whose value is used VERBATIM as a lookup key.
+
+    Same contract as _opt_str, minus the strip: `appraised_result` is matched
+    exactly against the appraisal record's own `result_assessed`, which is stored
+    unstripped. Normalising one side of an exact comparison hides the near-miss it
+    exists to catch — ' mortality at 12 months' silently resolved to the unpadded
+    target and the mistyped reference reported clean.
+
+    Blank is malformed rather than absent: a key made only of whitespace can match
+    nothing, and reading it as "not supplied" would report a missing field the
+    caller can see they supplied.
+    """
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        raise InputError(f"{name}: expected a string, got {type(v).__name__} {v!r}")
+    if not v.strip():
+        raise InputError(f"{name}: expected a non-empty string, got {v!r}")
+    return v
 
 
 def _no_unknown_keys(d: dict, allowed: set, ctx: str) -> None:
@@ -341,7 +369,7 @@ def _parse_result(r, i: int, seen_ids: set) -> dict:
             "domains": domains, "upgrades": upgrades, "final": final,
             "certainty_statement": _str(r.get("certainty_statement"),
                                         f"{ctx}.certainty_statement").strip(),
-            "appraised_result": _opt_str(r.get("appraised_result"),
+            "appraised_result": _opt_key(r.get("appraised_result"),
                                          f"{ctx}.appraised_result")}
 
 
@@ -382,7 +410,7 @@ HIGH_RISK_OVERALLS = {"high", "serious", "critical"}
 INSTRUMENT_DESIGN = {v: k for k, v in APPRAISAL_DESIGN_INSTRUMENT.items()}
 
 
-def _validate_appraisal_domains(instrument: str, domains: dict, ctx: str) -> None:
+def _validate_appraisal_domains(instrument: str, domains: dict, ctx: str) -> list[str]:
     """Validate the instrument's EXACT domain names and value vocabulary.
 
     This duplicates rob_appraisal.py's schema, deliberately: constitution
@@ -393,18 +421,28 @@ def _validate_appraisal_domains(instrument: str, domains: dict, ctx: str) -> Non
     Validating only the domain COUNT was not enough: five arbitrary keys satisfied
     it, so the two checks disagreed about the same file — rob_appraisal rejected it
     while this one reported clean.
+
+    Returns the appraisal's METHOD VIOLATIONS (an absent domain), and raises
+    InputError only for what is genuinely unreadable (an unrecognised domain name
+    or a value outside the instrument's vocabulary). rob_appraisal.py draws the
+    line in exactly that place — an incomplete appraisal is a readable record that
+    breaks a rule, so it exits 1 with diagnostics rather than 2 with none — and
+    collapsing both into InputError here denied the reader those diagnostics.
     """
     expected = INSTRUMENT_DOMAINS[instrument]
     missing = [d for d in expected if d not in domains]
     extra = sorted(set(domains) - set(expected))
-    if missing or extra:
-        parts = []
-        if missing:
-            parts.append(f"missing {', '.join(missing)}")
-        if extra:
-            parts.append(f"unrecognised {', '.join(extra)}")
+    if extra:
+        # An unrecognised domain name cannot be interpreted at all: it may be a
+        # misspelling of a required domain, so reading past it would report the
+        # right verdict for the wrong reason.
         raise InputError(f"{ctx}.domains: {instrument} defines "
-                         f"{', '.join(expected)} — {'; '.join(parts)}")
+                         f"{', '.join(expected)} — unrecognised {', '.join(extra)}")
+
+    violations = []
+    if missing:
+        violations.append(f"{instrument} requires domain(s) {', '.join(missing)}, "
+                          f"which are absent")
 
     for name, value in domains.items():
         dctx = f"{ctx}.domains.{name}"
@@ -442,6 +480,7 @@ def _validate_appraisal_domains(instrument: str, domains: dict, ctx: str) -> Non
                 raise InputError(f"{dctx}: must be one of "
                                  f"{', '.join(sorted(INSTRUMENT_OVERALLS[instrument]))} "
                                  f"for {instrument}, got {value!r}")
+    return violations
 
 
 # Severity ranks for the overall-vs-worst-domain check, mirroring rob_appraisal.py.
@@ -470,19 +509,23 @@ def _validate_appraisal_overall(instrument, domains, overall, justification, ctx
     appraisal declaring `overall: low` over a `high` domain is invalid there and was
     being consumed here as favourable backing, letting a zero risk-of-bias downgrade
     stand on an appraisal its own instrument rejects.
+
+    Returns the METHOD VIOLATIONS it finds. These are judgments about a readable
+    record, which rob_appraisal.py reports as exit-1 diagnostics; raising InputError
+    for them here made the same file exit 2 with no artifact, so the two checks
+    disagreed about severity even once they agreed about validity.
     """
     if justification:
-        return                                  # a recorded override, as the sibling allows
+        return []                               # a recorded override, as the sibling allows
 
     if instrument == "nos":
         total = sum(domains.get(d, 0) for d in INSTRUMENT_DOMAINS["nos"])
         band = _nos_band(int(total))
         if overall != band:
-            raise InputError(
-                f"{ctx}: Newcastle-Ottawa total is {int(total)}/9, which bands as "
-                f"'{band}', but overall is '{overall}' and no overall_justification "
-                f"is recorded — rob_appraisal.py rejects this record")
-        return
+            return [f"Newcastle-Ottawa total is {int(total)}/9, which bands as "
+                    f"'{band}', but overall is '{overall}'. The bands are "
+                    f"conventional — record an overall_justification to override"]
+        return []
 
     ranks = {}
     for name, value in domains.items():
@@ -496,15 +539,15 @@ def _validate_appraisal_overall(instrument, domains, overall, justification, ctx
     # it cannot be ranked — but an overall of 'low' while a domain reports nothing
     # is a claim the record has to justify. Absence of evidence is not evidence of
     # low risk, and rob_appraisal.py rejects exactly this.
+    violations = []
     if no_info and overall == "low":
-        raise InputError(
-            f"{ctx}: overall 'low' while domain(s) {', '.join(no_info)} report no "
-            f"information, and no overall_justification is recorded — absence of "
-            f"evidence is not evidence of low risk, and rob_appraisal.py rejects "
-            f"this record")
+        violations.append(
+            f"overall 'low' while domain(s) {', '.join(no_info)} report no "
+            f"information — absence of evidence is not evidence of low risk; "
+            f"record an overall_justification if this is intended")
 
     if not ordered:
-        return
+        return violations
     worst_domain = max(ordered, key=lambda d: ordered[d])
     worst = ordered[worst_domain]
     declared = INSTRUMENT_SEVERITY[instrument][overall]
@@ -512,11 +555,11 @@ def _validate_appraisal_overall(instrument, domains, overall, justification, ctx
         shown = domains[worst_domain]
         if instrument == "quadas2":
             shown = shown["risk_of_bias"]
-        raise InputError(
-            f"{ctx}: overall '{overall}' is more favourable than its worst domain "
-            f"({worst_domain} = '{shown}') and no overall_justification is recorded "
-            f"— rob_appraisal.py rejects this record, so it cannot back a "
-            f"confirmed_rob basis")
+        violations.append(
+            f"overall '{overall}' is more favourable than its worst domain "
+            f"({worst_domain} = '{shown}') — record an overall_justification if "
+            f"this is intended")
+    return violations
 
 
 def _validate_appraisal_evidence(instrument: str | None, value, ctx: str) -> None:
@@ -579,16 +622,21 @@ def parse_appraisal(raw: dict) -> dict:
                              f"{', '.join(sorted(INSTRUMENT_DOMAINS))}, got {instrument!r}")
         instrument_mismatch = instrument != expected
 
-        domains = s.get("domains")
-        if not isinstance(domains, dict) or not domains:
-            raise InputError(f"{ctx}.domains: a confirmed appraisal must record its "
-                             f"domain judgments, got {domains!r}")
+        # An absent or empty `domains` object is an INCOMPLETE appraisal, not an
+        # unreadable one: rob_appraisal.py defaults the key to {} and reports the
+        # absent domains as a method violation. Demanding a non-empty object here
+        # made the same file exit 2 with no diagnostics while the owning check
+        # exited 1 with them.
+        domains = _obj(s.get("domains", {}), f"{ctx}.domains")
         overall = s.get("overall")
         overall_justification = _opt_str(
             s.get("overall_justification"), f"{ctx}.overall_justification")
+        violations: list[str] = []
         if instrument_mismatch:
             # Mirror rob_appraisal.py: a recognized instrument paired with the
             # wrong design is a readable method violation, not malformed JSON.
+            # It reports the mismatch and stops, so the domains are never measured
+            # against an instrument that was never the right yardstick.
             for name, value in domains.items():
                 if isinstance(value, bool) or not isinstance(
                         value, (str, int, float, dict)):
@@ -598,15 +646,21 @@ def parse_appraisal(raw: dict) -> dict:
             _validate_appraisal_evidence(
                 None, s.get("evidence", {}), f"{ctx}.evidence")
         else:
-            _validate_appraisal_domains(instrument, domains, ctx)
+            domain_violations = _validate_appraisal_domains(instrument, domains, ctx)
+            violations += domain_violations
             _validate_appraisal_evidence(
                 instrument, s.get("evidence", {}), f"{ctx}.evidence")
             if not isinstance(overall, str) or overall not in INSTRUMENT_OVERALLS[instrument]:
                 raise InputError(f"{ctx}.overall: must be one of "
                                  f"{', '.join(sorted(INSTRUMENT_OVERALLS[instrument]))} "
                                  f"for {instrument}, got {overall!r}")
-            _validate_appraisal_overall(
-                instrument, domains, overall, overall_justification, ctx)
+            if not domain_violations:
+                # An incomplete appraisal cannot be judged against its own domains,
+                # so rob_appraisal.py stops at the missing-domain violation. Running
+                # the comparison anyway would report a second, derived violation
+                # that disappears the moment the first is fixed.
+                violations += _validate_appraisal_overall(
+                    instrument, domains, overall, overall_justification, ctx)
 
         # Strings only — str({}) would be "{}", truthy and non-empty, and would
         # silently satisfy the confirmation test.
@@ -626,7 +680,11 @@ def parse_appraisal(raw: dict) -> dict:
         out[key] = {"overall": overall, "design": design, "instrument": instrument,
                     "expected_instrument": expected,
                     "instrument_mismatch": instrument_mismatch,
-                    "result_assessed": result_assessed, "confirmed": bool(by and at)}
+                    "result_assessed": result_assessed, "confirmed": bool(by and at),
+                    # Method violations of the appraisal itself, carried rather than
+                    # raised so this check classifies them the way their owning check
+                    # does: exit 1 with diagnostics, not exit 2 with none.
+                    "violations": violations}
     return out
 
 
@@ -739,8 +797,15 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
 
     known_targets = sorted({k[1] for k in appraisal})
     if target not in known_targets:
+        # Report the near-miss rather than resolving it. Targets are matched
+        # exactly, so ' mortality' and 'mortality' are different targets — naming
+        # the neighbour is what turns "not found" into a fixable message.
+        near = {t.strip().lower(): t for t in known_targets}.get(target.strip().lower())
+        hint = (f"; nearest is {near!r} — targets are matched exactly, including "
+                f"surrounding whitespace" if near else "")
         return [f"result {rid}: appraised_result {target!r} does not appear in the "
-                f"appraisal record (it appraises: {', '.join(repr(t) for t in known_targets)})"]
+                f"appraisal record (it appraises: "
+                f"{', '.join(repr(t) for t in known_targets)}){hint}"]
 
     resolved, unresolved, wrong_target = [], [], []
     for sid in r["study_ids"]:
@@ -771,6 +836,19 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
             f"result {rid}: study {sid} appraisal instrument mismatch — design "
             f"{item['design']!r} calls for {item['expected_instrument']!r}, got "
             f"{item['instrument']!r}")
+
+    # Method violations of the appraisal record itself, reported here rather than
+    # raised during parsing so that a readable-but-invalid appraisal exits 1 with
+    # diagnostics, exactly as rob_appraisal.py reports it. An appraisal its own
+    # instrument rejects cannot back a confirmed_rob basis, so it is also excluded
+    # from the coherence comparison below.
+    invalid = [s for s in resolved if appraisal[(s, target)]["violations"]]
+    for sid in invalid:
+        for violation in appraisal[(sid, target)]["violations"]:
+            errs.append(
+                f"result {rid}: study {sid} (result: {target!r}) appraisal is not "
+                f"valid — {violation}. rob_appraisal.py reports this as a method "
+                f"violation, so it cannot back a 'confirmed_rob' basis")
 
     unconfirmed = [s for s in resolved if not appraisal[(s, target)]["confirmed"]]
     if unconfirmed:
@@ -804,7 +882,8 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
     # Coherence: only the clearly-contradictory ends are flagged.
     confirmed = [s for s in resolved
                  if appraisal[(s, target)]["confirmed"]
-                 and not appraisal[(s, target)]["instrument_mismatch"]]
+                 and not appraisal[(s, target)]["instrument_mismatch"]
+                 and not appraisal[(s, target)]["violations"]]
     if confirmed and not r["domains"]["risk_of_bias"]["coherence_justification"]:
         highs = [s for s in confirmed
                  if appraisal[(s, target)]["overall"] in HIGH_RISK_OVERALLS]
@@ -832,10 +911,14 @@ def _keyed_as(rec: dict) -> str:
             "GRADE as published by the GRADE Working Group.")
 
 
+def _markdown_text(value: object) -> str:
+    """Render caller-controlled text without breaking out of the list item it sits in."""
+    return str(value).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
 def _markdown_cell(value: object) -> str:
     """Render caller-controlled text without creating extra table cells or rows."""
-    return str(value).replace("\r\n", "\n").replace("\r", "\n") \
-        .replace("|", "&#124;").replace("\n", "<br>")
+    return _markdown_text(value).replace("|", "&#124;")
 
 
 def evidence_profile(rec: dict) -> str:
@@ -845,35 +928,50 @@ def evidence_profile(rec: dict) -> str:
     if provisional:
         lines += ["> ⚠️ **PROVISIONAL** — at least one result's risk-of-bias domain rests on an "
                   "estimate rather than a confirmed appraisal.", ""]
-    lines += ["| Result | Studies | Predominant design | Start | RoB | Incons. | Indir. | "
+    # The ID is a column, not a decoration: only `id` is required to be unique, so
+    # two results may legitimately carry the same label. Rendering the label alone
+    # made those rows indistinguishable and discarded the identifier every
+    # diagnostic uses ("result O1: ..."), leaving the reader nothing to match on.
+    lines += ["| ID | Result | Studies | Predominant design | Start | RoB | Incons. | Indir. | "
               "Imprec. | Pub. bias | Final |",
-              "|:--|--:|:--|:--|:--:|:--:|:--:|:--:|:--:|:--|"]
+              "|:--|:--|--:|:--|:--|:--:|:--:|:--:|:--:|:--:|:--|"]
     for r in rec["results"]:
         d = r["domains"]
         # Zero renders as "0", not "+0": a downgrade should stand out from its absence.
         cells = [(str(d[n]["rating"]) if n in d else "—") for n in DOMAINS]
         final_idx = LEVELS[r["final"]]
+        # A starting level that departs from the predominant design is legal only
+        # because a justification was recorded. Marking the cell sends the reader to
+        # that justification instead of leaving an unexplained anomaly on the row.
+        start = r["starting_level"] + (" †" if r["starting_level_justification"] else "")
         lines.append(
-            f"| {_markdown_cell(r['label'])} | {len(r['study_ids'])} | "
+            f"| {_markdown_cell(r['id'])} | {_markdown_cell(r['label'])} | "
+            f"{len(r['study_ids'])} | "
             f"{predominant_design(r['design_mix'])} | "
-            f"{r['starting_level']} | " + " | ".join(cells) +
+            f"{start} | " + " | ".join(cells) +
             f" | {r['final'].replace('_', ' ')} {SYMBOLS[final_idx]} |")
     lines.append("")
     for r in rec["results"]:
-        notes = [f"  - *{n.replace('_', ' ')}*: {r['domains'][n]['note']}"
-                 for n in DOMAINS if n in r["domains"] and r["domains"][n]["note"]]
+        notes = []
+        if r["starting_level_justification"]:
+            notes.append(f"  - † *starting level*: "
+                         f"{_markdown_text(r['starting_level_justification'])}")
+        notes += [f"  - *{n.replace('_', ' ')}*: {_markdown_text(r['domains'][n]['note'])}"
+                  for n in DOMAINS if n in r["domains"] and r["domains"][n]["note"]]
         if notes:
-            lines.append(f"- **{r['label']}**")
+            lines.append(f"- **{_markdown_text(r['label'])}** ({_markdown_text(r['id'])})")
             lines.extend(notes)
     return "\n".join(lines)
 
 
 def summary_of_findings(rec: dict) -> str:
     lines = ["## Summary of findings", "",
-             "| Result | Studies | Certainty | What this means |", "|:--|--:|:--|:--|"]
+             "| ID | Result | Studies | Certainty | What this means |",
+             "|:--|:--|--:|:--|:--|"]
     for r in rec["results"]:
         idx = LEVELS[r["final"]]
-        lines.append(f"| {_markdown_cell(r['label'])} | {len(r['study_ids'])} | "
+        lines.append(f"| {_markdown_cell(r['id'])} | {_markdown_cell(r['label'])} | "
+                     f"{len(r['study_ids'])} | "
                      f"{SYMBOLS[idx]} {r['final'].replace('_', ' ').upper()} | "
                      f"{_markdown_cell(r['certainty_statement'])} |")
     return "\n".join(lines)
@@ -910,7 +1008,10 @@ def main() -> int:
                 raw = fh.read()
         else:
             raw = sys.stdin.read()
-    except OSError as e:
+    # UnicodeDecodeError is a ValueError, not an OSError, so a file that is not
+    # valid UTF-8 escaped both this handler and the JSON one below it: traceback and
+    # exit 1, where the contract says exit 2 with no artifact.
+    except (OSError, UnicodeDecodeError) as e:
         sys.stderr.write(f"grade_profile: cannot read {source} ({e})\n")
         return 2
 
@@ -925,7 +1026,7 @@ def main() -> int:
         try:
             with open(args.rob, encoding="utf-8") as fh:
                 appraisal = parse_appraisal(json.loads(fh.read()))
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
             sys.stderr.write(f"grade_profile: cannot read --rob {args.rob} ({e})\n")
             return 2
         except InputError as e:

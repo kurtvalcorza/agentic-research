@@ -178,7 +178,14 @@ A loop optimizing a scalar will "cheat" — drop a hard-to-verify citation, excl
 
 Reuse the orchestrator's existing `manifest.json` / `execution-log.json` — do **not** create a parallel state file.
 
-- Append each cycle to `verification_units: [{cycle, state, weighted_total, by_unit, gates, denominators, floor_guard, outcome}]` in the manifest — **written by the backend, not by hand**: pass `--manifest <path>` and `review_units.py` appends the computed record (creating the file/array if absent). This history **is** the audit trail.
+- Append each cycle to `verification_units: [{schema_version, cycle, state, weighted_total, by_unit, gates, denominators, floor_guard, outcome}]` in the manifest — **written by the backend, not by hand**: pass `--manifest <path>` and `review_units.py` appends the computed record (creating the file/array if absent). This history **is** the audit trail.
+
+  `schema_version` is on every record because the units have been redefined once already: a
+  `by_unit.U_grade` written before that redefinition and one written after look identical and mean
+  different things, so a history without it cannot be read as one series. Records written before
+  the field existed are stamped `"unversioned"` on the next append — an explicit "the definitions
+  these counts were computed under are unknown", rather than adopting them into the current
+  version, which would assert exactly what cannot be checked.
 
   ```
   python scripts/review_units.py units.json --manifest manifest.json

@@ -81,25 +81,37 @@ class TestP1StubAppraisalRejected(_Base):
         self.assertNotIn("✅", out)
 
     def test_stub_without_domains_is_rejected(self):
+        """Later reclassified from exit 2 to exit 1.
+
+        A record with no domains is INCOMPLETE, not unreadable: rob_appraisal.py
+        reports the absent domains and exits 1 with diagnostics, so exiting 2 here
+        denied the reader the diagnostics its owning check gives them. Still
+        rejected — the assertion moved from the exit code alone to the exit code
+        AND the named domains.
+        """
         rob = full_appraisal()
         for s in rob["studies"]:
             del s["domains"]
-        code, _, err = self.run_script(
+        code, out, err = self.run_script(
             gp, fixture("grade-profile.valid.json"),
             "--rob", str(self.write(rob, "rob.json")), "--strict")
-        self.assertEqual(code, 2)
-        self.assertIn("domain judgments", err)
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("rob2 requires domain(s)", out)
+        self.assertIn("cannot back a 'confirmed_rob' basis", out)
+        self.assertNotIn("✅", out)
 
     def test_partial_domains_are_rejected(self):
         """Five domains define RoB 2; three is an incomplete appraisal."""
         rob = full_appraisal()
         for s in rob["studies"]:
             s["domains"] = {"randomization": "low", "deviations": "low", "missing_data": "low"}
-        code, _, err = self.run_script(
+        code, out, err = self.run_script(
             gp, fixture("grade-profile.valid.json"),
             "--rob", str(self.write(rob, "rob.json")), "--strict")
-        self.assertEqual(code, 2)
-        self.assertIn("missing measurement", err)
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("measurement", out)
+        self.assertIn("which are absent", out)
+        self.assertNotIn("✅", out)
 
     def test_instrument_must_match_design_in_the_rob_file(self):
         rob = full_appraisal(instrument="quadas2")

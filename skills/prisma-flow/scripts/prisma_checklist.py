@@ -293,7 +293,12 @@ def main() -> int:
                 raw = fh.read()
         else:
             raw = sys.stdin.read()
-    except OSError as e:
+    # A file that is not valid UTF-8 raises UnicodeDecodeError, which is a
+    # ValueError and NOT an OSError — so it escaped this handler and the JSON one
+    # below it, and a mis-encoded record produced a traceback and exit 1 instead of
+    # the documented malformed-input exit 2. Unreadable is unreadable, whether the
+    # filesystem or the decoder says so.
+    except (OSError, UnicodeDecodeError) as e:
         sys.stderr.write(f"prisma_checklist: cannot read {source} ({e})\n")
         return 2
 

@@ -241,11 +241,19 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         pass
 
-    if args.infile:
-        with open(args.infile, encoding="utf-8") as fh:
-            raw = fh.read()
-    else:
-        raw = sys.stdin.read()
+    # The read was unguarded: a missing file or one that is not valid UTF-8 raised
+    # through main() as a traceback and exit 1, while every sibling check reports
+    # unreadable input as exit 2. UnicodeDecodeError is a ValueError, not an
+    # OSError, so both have to be named.
+    try:
+        if args.infile:
+            with open(args.infile, encoding="utf-8") as fh:
+                raw = fh.read()
+        else:
+            raw = sys.stdin.read()
+    except (OSError, UnicodeDecodeError) as e:
+        sys.stderr.write(f"prisma_flow: cannot read {args.infile or 'stdin'} ({e})\n")
+        return 2
     try:
         c = json.loads(raw)
     except json.JSONDecodeError as e:

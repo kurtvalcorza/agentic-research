@@ -528,7 +528,10 @@ def main() -> int:
                 raw = fh.read()
         else:
             raw = sys.stdin.read()
-    except OSError as e:
+    # UnicodeDecodeError is a ValueError, not an OSError, so a file that is not
+    # valid UTF-8 escaped both this handler and the JSON one below it: traceback and
+    # exit 1, where the contract says exit 2 with no artifact.
+    except (OSError, UnicodeDecodeError) as e:
         sys.stderr.write(f"rob_appraisal: cannot read {source} ({e})\n")
         return 2
 

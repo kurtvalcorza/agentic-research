@@ -92,10 +92,18 @@ class TestOverallValidatedAgainstDomains(_Base):
     BAD = dict(ROB2, randomization="high")
 
     def test_favourable_overall_is_rejected(self):
+        """Later reclassified from exit 2 to exit 1.
+
+        The record is readable; the judgment in it breaks a rule. rob_appraisal.py
+        calls that a method violation and prints diagnostics, so raising an input
+        error here made the two checks agree about validity and disagree about
+        severity — and the reader lost the diagnostics on the way.
+        """
         code, out, err = self.run_gp(self.profile(),
                                      appraisal("rct", "rob2", self.BAD), "--strict")
-        self.assertEqual(code, 2)
-        self.assertIn("more favourable than its worst domain", err)
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("more favourable than its worst domain", out)
+        self.assertIn("cannot back a 'confirmed_rob' basis", out)
         self.assertNotIn("✅", out)
 
     def test_both_checks_agree_on_the_same_file(self):
@@ -118,9 +126,10 @@ class TestOverallValidatedAgainstDomains(_Base):
                            starting_level="low", final="low")
         rec["results"][0]["domains"]["inconsistency"]["rating"] = 0
         bad_nos = dict(NOS, selection=0)          # total 5 bands as moderate, not low
-        code, _, err = self.run_gp(rec, appraisal("observational", "nos", bad_nos), "--strict")
-        self.assertEqual(code, 2)
-        self.assertIn("bands as", err)
+        code, out, err = self.run_gp(rec, appraisal("observational", "nos", bad_nos), "--strict")
+        self.assertEqual(code, 1, msg=err)          # a method violation, not malformed input
+        self.assertIn("bands as", out)
+        self.assertNotIn("✅", out)
 
 
 class TestDiagnosticAccuracyGradeable(_Base):
@@ -242,9 +251,9 @@ class TestRound5NoInformation(_Base):
 
     def test_low_overall_with_no_information_is_rejected(self):
         code, out, err = self.run_gp(self.nrsi_profile(), self._rob(), "--strict")
-        self.assertEqual(code, 2)
-        self.assertIn("no information", err)
-        self.assertIn("absence of evidence", err)
+        self.assertEqual(code, 1, msg=err)          # a method violation, not malformed input
+        self.assertIn("no information", out)
+        self.assertIn("absence of evidence", out)
         self.assertNotIn("✅", out)
 
     def test_justification_permits_it(self):

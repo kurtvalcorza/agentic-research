@@ -74,6 +74,19 @@ Arithmetic: `high(4) + (-1) = 3 = moderate`. ✅
 | 14 | `results` non-empty | exit 2 |
 | 15 | Every result has a non-empty string `certainty_statement` for the generated summary of findings | exit 2 |
 | 16 | With `--rob`: optional `evidence`, when present, is an object keyed only by that instrument's domains with non-empty string values | exit 2 |
+| 17 | With `--rob`: an appraisal a result relies on that breaks a rule of [risk-of-bias.md](./risk-of-bias.md) — an absent domain, an overall more favourable than its worst domain, a Newcastle-Ottawa band mismatch, an overall of `low` over a `no_information` domain | exit 1 — reported per study with the appraisal's own message, and the appraisal cannot back a `confirmed_rob` basis |
+
+**Rule 17 and the exit-code split.** This check reads the appraisal record itself, because it may
+not import the sibling skill (constitution Principle III). It must therefore classify what it finds
+the way that skill does: a record that is READABLE but breaks a rule is exit 1 with diagnostics,
+and only a record that cannot be interpreted at all is exit 2. Treating an incomplete or incoherent
+appraisal as unreadable made the two checks agree that a file was bad and disagree about what kind
+of bad — and the reader lost the diagnostics one of them prints. `appraised_result` is likewise
+matched **verbatim**: a padded reference is reported as a near-miss, never normalised into a match.
+
+**Scope.** Rule 17 covers the appraisals a result actually relies on. An appraisal that backs no
+certainty rating — nothing cites it, or the citing result's basis is `heuristic` — is outside what
+this check can speak to; run `rob_appraisal.py` over that record to check it as a whole.
 
 **Rule 12 predicate.** Contradiction is declared when the rating is `0` while more than half the
 resolved studies are rated high risk, or when the rating is `-2` while every resolved study is
@@ -82,10 +95,16 @@ judgement, because the check may only assert what is decidable (constitution Pri
 
 ## Generated artifacts
 
-1. **Evidence profile** — one row per result: study count, design mix, each domain judgment with
-   its note, and the final certainty with its symbol.
-2. **Summary of findings** — one row per result: the plain-language finding, the certainty symbol,
-   and the certainty statement.
+1. **Evidence profile** — one row per result: its **id**, study count, design mix, each domain
+   judgment with its note, and the final certainty with its symbol. A `starting_level` permitted
+   only by a `starting_level_justification` is marked `†` and the justification is printed with
+   the notes, so the departure never appears unexplained.
+2. **Summary of findings** — one row per result: its **id**, the plain-language finding, the
+   certainty symbol, and the certainty statement.
+
+Both tables carry the result id because only `id` is required to be unique — two results may share
+a label, and every diagnostic names the id, so a table without it cannot be matched to the check
+output beneath it.
 
 Both carry a header line stating whether certainty is keyed to outcomes or themes (FR-008), and a
 provenance line naming the generating check and source record (constitution Principle VII).
@@ -99,6 +118,6 @@ rating about quality of life.
 
 | Rule | Violation |
 |:--|:--|
-| `appraised_result` present when any domain declares `confirmed_rob` | exit 1 |
-| It names a result the appraisal record actually covers | exit 1 |
+| `appraised_result` present when any domain declares `confirmed_rob` | exit 1 (absent); exit 2 when present but blank — a key of whitespace can match nothing, and reading it as "not supplied" would report a field the caller can see they supplied |
+| It names a result the appraisal record actually covers, compared **verbatim** | exit 1 — a near-miss names its nearest neighbour rather than resolving to it |
 | Every `study_ids` entry resolves at `(study, appraised_result)` | exit 1 — studies appraised for a *different* result are reported separately from unresolved ones |

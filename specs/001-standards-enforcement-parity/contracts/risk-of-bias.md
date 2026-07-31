@@ -93,6 +93,15 @@ executes it on every commit.
 | 9 | `design` agrees across every appraisal of the same `id` | exit 2 |
 | 10 | `evidence`, when present, is an object whose keys are that instrument's domains and whose values are non-empty strings | exit 2 |
 
+**These classifications bind every consumer of the record, not just `rob_appraisal.py`.**
+`grade_profile.py --rob` reads the same file and may not import this skill (constitution
+Principle III), so it carries its own copy of these rules — and it must reach the same exit code,
+not merely the same accept/reject. Rules 2 and 5 are where that mattered: an absent domain and an
+overall more favourable than its worst domain are readable method violations (exit 1, with
+diagnostics), and the consumer was classifying both as unreadable input (exit 2, no diagnostics).
+`tests/test_differential_appraisal.py` compares the two checks' exit codes over every mutation the
+schema allows, which is what makes this statement enforced rather than described.
+
 **Rule 10 is optional-but-typed.** Absent or `{}` is legal — evidence is not required. Supplying
 it in any other shape is not: `null`, a string, a list or an integer previously passed through
 untouched and the record exited 0 under `--strict`, then went on to back a `confirmed_rob`
