@@ -41,10 +41,6 @@ class TestChecklistDataModelDocumentation(unittest.TestCase):
         self.assertIn("emits no artifact", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestChecklistRowStructureClaims(unittest.TestCase):
     """The skill and the quickstart both describe the 27-vs-42 relationship.
 
@@ -53,6 +49,26 @@ class TestChecklistRowStructureClaims(unittest.TestCase):
     lettered rows. A reader following the sentence built a record that failed at
     exit 2 for a reason the sentence never mentions.
     """
+
+    FLOW_SKILL = REPO / "skills" / "prisma-flow" / "SKILL.md"
+    QUICKSTART = (REPO / "specs" / "001-standards-enforcement-parity" / "quickstart.md")
+
+    def test_the_prose_no_longer_claims_all_27_numbers_are_rows(self):
+        """The sentence that sent a reader to build a record the check rejects.
+
+        This test reads the DOCS — the previous version asserted only facts about
+        the script, so reverting the prose left it green, in a module whose whole
+        purpose is keeping guidance aligned with the runnable contracts.
+        """
+        for path in (self.FLOW_SKILL, self.QUICKSTART):
+            with self.subTest(doc=path.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("all 27 top-level numbers", text)
+
+    def test_the_skill_states_the_row_arithmetic_it_relies_on(self):
+        text = self.FLOW_SKILL.read_text(encoding="utf-8")
+        self.assertIn("21", text)
+        self.assertIn("42 rows", text)
 
     def test_the_row_counts_the_docs_state_are_true(self):
         pc = load("skills/prisma-flow/scripts/prisma_checklist.py")
@@ -83,3 +99,7 @@ class TestChecklistRowStructureClaims(unittest.TestCase):
                 code = pc.main()
         self.assertEqual(code, 2)
         self.assertIn("'13' is not an item", err.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()

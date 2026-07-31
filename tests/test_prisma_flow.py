@@ -300,3 +300,47 @@ class TestSharedCliContractConformance(unittest.TestCase):
         consumed = set(re.findall(r'c\.get\("([a-z_]+)"', source))
         self.assertTrue(consumed)
         self.assertEqual(consumed - pf.RECORD_KEYS, set())
+
+
+class TestAnExplicitZeroIsChecked(unittest.TestCase):
+    """An edge is checked when both its counts were SUPPLIED, not when both are truthy.
+
+    Truthiness could not tell an omitted count from one recorded as `0`, so a record
+    stating 500 identified, 96 removed and `records_screened: 0` disabled three edges
+    at once and reconciled clean under --strict. The closed schema was added to stop a
+    MISSPELLED key producing exactly that; a correctly spelled zero did it too.
+    """
+
+    def run_record(self, rec, *args):
+        out, err = io.StringIO(), io.StringIO()
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        p = pathlib.Path(d.name) / "counts.json"
+        p.write_text(json.dumps(rec), encoding="utf-8")
+        with mock.patch.object(sys, "argv", ["prisma_flow.py", str(p), *args]), \
+                redirect_stdout(out), redirect_stderr(err):
+            code = pf.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_an_explicit_zero_does_not_disable_its_edges(self):
+        code, out, _ = self.run_record(counts_template1(records_screened=0), "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("records_screened = 0", out)
+        self.assertNotIn("✅", out)
+
+    def test_an_omitted_count_still_skips_its_edges(self):
+        """The distinction the truthiness test could not draw: a record that simply
+        does not carry a count is incomplete, not contradictory."""
+        rec = counts_template1()
+        del rec["records_screened"]
+        del rec["records_excluded_title_abstract"]
+        code, out, err = self.run_record(rec, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+
+    def test_a_zero_included_count_is_still_reconciled(self):
+        """A review that included nothing is a real outcome, and its arithmetic still
+        has to add up."""
+        rec = counts_template1(studies_included_databases=0, studies_included_total=0)
+        code, out, _ = self.run_record(rec, "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("studies_included_databases = 0", out)

@@ -60,6 +60,11 @@ incomplete record — it is malformed input (exit 2), because `13` is not an add
 record addressing those 21 plus the FIRST letter of each expanding item is 27/42 complete, and the
 check reports the fifteen gaps rather than passing.
 
+> **The flow record now requires `"schema_version": "1.0"` and rejects unknown keys.** A
+> misspelled count key used to drop silently out of the record while the remaining arithmetic
+> reconciled and the diagram printed ✅. Both rules are shared with every other check
+> (`contracts/cli-contract.md`); the full schema is in `contracts/prisma-flow.md`.
+
 Each row needs either a `location` in the manuscript or an explicit `not_applicable`
 justification — an empty value addresses nothing. Unaddressed rows are listed **above** the table
 with a count, because in forty-two rows a gap shown only as a blank cell is a gap nobody sees.

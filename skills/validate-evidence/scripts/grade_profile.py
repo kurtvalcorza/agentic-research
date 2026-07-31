@@ -800,11 +800,23 @@ def check(rec: dict, appraisal: dict | None,
         # reserves rating-up for NON-RANDOMIZED evidence, and nothing may be raised
         # above high. Both bars, named separately so the message says which one bit.
         if upgrade_total:
-            if DESIGN_START[pred] == "high":
+            if pred == "rct":
                 errs.append(
-                    f"result {rid}: upgrades applied to a body of {pred} studies — "
+                    f"result {rid}: upgrades applied to a body of randomized trials — "
                     f"GRADE reserves rating up for non-randomized evidence, whatever "
                     f"starting level the record declares")
+            elif DESIGN_START[pred] == "high":
+                # dta. NOT the randomization reason — diagnostic-accuracy studies
+                # ARE non-randomized, so telling their author to supply
+                # non-randomized evidence names something the record already
+                # satisfies and cannot be acted on. The bar is the ceiling: GRADE
+                # rates a body of accuracy studies as starting high, and this check
+                # does not model rating one up.
+                errs.append(
+                    f"result {rid}: upgrades applied to a body of {pred} studies, which "
+                    f"GRADE rates as starting at high — this check does not model "
+                    f"rating a diagnostic-accuracy body up, so the adjustment could "
+                    f"only be absorbed by the ceiling")
             elif LEVELS[r["starting_level"]] >= LEVELS["high"]:
                 errs.append(
                     f"result {rid}: upgrades applied to a result already declaring a "
@@ -1078,22 +1090,25 @@ def evidence_profile(rec: dict, appraisal: dict | None = None) -> str:
     if provisional:
         lines += ["> ⚠️ **PROVISIONAL** — at least one result's risk-of-bias domain rests on an "
                   "estimate rather than a confirmed appraisal.", ""]
-        # The disclosure is the record-level exception: for a RAPID review it is
-        # the only thing that makes a heuristic basis legal, and the artifact
-        # printed the generic warning while the shortcut it discloses — what the
-        # reviewer actually skipped — appeared nowhere on the page.
-        #
-        # Suppressed only where the heuristic basis is ILLEGAL — systematic and
-        # umbrella — because there the disclosure licenses nothing and printing it
-        # implies an allowance the record still fails on. Gating on `rapid` instead
-        # was too narrow: scoping and narrative reviews may use a heuristic basis
-        # legally, so their disclosure was dropped from a PASSING artifact and two
-        # records differing in a recorded methodological shortcut rendered
-        # byte-identically.
-        if (rec["review_type"] not in CONFIRMED_ROB_REQUIRED
-                and rec["streamlined_method_disclosed"]):
-            lines += [f"> **Streamlined method disclosed:** "
-                      f"{_markdown_text(rec['streamlined_method_disclosed'])}", ""]
+    # RECORDED CONTENT IS NEVER HIDDEN. Two narrower gates have stood here and each
+    # dropped a disclosure from a passing artifact: first `review_type == "rapid"`,
+    # which lost scoping and narrative reviews; then a review-type test nested
+    # inside `if provisional`, which lost every record whose results all use
+    # confirmed_rob — including the rapid ones the first version handled. Two
+    # records differing in a recorded methodological shortcut rendered
+    # byte-identically under both.
+    #
+    # The disclosure is now printed whenever it is present, and the line says only
+    # what it is. What varies is whether it LICENSES anything, and that is the
+    # sentence's job, not the renderer's: a heuristic basis is illegal in a
+    # systematic or umbrella review whatever is disclosed, and the check reports
+    # that separately.
+    if rec["streamlined_method_disclosed"]:
+        licenses = (" It does not permit a heuristic risk-of-bias basis in a "
+                    f"{rec['review_type']} review, which requires confirmed appraisal."
+                    if rec["review_type"] in CONFIRMED_ROB_REQUIRED else "")
+        lines += [f"> **Streamlined method disclosed:** "
+                  f"{_markdown_text(rec['streamlined_method_disclosed'])}{licenses}", ""]
     # The ID is a column, not a decoration: only `id` is required to be unique, so
     # two results may legitimately carry the same label. Rendering the label alone
     # made those rows indistinguishable and discarded the identifier every

@@ -63,6 +63,17 @@ CHECKS = {
         "why": "complete record, presented as valid",
         "stdout_has": ["1 appraisal of 1 study", "**H_rob: 0**"],
     },
+    "prisma-flow.md": {
+        "script": "skills/prisma-flow/scripts/prisma_flow.py",
+        "argv0": "prisma_flow.py",
+        "args": lambda: ["--strict"],
+        "expect": 0,
+        "why": "reconciling Template-1 record, presented as valid",
+        # The flow check had no contract at all, so its schema lived only in a
+        # docstring and NOTHING executed the example — the one check exempt from
+        # the guard this module exists to be. It changed twice in this feature.
+        "stdout_has": ["```mermaid", "✅ Counts reconcile end to end"],
+    },
     "prisma-checklist.md": {
         "script": "skills/prisma-flow/scripts/prisma_checklist.py",
         "argv0": "prisma_checklist.py",

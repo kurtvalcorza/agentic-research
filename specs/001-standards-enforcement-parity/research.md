@@ -316,3 +316,38 @@ per the spec's rule on pre-existing defects surfaced by new coverage.
 moves the codebase away from fail-closed to preserve a laxness nothing depends on); documenting
 the divergence and leaving both (rejected — the shared contract would then be fiction, and the
 conformance test could not exist).
+
+## D-020 — `prisma_flow.py` gets the shared closed schema too
+
+**Decision**: The flow record requires `schema_version` and rejects unknown keys, like the other
+three. This is the second behavioural change to `prisma_flow.py` in this feature.
+
+**Rationale**: `cli-contract.md` says it binds all four checks and that "a check that deviates is
+non-conforming regardless of whether its own rules are correct", and FR-028 and FR-044 say *all*
+checks and *every* structured record. The flow check enforced neither rule, so a record could
+carry `"recrods_screenedd": 999`, drop that count silently, reconcile over what remained, and
+print an authoritative ✅ over a number nobody had checked — the exact fail-open the unknown-key
+rule exists to prevent, in the artifact the README leads with. It was missed because the flow
+check was the one check with no contract document, so nothing executed its example and nothing
+compared it against the shared rules.
+
+**Risk**: a second behavioural change to shipped, working code, and a larger one than D-019 —
+every existing flow record needs `"schema_version": "1.0"` added. Called out in the pull request
+as its own change, per the same rule. The repository contains three flow records (a docstring
+example and two test modules); all were updated.
+
+**A second, smaller fail-open found while closing the first**: every reconciliation edge was
+guarded by truthiness, so a count recorded as `0` was indistinguishable from one omitted. A record
+stating 500 identified, 96 removed and `records_screened: 0` disabled three edges and reconciled
+clean. Edges are now checked on key PRESENCE, which is only decidable because the key set is
+closed — before that, an unknown key and an absent one looked the same.
+
+**Consequence**: `contracts/prisma-flow.md` now exists, so the flow record is covered by
+`tests/test_contract_examples.py` like the other three. That is the durable half of this decision
+— the divergence survived because the check's schema lived in a docstring that nothing ran.
+
+**Alternatives considered**: leaving the flow check permissive and narrowing the contract's "all
+four checks" claim (rejected — the contract would be describing a rule the repository does not
+follow, and `tests/test_coercion_conformance.py` exists precisely so shared rules cannot be
+aspirational); enforcing unknown keys but not the version (rejected — half a schema is not a
+closed one, and FR-044 is not conditional).

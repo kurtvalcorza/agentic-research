@@ -597,7 +597,10 @@ class TestUpgradeLegalityHasTwoBars(_Base):
                                                              "outside its population.")
                 code, out, err = self.run_gp_matching(rec, "dta", "--strict")
                 self.assertEqual(code, 1, msg=out + err)
-                self.assertIn("reserves rating up for non-randomized evidence", out)
+                # NOT the randomization reason: dta studies ARE non-randomized, so
+                # that message names something the record already satisfies.
+                self.assertIn("GRADE rates as starting at high", out)
+                self.assertNotIn("reserves rating up for non-randomized", out)
 
     def test_the_design_bar_is_not_reachable_by_adding_a_justification(self):
         """The staged trap, walked end to end."""
@@ -637,7 +640,7 @@ class TestUpgradeLegalityUsesTheDeclaredStart(_Base):
         change the design mix, the starting level, or the upgrade itself."""
         _, design_bar, _ = self.run_gp_matching(
             self.body("rct", "high", appraised_result=TARGET), "rct")
-        self.assertIn("body of rct studies", design_bar)
+        self.assertIn("body of randomized trials", design_bar)
         _, level_bar, _ = self.run_gp_matching(
             self.body("observational", "high", appraised_result=TARGET,
                       starting_level_justification="Population-based."),
@@ -743,15 +746,38 @@ class TestExceptionsAreNotShownWhereTheyDoNotApply(_Base):
     """Rendering an exception that licenses nothing credits the record with an
     allowance it never had — the same overclaim as hiding one, inverted."""
 
-    def test_a_disclosure_is_not_shown_for_a_systematic_review(self):
+    def test_a_systematic_review_sees_its_disclosure_and_what_it_does_not_permit(self):
+        """Recorded content is never hidden; the LINE says what it licenses.
+
+        Two narrower gates each dropped a disclosure from a passing artifact, so
+        the renderer no longer decides. It prints what the record says and, where a
+        heuristic basis is illegal, states plainly that the disclosure does not
+        make it legal — which the check also reports separately.
+        """
         rec = self.profile()
         rec["streamlined_method_disclosed"] = "SHORTCUT TEXT"
         rec["results"][0]["domains"]["risk_of_bias"]["basis"] = "heuristic"
         code, out, err = self.run_module(gp, "grade_profile.py",
                                          self.write(rec, "rec.json"), "--strict")
-        self.assertEqual(code, 1, msg=err)             # nothing licenses it here
+        self.assertEqual(code, 1, msg=err)
         self.assertIn("requires confirmed appraisal", out)
-        self.assertNotIn("SHORTCUT TEXT", out)
+        self.assertIn("SHORTCUT TEXT", out)
+        self.assertIn("does not permit a heuristic risk-of-bias basis", out)
+
+    def test_a_disclosure_survives_when_every_result_is_confirmed(self):
+        """The case the previous gate lost: nested inside `if provisional`, a rapid
+        review with all-confirmed results rendered byte-identically with and
+        without a recorded shortcut."""
+        for rtype in ("rapid", "systematic"):
+            with self.subTest(review_type=rtype):
+                rec = self.profile(appraised_result=TARGET)
+                rec["review_type"] = rtype
+                with_it = dict(rec, streamlined_method_disclosed="SHORTCUT TEXT")
+                _, a, _ = self.run_gp(rec)
+                _, b, _ = self.run_gp(with_it)
+                self.assertNotEqual(a, b, "two records differing in a recorded "
+                                          "shortcut rendered identically")
+                self.assertIn("SHORTCUT TEXT", b)
 
     def test_a_disclosure_is_shown_for_a_rapid_review(self):
         rec = self.profile()
@@ -817,6 +843,28 @@ class TestExceptionsAreNotShownWhereTheyDoNotApply(_Base):
             "--rob", self.write(rob, "rob.json"), "--strict")
         self.assertEqual(code, 1, msg=err)
         self.assertIn("more favourable than its worst domain", out)
+
+    def test_a_load_bearing_override_a_rating_rests_on_is_not_listed_twice(self):
+        """The record-level block says "no certainty rating here rests on them".
+
+        Every other override test uses a heuristic basis, so none of them exercises
+        the de-dup filter in the direction it guards: without it, an override a
+        rating DOES rest on is printed once in the result notes and again under a
+        header asserting that nothing rests on it. The artifact would be stating
+        something its own page above disproves.
+        """
+        rob = json.loads(fixture("risk-of-bias.valid.json").read_text(encoding="utf-8"))
+        rob["studies"][0]["domains"]["measurement"] = "high"
+        rob["studies"][0]["overall"] = "low"
+        rob["studies"][0]["overall_justification"] = "LOAD BEARING OVERRIDE"
+        rec = self.profile(appraised_result=TARGET)           # basis stays confirmed_rob
+        code, out, err = self.run_module(
+            gp, "grade_profile.py", self.write(rec, "rec.json"),
+            "--rob", self.write(rob, "rob.json"), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertEqual(out.count("LOAD BEARING OVERRIDE"), 1, msg=out)
+        self.assertIn("appraisal override — P1", out)          # in the result's notes
+        self.assertNotIn("no certainty rating here rests on them", out)
 
     def test_an_inert_override_is_not_advertised(self):
         """An override on an already-valid appraisal suppresses nothing, so listing
@@ -886,6 +934,23 @@ class TestAHumanGateIsNotAutoReducibleWork(_Base):
         self.assertIn("have no human confirmation", out)     # still reported
         self.assertIn("HUMAN GATE (H_rob)", out)             # and named as a gate
         self.assertIn("**U_grade: 0**", out)                 # not booked as work
+
+    def test_an_auto_reducible_traceability_error_is_still_counted(self):
+        """The mirror of the defect this fixes, and the case the arithmetic test
+        below cannot see.
+
+        The exclusion is scoped to the HUMAN-GATE list, not to traceability as a
+        whole. Widening it to every traceability violation would hand a mistyped
+        `appraised_result` — which the loop can repair unaided — to a human, and
+        report `auto_units_zero` over work nobody was waiting on. Both directions
+        of that boundary have to be pinned, or only one of them is.
+        """
+        rec = self.profile(appraised_result=TARGET[:-1])      # one character short
+        code, out, err = self.run_gp(rec, "--strict")
+        self.assertEqual(code, 1, msg=err)
+        self.assertIn("does not appear in the appraisal record", out)
+        self.assertNotIn("HUMAN GATE", out)                   # not a gate
+        self.assertIn("**U_grade: 1**", out)                  # so it IS booked
 
     def test_a_real_defect_alongside_it_is_still_counted(self):
         """The exclusion must not swallow the result whenever a gate is pending."""

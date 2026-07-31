@@ -80,7 +80,7 @@ This skill **does not draw the PRISMA flow diagram itself.** Instead, surface th
 - From `acquire-corpus`: identification counts (per database + snowball).
 - From `dedupe-records`: duplicates-removed count.
 
-Combine these into the `counts.json` consumed by `prisma-flow` (schema in its `scripts/prisma_flow.py`) and let that skill render `prisma-flow.md`. This replaces emitting a hollow flow whose identification/duplicate numbers came from nowhere — those upstream rows must come from `acquire-corpus`/`dedupe-records`, and the screening/eligibility rows from the tallies above.
+Combine these into the `counts.json` consumed by `prisma-flow` (schema in `specs/001-standards-enforcement-parity/contracts/prisma-flow.md`; it requires `"schema_version": "1.0"` and rejects unknown keys, so a misspelled count fails closed rather than dropping out of the record) and let that skill render `prisma-flow.md`. This replaces emitting a hollow flow whose identification/duplicate numbers came from nowhere — those upstream rows must come from `acquire-corpus`/`dedupe-records`, and the screening/eligibility rows from the tallies above.
 
 ## Error Handling
 - **Unreadable File**: Mark as "Excluded (Corrupted)" and log error.

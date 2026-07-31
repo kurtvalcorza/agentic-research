@@ -121,7 +121,7 @@ skills/
 ├── prisma-flow/
 │   ├── SKILL.md                      # MODIFIED — document the checklist check alongside the flow
 │   └── scripts/
-│       ├── prisma_flow.py            # UNCHANGED
+│       ├── prisma_flow.py            # CHANGED — quoted counts (D-019), closed schema (D-020)
 │       └── prisma_checklist.py       # NEW — reporting completeness check + checklist generator
 └── verify-review/
     ├── SKILL.md                      # MODIFIED — new units in both tables

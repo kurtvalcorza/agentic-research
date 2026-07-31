@@ -331,7 +331,7 @@ class TestUpgradeLegality(unittest.TestCase):
         rec["results"][0]["study_ids"] = ids
         code, out, _ = run(self._write(rec), "--rob", str(self._write(rob)), "--strict")
         self.assertEqual(code, 1)
-        self.assertIn("reserves rating up for non-randomized evidence", out)
+        self.assertIn("GRADE rates as starting at high", out)
 
     def test_upgrade_over_a_downgrade_is_flagged(self):
         rec = self._rec_with_upgrade("observational", True)

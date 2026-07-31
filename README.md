@@ -102,7 +102,7 @@ legitimate; conflating them is not, so the distinction is stated rather than lef
 
 | Standard | Where | Enforced? |
 |:---------|:------|:----------|
-| **PRISMA 2020** — flow diagram | `prisma-flow` → `prisma_flow.py` | ✅ arithmetic reconciliation, exit 1 under `--strict` |
+| **PRISMA 2020** — flow diagram | `prisma-flow` → `prisma_flow.py` | ✅ arithmetic reconciliation, exit 1 under `--strict`; closed schema with a required `schema_version`, exit 2 |
 | **PRISMA 2020** — checklist | `prisma-flow` → `prisma_checklist.py` | ✅ completeness over all **42 addressable rows** (27 numbered items + lettered sub-items) |
 | **PRISMA-S** (search reporting) | `acquire-corpus` search log | ⚠️ guidance — the log is written, not validated |
 | **PRISMA-ScR** (scoping) | `design-review-protocol` review-type branch | ⚠️ guidance — and the checklist variant is **deliberately not implemented**: its item table could not be transcribed from an accessible copy of the source, and an approximated table would make every verdict wrong while looking authoritative, so `prisma_checklist.py` refuses the variant rather than guessing |
