@@ -1,0 +1,84 @@
+# Responds to @claude mentions on issues and pull requests.
+#
+# WHY THIS FILE MUST LIVE ON THE DEFAULT BRANCH. GitHub runs `issue_comment`,
+# `issues` and `pull_request_review*` workflows from the DEFAULT branch, never
+# from the branch under discussion. Adding this to a feature branch does nothing:
+# the comment fires, no workflow matches, and nothing reports why. That is why it
+# arrives as its own pull request into main rather than riding along with a
+# feature branch.
+#
+# REQUIRED SECRET, and the reason nothing happens without it:
+#   CLAUDE_CODE_OAUTH_TOKEN — a repository secret, added by an admin under
+#   Settings → Secrets and variables → Actions. Generate it with `/install-github-app`
+#   in Claude Code, which also installs the GitHub App (https://github.com/apps/claude).
+#   The App needs Contents, Issues and Pull requests at read & write.
+#   On a Claude API plan instead of a subscription, swap the auth input below for
+#   `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}`.
+#
+# Until that secret exists this workflow still triggers and the job fails at the
+# action step. That is deliberate: a missing credential should be a red run with
+# a reason, not silence that reads exactly like "Claude ignored me".
+name: claude
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, assigned]
+
+# One run per issue or PR. A second @claude while the first is still working
+# queues rather than racing it — two runs pushing to the same branch is how a
+# review loop starts contradicting itself. Not cancel-in-progress: a run that is
+# midway through pushing a fix should finish, not be killed by a follow-up.
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    # Gate on the trigger phrase BEFORE starting a runner. Without this the job
+    # spins up on every comment on every issue in the repository and bills for it.
+    # The action re-checks the phrase itself; this is the cost control.
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Least privilege for what this repository actually asks of Claude: read the
+    # code, push a fix branch, and comment. `actions: read` lets it read failing
+    # CI logs, which is most of what a review round here needs.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history: reviewing a pull request means diffing against its base,
+          # and a shallow clone cannot see it.
+          fetch-depth: 0
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # No `prompt`: with none set the action runs in interactive mode and
+          # answers the comment that summoned it. A prompt here would override
+          # whatever was actually asked.
+          #
+          # Repository standards come from CLAUDE.md and
+          # .specify/memory/constitution.md, which the action reads on its own —
+          # stdlib-only, no cross-skill imports, fail closed. Restating them here
+          # would create a second copy to drift.
+          claude_args: --max-turns 30
