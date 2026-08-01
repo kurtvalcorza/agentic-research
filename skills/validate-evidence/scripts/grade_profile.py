@@ -63,6 +63,21 @@ USAGE
   python grade_profile.py record.json
   python grade_profile.py record.json --rob risk-of-bias.json --strict
   echo '{...}' | python grade_profile.py --strict
+  python grade_profile.py record.json --rob rob.json --strict --json   # counts only
+
+MACHINE-READABLE OUTPUT (--json)
+  Replaces the artifact with the envelope contracts/cli-contract.md defines:
+
+    {"check": "grade_profile", "schema_version": "1.0", "issues": 5,
+     "units": {"U_grade": 2, "U_rob_trace": 1}, "gates": {}, "unattributed": 1}
+
+  This is the only check producing TWO units, and they overlap on purpose: an
+  unresolved reference both fails its result (U_grade, counted per result) and is
+  the traceability work outstanding (U_rob_trace, counted per reference). Neither
+  may be derived from the other. `U_rob_trace` is emitted only when `--rob` is
+  supplied — without an appraisal record nothing was traced, and reporting 0 would
+  claim every reference resolved. `unattributed` counts violations of the appraisal
+  record itself, which belong to no certainty unit.
 
 EXIT CODES
   0 clean, or violations found without --strict
@@ -77,6 +92,11 @@ import math
 import sys
 
 SCHEMA_VERSIONS = {"1.0"}
+
+# Version of the --json ENVELOPE, not of the input record. A consumer validates it
+# before reading any count, so a script whose output shape changes is rejected
+# rather than silently mis-read as the shape the consumer expects.
+JSON_ENVELOPE_VERSION = "1.0"
 
 REVIEW_TYPES = {"systematic", "scoping", "rapid", "umbrella", "narrative"}
 SYNTHESIS_MODES = {"outcome", "theme"}
@@ -741,13 +761,20 @@ def arithmetic(r: dict) -> tuple[int, int, int, bool]:
 
 
 def check(rec: dict, appraisal: dict | None,
-          rob_supplied: bool) -> tuple[list[str], set]:
-    """Return (method violations, ids of the results that have at least one).
+          rob_supplied: bool) -> tuple[list[str], set, int]:
+    """Return (method violations, ids of the results that have at least one,
+    unresolved appraisal references).
 
     The id set is what `U_grade` is DEFINED as — results that fail, not diagnostics
     emitted. One result can raise four, and a loop counting messages would record
     four units of outstanding work for one broken result, corrupting the weighted
     total and the plateau history that routes the whole review.
+
+    The third value is `U_rob_trace`, summed over the results whose traceability was
+    actually examined. It is a SEPARATE unit from `U_grade` and the two overlap on
+    purpose: an unresolved reference both fails its result (U_grade) and is itself
+    the traceability work outstanding (U_rob_trace). They are weighted separately by
+    the loop, so neither may be derived from the other.
     """
     errs: list[str] = []
     rtype = rec["review_type"]
@@ -755,6 +782,7 @@ def check(rec: dict, appraisal: dict | None,
     # sweep below does not say the same thing twice.
     reported: set = set()
     failing: set = set()
+    rob_trace = 0
 
     for r in rec["results"]:
         rid = r["id"]
@@ -865,10 +893,11 @@ def check(rec: dict, appraisal: dict | None,
                                 f"appraisal record was supplied (--rob) — the claim cannot be "
                                 f"taken on trust")
                 elif appraisal is not None:
-                    trace_errs, gate_errs = _check_traceability(r, appraisal)
+                    trace_errs, gate_errs, unresolved = _check_traceability(r, appraisal)
                     errs.extend(trace_errs)
                     errs.extend(gate_errs)
                     gate_here = len(gate_errs)
+                    rob_trace += unresolved
                     reported |= {(s, r["appraised_result"]) for s in r["study_ids"]
                                  if (s, r["appraised_result"]) in appraisal}
 
@@ -882,7 +911,7 @@ def check(rec: dict, appraisal: dict | None,
     if appraisal is not None:
         errs.extend(_check_appraisal_record(appraisal, reported))
 
-    return errs, failing
+    return errs, failing, rob_trace
 
 
 def _appraisal_problems(item: dict) -> list[str]:
@@ -940,7 +969,7 @@ def _check_appraisal_record(appraisal: dict, reported: set) -> list[str]:
     return errs
 
 
-def _check_traceability(r: dict, appraisal: dict) -> list[str]:
+def _check_traceability(r: dict, appraisal: dict) -> tuple[list[str], list[str], int]:
     """Rules 10 and 12 — references resolve to the RIGHT appraisal, and the body
     judgment coheres with them.
 
@@ -948,11 +977,20 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
     appraised for mortality back a certainty rating about quality of life, which is
     the wrong risk-of-bias evidence for that claim.
 
-    Returns (violations, HUMAN-GATE violations). The second list is reported like
-    any other, but must not be counted into U_grade: a missing signature is not
-    auto-reducible work, and booking it as such made the loop route the agent back
-    to this check to repair something only a person can clear. The contract says it
-    three times — an unconfirmed appraisal belongs exclusively to H_rob.
+    Returns (violations, HUMAN-GATE violations, UNRESOLVED REFERENCE COUNT). The
+    second list is reported like any other, but must not be counted into U_grade: a
+    missing signature is not auto-reducible work, and booking it as such made the
+    loop route the agent back to this check to repair something only a person can
+    clear. The contract says it three times — an unconfirmed appraisal belongs
+    exclusively to H_rob.
+
+    The third value is `U_rob_trace`, DEFINED by the contract as references that do
+    not resolve at the named `(study, result)` target. It counts REFERENCES, not
+    diagnostics: three unresolved studies raise one message naming all three, and a
+    loop counting messages would book one unit of work for three broken references.
+    When the target itself is blank or unknown, NONE of the result's references can
+    resolve, so every one of them counts — reporting 0 there would say the
+    traceability was clean when in truth it could not be attempted.
     """
     errs, gate = [], []
     rid = r["id"]
@@ -963,7 +1001,7 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
         return ([f"result {rid}: 'appraised_result' is required when the risk-of-bias "
                 f"basis is 'confirmed_rob'{supplied} — it names which appraised result "
                 f"backs this certainty rating, since an appraisal targets one result, "
-                f"not a whole study"], [])
+                f"not a whole study"], [], len(r["study_ids"]))
 
     known_targets = sorted({k[1] for k in appraisal})
     if target not in known_targets:
@@ -975,7 +1013,8 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                 f"surrounding whitespace" if near else "")
         return ([f"result {rid}: appraised_result {target!r} does not appear in the "
                  f"appraisal record (it appraises: "
-                 f"{', '.join(repr(t) for t in known_targets)}){hint}"], [])
+                 f"{', '.join(repr(t) for t in known_targets)}){hint}"], [],
+                len(r["study_ids"]))
 
     resolved, unresolved, wrong_target = [], [], []
     for sid in r["study_ids"]:
@@ -1061,7 +1100,10 @@ def _check_traceability(r: dict, appraisal: dict) -> list[str]:
                 f"result {rid}: risk_of_bias downgraded -2 (very serious) while all "
                 f"{len(confirmed)} confirmed studies are low risk — record a "
                 f"coherence_justification if this is intended")
-    return errs, gate
+    # A reference is untraceable whether the appraisal is missing entirely or is
+    # present for a DIFFERENT result — both mean this certainty rating is backed by
+    # nothing at the target it names.
+    return errs, gate, len(unresolved) + len(wrong_target)
 
 
 # --- generation --------------------------------------------------------------
@@ -1317,6 +1359,8 @@ def main() -> int:
                     help="appraisal record, for confirming a 'confirmed_rob' basis")
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if the record violates a rule")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the machine-readable counts envelope instead of the profile")
     args = ap.parse_args()
 
     try:
@@ -1358,12 +1402,37 @@ def main() -> int:
 
     try:
         rec = parse(data)
-        errs, failing = check(rec, appraisal, rob_supplied=bool(args.rob))
+        errs, failing, rob_trace = check(rec, appraisal, rob_supplied=bool(args.rob))
     except InputError as e:
         # No artifact on malformed input: a record that cannot be read must not
         # produce a document that looks authoritative.
         sys.stderr.write(f"grade_profile: {e}\n")
         return 2
+
+    # Violations belonging to the appraisal record supplied via --rob rather than to
+    # a certainty result. Computed once, for both output modes: the artifact prints
+    # it as a note and --json reports it as unattributed, and the two must agree.
+    record_level = len(errs) - sum(1 for e in errs if e.startswith("result "))
+
+    if args.json:
+        # U_rob_trace is emitted ONLY when --rob was supplied. Without an appraisal
+        # record no traceability was attempted, and reporting 0 would state that
+        # every reference resolved — a consumer must see the unit as ABSENT rather
+        # than read an unrun check as a clean one.
+        units = {"U_grade": len(failing)}
+        if args.rob:
+            units["U_rob_trace"] = rob_trace
+        json.dump({
+            "check": "grade_profile",
+            "schema_version": JSON_ENVELOPE_VERSION,
+            "issues": len(errs),
+            "units": units,
+            "gates": {},
+            "unattributed": record_level,
+            "detail": {"failing_results": sorted(failing)},
+        }, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 1 if (errs and args.strict) else 0
 
     print(f"# GRADE certainty — {rec['review_type']} review\n")
     print(evidence_profile(rec, appraisal))
@@ -1388,7 +1457,6 @@ def main() -> int:
     named = ", ".join(_markdown_text(rid) for rid in sorted(failing))
     print(f"\n**U_grade: {len(failing)}** result(s) with at least one issue"
           f"{' (' + named + ')' if failing else ''}.")
-    record_level = len(errs) - sum(1 for e in errs if e.startswith("result "))
     if record_level:
         print(f"\n> {record_level} further violation(s) belong to the appraisal record "
               f"supplied via `--rob`, not to a certainty result, so they are outside "

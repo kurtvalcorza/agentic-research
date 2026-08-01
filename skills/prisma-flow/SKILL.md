@@ -27,7 +27,18 @@ The two arms reconcile **independently** and merge at *studies included in revie
 ```
 python scripts/prisma_flow.py counts.json            # renders Mermaid + reconciliation
 python scripts/prisma_flow.py counts.json --strict   # exit 1 if counts do not reconcile
+python scripts/prisma_flow.py counts.json --strict --json   # counts only, no diagram
 ```
+
+**`--json`** replaces the artifact with the machine-readable counts envelope, so a consumer can
+READ `U_prisma` rather than re-derive it from the prose. Both scripts here support it, and both
+report the count they define rather than leaving it to be reconstructed from their rendered
+output. `U_prisma` is failing stages **plus stages nothing could reach** — a record
+naming only two ends fails nothing for want of anything to check, and a unit counting only
+failures would report it as zero outstanding work. The flag does not change the exit code, and
+malformed input still emits nothing. **Nothing consumes the envelope yet** — having
+`verify-review` run the checks and take their counts is tracked as issue #4. Full shape in
+`specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
 
 The script renders a Mermaid flowchart (GitHub/Markdown-renderable) and runs a **reconciliation check** on each arm:
 - *Databases/registers:* identified − duplicates removed = screened; screened − excluded(title/abstract) = sought; sought − not retrieved = assessed; assessed − excluded(full-text) = studies included (databases).

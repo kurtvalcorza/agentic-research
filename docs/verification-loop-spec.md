@@ -61,9 +61,25 @@ auto-reducible — see §5).
 | `U_cite_internal` | 1 | `validate-citations` | draft-vs-matrix consistency | # draft citations with no matrix match |
 | `U_screen` | 1 | `screen-literature` | dual-reviewer disagreement list; `kappa.py --min-kappa` | # unresolved disagreements (κ-below-floor → BLOCKED flag, see §5) |
 | `U_extract` | 1 | `extract-synthesis` | dual-extraction reconcile | # extraction fields flagged unreconciled |
-| `U_prisma` | 1 | `prisma-flow` | `prisma_flow.py --strict` | # arms that fail reconciliation (0/1/2) |
+| `U_prisma` | 1 | `prisma-flow` | `prisma_flow.py --strict` | # stages failing reconciliation **+ # stages nothing could reach** (0–8) |
 | `U_consistency` | 1 | `validate-consistency` | graded gap below the 75 gate + critical breaks | `# critical breaks` + `max(0, 75 − score)` (decision Q2) |
-| `U_grade` | 1 | `validate-evidence` | GRADE coverage | # themes/outcomes not yet graded |
+| `U_grade` | 1 | `validate-evidence` | `grade_profile.py --strict` | # results failing the certainty check |
+
+> **Two rows drifted from what shipped, and both are corrected above.** `U_grade` was
+> "# themes/outcomes not yet graded", which had no operational definition and so could never fail
+> for the right reason; it was redefined as the count the certainty check reports. `U_prisma` was
+> "# arms that fail reconciliation (0/1/2)", which counted only failures — a record naming just two
+> ends of the flow fails nothing for want of anything to check, and would have reported zero
+> outstanding work. Both now count what their check emits. `U_rob_trace` and `U_checklist` were
+> added after this document and are absent from this table entirely.
+>
+> Both counts are readable from the artifact; `--strict --json` emits them as data instead,
+> which is the same number in a different format and has no consumer in this repository yet.
+>
+> **This spec is the original design, not the current contract.** The shipped definitions live in
+> `skills/verify-review/SKILL.md` and
+> `specs/001-standards-enforcement-parity/contracts/review-units.md`; where they disagree with this
+> file, they win.
 
 **Weighting (Q1).** `U_cite_external` carries weight **3**; all others weight **1**. This affects
 *routing* (the dominant-unit pick prefers citation integrity) and the *climb gradient* (clearing one

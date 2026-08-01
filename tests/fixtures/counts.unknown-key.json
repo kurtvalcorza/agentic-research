@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "identified_databases": {"OpenAlex": 412},
+  "duplicates_removed": 96,
+  "recrods_screenedd": 316,
+  "studies_included_total": 38
+}
