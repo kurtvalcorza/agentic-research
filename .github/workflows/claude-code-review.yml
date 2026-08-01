@@ -167,8 +167,17 @@ jobs:
           # and produced an execution file before giving up, so it still has to
           # answer for posting nothing.
           if [ -z "${EXECUTED}" ]; then
+            # Derive this workflow's own path rather than hardcoding it. A string
+            # literal here would go stale the moment the file is renamed, and it
+            # would go stale on the ONE pull request that most needs the
+            # exemption — the rename itself — reporting a phantom expired secret.
+            # Config that silently stops matching itself is the failure class
+            # this whole workflow exists to catch, so it should not ship one.
+            # GITHUB_WORKFLOW_REF is `owner/repo/path/to/file.yml@refs/...`.
+            me=$(printf '%s' "${GITHUB_WORKFLOW_REF}" | sed -E 's#^[^/]+/[^/]+/##; s#@.*$##')
+            echo "this workflow is ${me}"
             self=$(count "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" \
-                     '[.[] | select(.filename == ".github/workflows/claude-code-review.yml")] | length')
+                     "[.[] | select(.filename == \"${me}\")] | length")
             if [ "${self}" -gt 0 ]; then
               echo "::warning::The action did not execute because this pull" \
                    "request changes the review workflow itself, which it refuses" \
