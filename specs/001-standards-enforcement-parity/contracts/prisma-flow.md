@@ -41,18 +41,23 @@ Template 1 — databases and registers only. Reconciles end to end, exits 0 unde
 Arithmetic: `500 identified − 96 removed = 404 screened − 328 excluded = 76 sought − 4 not
 retrieved = 72 assessed − 34 excluded = 38 included`. ✅
 
-That record reports `✅ Counts reconcile — 5 of 8 stages attempted: identification, screening,
-retrieval, eligibility, merge`, followed by the caveat that attempted is not independently
-confirmed (rule 3b). The artifact carries that sentence itself rather than deferring to the skill
-documentation, because `prisma-flow.md` is what gets published and read.
+That record reports `✅ Counts reconcile — 5 of 5 stages checked: identification, screening,
+retrieval, eligibility, merge` — every applicable stage, because it supplies every count they
+read. A record omitting an operand is told which stages could not be reached, in the artifact
+itself rather than only in the skill documentation, because `prisma-flow.md` is what gets
+published and read.
 
 ## The two arms
 
-PRISMA 2020 ships two flow templates and the check renders whichever the counts describe. Adding
-any non-zero `identified_other` / `other_reports_*` / `studies_included_other` value selects
-Template 2, whose parallel arm runs its own sought → assessed → excluded chain and merges at
-*studies included*. The arms are reconciled **independently** and then merged: other-methods
-reports enter at the report level, never pooled into title/abstract screening.
+PRISMA 2020 ships two flow templates and the check renders whichever the counts describe.
+**Supplying** any `identified_other` / `other_reports_*` / `studies_included_other` key selects
+Template 2 — supplying, not supplying a non-zero value: a citation search that found nothing
+described that arm, and a record saying so gets the same treatment as one that found something.
+The same rule applies to the databases arm, which is why an other-methods-only record renders no
+databases column and counts four applicable stages rather than eight. Template 2's parallel arm
+runs its own sought → assessed → excluded chain and merges at *studies included*. The arms are
+reconciled **independently** and then merged: other-methods reports enter at the report level,
+never pooled into title/abstract screening.
 
 ## Rules
 
@@ -61,13 +66,13 @@ reports enter at the report level, never pooled into title/abstract screening.
 | 1 | `schema_version` present and recognised | exit 2 |
 | 2 | Only the keys enumerated below; a misspelled count is malformed input | exit 2 |
 | 3 | Every count is a whole, non-negative JSON number — booleans, quoted numbers, fractions and non-finite values all rejected | exit 2 |
-| 3b | An edge is reconciled when the **two counts its name mentions** are present; a count recorded as `0` is checked, not skipped. Omitting one of those two skips its edge — an incomplete record, not a contradictory one. **A third operand is not gated**: every stage reading more than two counts lets the extra one default to zero, so `screening` is checked without `records_excluded_title_abstract` present, and so on for five other stages. Rule 8 bounds the other end: omitting *every* identification or *every* inclusion count is malformed input, not an incomplete record | — |
+| 3b | An edge is reconciled when **every count it reads** is present — not merely the two its name mentions; a count recorded as `0` is checked, not skipped. Omitting any operand skips that edge: an incomplete record, not a contradictory one. Two operands are groups (`identified_databases`/`identified_registers`, and `duplicates_removed`/`removed_other_reasons`) and count as supplied when any member is, because omitting one member states that category is zero while omitting the group states nothing. Rule 8 bounds the other end: omitting *every* identification or *every* inclusion count is malformed input | — |
 | 4 | Databases/registers arm: `identified − removed = screened`, `screened − excluded(t/a) = sought`, `sought − not_retrieved = assessed`, `assessed − excluded(full-text) = included` | exit 1 — reports both sides and the difference |
 | 5 | Other-methods arm, when present: `identified = sought`, `sought − not_retrieved = assessed`, `assessed − excluded = included` | exit 1 |
-| 6 | `studies_included_databases + studies_included_other = studies_included_total`, checked when the grand total **and at least one arm total** are supplied. The grand total alone would compare against two arm totals that both defaulted to zero. Note the remaining arm can still default — see rule 3b; this narrows the case, it does not close the class | exit 1 |
+| 6 | `studies_included_databases + studies_included_other = studies_included_total`, checked when the grand total and **every arm the record describes** are supplied. Each arm total is required only when that arm is described — neither is required unconditionally, so an other-methods-only flow needs `studies_included_other` and not `studies_included_databases`. An arm is described when the record says anything at all about it, zeros included | exit 1 |
 | 7 | The five breakdown keys — `identified_databases`, `identified_registers`, `identified_other`, `reports_excluded`, `other_reports_excluded` — map a source or reason to its own count and must be objects. A bare number is malformed input, not a total | exit 2 |
 | 8 | At least one identification key (`identified_databases`, `identified_registers`, `identified_other`) **and** at least one inclusion key (`studies_included_databases`, `studies_included_other`, `studies_included_total`) must be supplied. Supplied means carrying a count: `null` and `{}` are not | exit 2 |
-| 9 | The reconciliation line reports how many of the eight stages were checked. A record passing rule 8 that still checks no stage says so, and does not print ✅ | — |
+| 9 | The reconciliation line reports how many of the **applicable** stages were checked and names any it could not reach, on every branch — clean, failing, or nothing-checked. Applicable means the stages belonging to the arms the record describes: **five** for a databases-only flow (four stages plus the merge), **four** for an other-methods-only one (three plus the merge), **eight** when it describes both. The diagram renders the same arms, so the artifact and the verdict cannot describe different flows. A record passing rule 8 that still checks no stage says so, and does not print ✅ | — |
 
 Permitted keys: `schema_version`, `identified_databases`, `identified_registers`,
 `identified_other`, `duplicates_removed`, `removed_other_reasons`, `records_screened`,

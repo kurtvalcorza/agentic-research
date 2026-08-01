@@ -115,40 +115,28 @@ one, which is strictly worse than the failing check you started with.
 
 **That the record is complete.** Requiring an identification and an inclusion count establishes
 that the flow has two named ends; it does not establish that everything between them was
-reported. An edge is checked only when both of its counts were supplied, so a partially reported
-flow is incomplete rather than contradictory, and the check says nothing either way about the
-stages left out.
+reported. An edge is checked only when **every count it reads** was supplied, so a partially
+reported flow is incomplete rather than contradictory, and the check says nothing either way
+about the stages left out.
 
-What it will no longer do is pretend otherwise. The reconciliation line names how many of the
-eight stages were actually checked, and a record where **none** were says so outright rather
-than printing a tick — "Nothing was reconciled … This diagram reports the counts given; it does
-not attest to them." A bare ✅ over a flow nothing had examined was the fail-open behind #9.
+What it will no longer do is pretend otherwise. The reconciliation line reports how many of the
+**applicable** stages were checked and **names the ones it could not reach**; a record where
+none were checked says so outright rather than printing a tick — "Nothing was reconciled … This
+diagram reports the counts given; it does not attest to them." A bare ✅ over a flow nothing had
+examined was the fail-open behind #9. Applicable means the stages belonging to the arms the
+record actually describes: four plus the merge for a databases-only flow, three plus the merge
+for an other-methods-only one, all eight when it describes both.
 
-**That every stage it counts as checked was checked against supplied numbers.** The stage count
-is only as honest as the gates it derives from, and **every gate reading more than two counts
-has this problem** — each gates on the two counts its name mentions and lets any further operand
-default to zero:
+**Which stages it did not check.** An edge is compared only when **every** count it reads was
+supplied — not merely the two its name mentions. So an omitted count leaves its stage unexamined
+rather than assumed to be zero, and the reconciliation line names how many of the applicable
+stages were checked. A record reporting "2 of 5 stages checked" reconciles as far as it was
+asked to; it says nothing about the three it could not reach.
 
-| Stage | compares | operand that silently defaults |
-|:--|:--|:--|
-| `identification` | `identified − removed = screened` | `duplicates_removed`, `removed_other_reasons` |
-| `screening` | `screened − excluded(t/a) = sought` | `records_excluded_title_abstract` |
-| `retrieval` | `sought − not_retrieved = assessed` | `reports_not_retrieved` |
-| `eligibility` | `assessed − excluded(full-text) = included` | `reports_excluded` |
-| `other retrieval` | `sought − not_retrieved = assessed` | `other_reports_not_retrieved` |
-| `other eligibility` | `assessed − excluded = included` | `other_reports_excluded` |
-| `merge` | `databases + other = total` | whichever arm total is absent |
-
-Only `other identification` reads exactly two counts and is therefore exact. So a record told
-"3 of 8 stages checked" may have had any of those three compare a real number against a zero
-nobody supplied — `{"identified_databases": {"x": 100}, "duplicates_removed": 0,
-"records_screened": 100, "reports_sought": 100}` reports `screening` as checked without
-`records_excluded_title_abstract` ever appearing.
-
-Tracked separately, because the fix is one rule applied to every gate rather than a patch to
-any of them: an edge should gate on **all** of its operands, not merely the two its name
-mentions. Until that lands, read the stage count as **stages the check attempted**, never
-stages independently confirmed.
+Two operands are groups rather than single keys, and a group counts as supplied when any member
+is: identification sums `identified_databases` and `identified_registers`, and the removal box
+sums `duplicates_removed` and `removed_other_reasons`. Omitting one member states that category
+is zero, which is a real claim about the run; omitting the whole group states nothing.
 
 ## Boundaries
 
