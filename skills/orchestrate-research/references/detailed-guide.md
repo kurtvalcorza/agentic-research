@@ -1491,10 +1491,14 @@ consistency_score = validate_consistency(
 # then hands off to the human gates. It gates `complete` for a submission-ready review.
 #
 # IMPORTANT: the backend fails closed on any DECLARED-but-missing unit, so cycle 0
-# must seed EVERY unit in units_in_scope. For systematic/scoping/rapid/umbrella scope
-# that includes U_prisma (run prisma-flow) and U_grade (run validate-evidence) BEFORE
-# invoking the loop — not only the citation/consistency snapshots — or the loop stalls
-# on missing_units. Also pass the in-scope human gates (H_rob/…) each cycle.
+# must seed EVERY unit in units_in_scope — and WHICH units those are is the review
+# type's business, not a fixed list. U_prisma (run prisma-flow) is in scope for
+# systematic/umbrella/rapid/scoping; U_grade (run validate-evidence) for
+# systematic/umbrella/rapid but NOT scoping, which does no certainty grading. Seed
+# them BEFORE invoking the loop — not only the citation/consistency snapshots — or it
+# stalls on missing_units. Also pass the in-scope human gates (H_rob/…) each cycle.
+# The scope table in verify-review/SKILL.md is the authority; read it rather than
+# inferring the set from this example.
 #
 # SEEDING A NUMBER IS NO LONGER ENOUGH (issue #4). When units_in_scope is declared,
 # a unit a check can DERIVE may not be self-reported: U_prisma, U_checklist, U_grade,
@@ -1505,10 +1509,40 @@ consistency_score = validate_consistency(
 # so a scope containing U_rob_trace also needs the rob_appraisal entry.
 from skills.verify_review import verify_review
 
+def checks_for(scope):
+  """The `checks` block MIRRORS the frozen scope — never a fixed list of all four.
+
+  A declared record must EXIST: `contained_record()` rejects a missing one during
+  validation, before any check is executed. And the artifacts differ by review type
+  (see verify-review/SKILL.md's scope table) — a scoping review has no certainty
+  profile and no PRISMA-ScR checklist, a rapid review has no traced appraisal, a
+  narrative review has none of the four. So declaring all four unconditionally exits
+  2 on every path except systematic/umbrella, which is the opposite of gating them.
+  """
+  checks = {}
+  if "U_prisma" in scope:
+    checks["prisma_flow"] = {"record": "reporting/counts.json"}
+  if "U_checklist" in scope:
+    checks["prisma_checklist"] = {"record": "reporting/checklist.json"}
+  if "U_grade" in scope:
+    checks["grade_profile"] = {"record": "certainty/grade-profile.json"}
+  # U_rob_trace is a CONDITIONAL unit of grade_profile, derived only when the appraisal
+  # is passed as --rob — `rob_appraisal` itself derives no unit at all, it owns the
+  # H_rob GATE. Declaring rob_record also obliges a rob_appraisal entry on the SAME
+  # file, and H_rob's scope rides on U_rob_trace's, so the two go in together or not at
+  # all. A rapid review grades certainty without a traced appraisal and correctly gets
+  # grade_profile with neither.
+  if "U_rob_trace" in scope:
+    checks.setdefault("grade_profile", {})["rob_record"] = "appraisal/risk-of-bias.json"
+    checks["rob_appraisal"] = {"record": "appraisal/risk-of-bias.json"}
+  return checks
+
+scope = scope_for(project_context.review_type)  # frozen at classification (spec §3.3)
+
 verdict = verify_review(
   manifest_path=f"{project_context.output_root}/manifest.json",
   review_type=project_context.review_type,
-  units_in_scope=scope_for(project_context.review_type),  # frozen at classification (spec §3.3)
+  units_in_scope=scope,
   snapshot_results={               # seed cycle 0 from the snapshots above (no re-run)
     "citation_score": citation_score,
     "verification": verification,
@@ -1516,13 +1550,7 @@ verdict = verify_review(
     "prisma": prisma_result,          # required when U_prisma is in scope
     "grade": evidence_grading_result, # required when U_grade is in scope
   },
-  checks={                         # DERIVE those counts by re-running the checks
-    "prisma_flow":      {"record": "reporting/counts.json"},
-    "prisma_checklist": {"record": "reporting/checklist.json"},
-    "rob_appraisal":    {"record": "appraisal/risk-of-bias.json"},
-    "grade_profile":    {"record": "certainty/grade-profile.json",
-                         "rob_record": "appraisal/risk-of-bias.json"},
-  },
+  checks=checks_for(scope),        # DERIVE those counts by re-running the checks
   output_path=f"{project_context.output_root}/verification/verify-review-report.md"
 )
 # verdict["state"] == "VERIFIED"          → review may be marked complete
