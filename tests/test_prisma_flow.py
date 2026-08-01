@@ -414,6 +414,42 @@ class TestARecordMustNameBothEndsOfTheFlow(_RunRecord):
         })
         self.assertEqual(code, 0, msg=out + err)
 
+    def test_an_explicit_null_does_not_satisfy_the_gate(self):
+        """The first version of this gate tested key PRESENCE, so a record naming
+        both ends as null passed it and then reproduced the exact defect the gate
+        was added to stop: every reader downstream treats null as absent, so no
+        edge was checked, and the all-zero diagram printed "counts reconcile end
+        to end" at exit 0 under --strict. Supplied means carrying a value."""
+        rec = {"schema_version": "1.0",
+               "identified_databases": None, "studies_included_total": None}
+        code, out, err = self.run_record(rec, "--strict")
+        self.assertEqual(code, 2, msg=out + err)
+        self.assertIn("no identification count supplied", err)
+        self.assertNotIn("reconcile end to end", out)
+        self.assertNotIn("flowchart", out)
+
+    def test_null_at_either_end_alone_is_also_rejected(self):
+        for null_key, expected in (("identified_databases", "identification"),
+                                   ("studies_included_total", "inclusion")):
+            with self.subTest(null_key=null_key):
+                rec = {"schema_version": "1.0",
+                       "identified_databases": {"OpenAlex": 5},
+                       "studies_included_total": 5}
+                rec[null_key] = None
+                code, _, err = self.run_record(rec)
+                self.assertEqual(code, 2)
+                self.assertIn(f"no {expected} count supplied", err)
+
+    def test_one_real_value_survives_a_null_sibling(self):
+        """Null must not disqualify an end that another key genuinely supplies."""
+        code, out, err = self.run_record({
+            "schema_version": "1.0",
+            "identified_databases": None,
+            "identified_other": {"citation searching": 5},
+            "studies_included_total": 5,
+        })
+        self.assertEqual(code, 0, msg=out + err)
+
 
 class TestBreakdownKeysMustBeObjects(_RunRecord):
     """Closing the key set said which keys may appear, never what may appear under

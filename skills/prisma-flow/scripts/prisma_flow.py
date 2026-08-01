@@ -161,9 +161,17 @@ def validate_record(c) -> None:
     # checked" printed as "counts reconcile end to end" over a diagram whose every
     # node read n=0. Absent counts must be reported as missing, never defaulted to
     # zero (constitution, fail closed).
+    # Supplied means "carries a value", not "the key is present". `set(c)` would
+    # accept `"identified_databases": null`, which every reader downstream then
+    # treats as absent — the breakdown check above skips None by design, _sum()
+    # resolves it to 0, and every reconcile() edge is gated on presence and so
+    # skipped. The record would satisfy this gate and still emit the all-zero
+    # diagram certifying itself, which is the very output this gate exists to
+    # stop. Null reads as absent everywhere else in this file; it has to here too.
+    supplied = {k for k, v in c.items() if v is not None}
     for label, required in (("identification", IDENTIFICATION_KEYS),
                             ("inclusion", INCLUSION_KEYS)):
-        if not required & set(c):
+        if not required & supplied:
             raise CountError(
                 f"record: no {label} count supplied. A PRISMA flow runs from "
                 f"records identified to studies included, so it needs at least one "
