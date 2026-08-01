@@ -172,7 +172,7 @@ At the reporting/validation phase, the orchestrator routes to **`prisma-flow`** 
 
 This **replaces any hollow or hand-made PRISMA artifact** — the diagram is computed from real run data, not drawn by hand.
 
-**Gate rule:** `prisma-flow` **FAILS if the arithmetic does not reconcile** end to end (identified − duplicates − excluded ≠ included). A failure means the counts carried between phases are inconsistent and must be fixed before the review is reported. When the acquisition front-end was NOT used (bring-your-own corpus, so no identification/duplicates counts exist upstream), supply the identification and duplicates-removed counts that `prisma-flow` needs from the corpus's own provenance, or run it in the screening-only mode it supports.
+**Gate rule:** `prisma-flow` **FAILS if the arithmetic does not reconcile** end to end (identified − duplicates − excluded ≠ included). A failure means the counts carried between phases are inconsistent and must be fixed before the review is reported. When the acquisition front-end was NOT used (bring-your-own corpus, so no identification/duplicates counts exist upstream), declare the corpus itself as the identification source — `"identified_databases": {"pre-collected corpus": N}` with `"duplicates_removed": 0` when no de-duplication was performed. A record supplying no identification count is rejected at exit 2; there is no screening-only mode.
 
 ---
 

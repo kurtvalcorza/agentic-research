@@ -1034,7 +1034,12 @@ class TestDiagnosticsCannotBeForged(_Base):
         """The flow diagram is the headline figure of a systematic review, and its
         labels are caller-supplied dictionary KEYS — validated nowhere, while every
         count beside them was validated rigorously."""
-        counts = {"schema_version": "1.0", "duplicates_removed": 0,
+        # identified_databases is not incidental to this fixture any more: a
+        # record naming no identification count is now rejected outright, so
+        # without it this never reaches the label escaping it exists to test.
+        counts = {"schema_version": "1.0",
+                  "identified_databases": {"OpenAlex": 30},
+                  "duplicates_removed": 0,
                   "records_screened": 30, "records_excluded_title_abstract": 10,
                   "reports_sought": 20, "reports_not_retrieved": 0,
                   "reports_assessed": 20,
