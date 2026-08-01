@@ -102,11 +102,19 @@ identification and one inclusion count present.
 
 **Bring-your-own-corpus runs.** When the acquisition front-end was not used there is no database
 search to report, and rule 8 still applies. Declare the corpus itself as the identification
-source — `"identified_other": {"pre-collected corpus": N}` — which is a real count rather than an
-invented one, and omit `duplicates_removed` rather than recording `0`: an omitted count skips its
-edge, a zero asserts that none were removed. `synthesize-research` and `orchestrate-research`
-carry the same instruction. There is no screening-only mode, and two skill documents previously
-implied one.
+source — `"identified_databases": {"pre-collected corpus": N}`, with `"duplicates_removed": 0`
+when no de-duplication was performed. Both are real counts rather than invented ones.
+
+The corpus goes in the databases/registers arm, not `identified_other`, despite not being a
+database search. Two reasons, and the label carries the meaning the arm does not: that arm is the
+only one with a title/abstract screening stage, which is the stage this workflow actually uses;
+and putting the corpus in the other-methods arm renders two disconnected subgraphs — an
+identification box reading `n=0` feeding a screening box reading `n=N`, beside an identification
+box reading `n=N` feeding a dead-end sought box reading `n=0`. Both reviewers on PR #15 raised
+that independently.
+
+`synthesize-research` and `orchestrate-research` carry the same instruction. There is no
+screening-only mode, and two skill documents previously implied one.
 
 ## What this cannot check
 

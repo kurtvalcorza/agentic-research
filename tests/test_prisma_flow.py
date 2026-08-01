@@ -449,6 +449,56 @@ class TestARecordMustNameBothEndsOfTheFlow(_RunRecord):
         self.assertEqual(code, 1)
         self.assertIn("studies_included_total = 40", out)
 
+
+class TestTheBringYourOwnCorpusRecord(_RunRecord):
+    """The record three skill documents instruct an agent to write.
+
+    Rule 8 broke this workflow — a regression, not a gap: the same record exits 0
+    on main. It is documented in synthesize-research and orchestrate-research,
+    which also forbade the obvious workaround ("do not invent identification
+    numbers"), and two documents promised a screening-only mode that has never
+    existed. Pinned here so the guidance and the check cannot drift apart again.
+    """
+
+    RECORD = {
+        "schema_version": "1.0",
+        "identified_databases": {"pre-collected corpus": 120},
+        "duplicates_removed": 0,
+        "records_screened": 120,
+        "records_excluded_title_abstract": 80,
+        "reports_sought": 40,
+        "reports_not_retrieved": 0,
+        "reports_assessed": 40,
+        "reports_excluded": {"wrong population": 22},
+        "studies_included_databases": 18,
+        "studies_included_total": 18,
+    }
+
+    def test_the_documented_record_reconciles(self):
+        code, out, err = self.run_record(dict(self.RECORD), "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("✅", out)
+
+    def test_it_renders_one_connected_arm(self):
+        """The corpus belongs in the databases/registers arm because that is the
+        only arm with a title/abstract screening stage. Putting it in
+        identified_other reconciled just as well and drew two dead subgraphs —
+        an identification box at n=0 feeding a screening box at n=120, beside an
+        identification box at n=120 feeding a sought box at n=0."""
+        _, out, _ = self.run_record(dict(self.RECORD))
+        self.assertIn('ID["Records identified: n=120', out)
+        self.assertIn('SCR["Records screened: n=120"]', out)
+        self.assertNotIn("IDO[", out)          # no phantom other-methods arm
+        self.assertNotIn('n=0<br/>"]', out)    # no identification box reading zero
+
+    def test_omitting_identification_entirely_is_still_refused(self):
+        """The rule this workflow has to satisfy rather than bypass."""
+        rec = dict(self.RECORD)
+        del rec["identified_databases"]
+        code, _, err = self.run_record(rec, "--strict")
+        self.assertEqual(code, 2)
+        self.assertIn("no identification count supplied", err)
+
     def test_a_zero_count_still_counts_as_supplied(self):
         """A review that identified nothing is a real, reportable outcome. The gate
         is about presence, never magnitude — the whole point of the distinction."""

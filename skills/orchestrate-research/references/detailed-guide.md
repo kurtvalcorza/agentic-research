@@ -991,9 +991,10 @@ if prisma["gate"] == "FAIL":
 
 # NOTE (bring-your-own corpus): when the acquisition front-end was NOT used,
 # there are no upstream identification/duplicates counts. Declare the corpus as
-# the identification source — "identified_other": {"pre-collected corpus": N} —
-# and omit duplicates_removed rather than writing 0. prisma-flow rejects a
-# record with no identification count (exit 2); it has no screening-only mode.
+# the identification source — "identified_databases": {"pre-collected corpus": N},
+# with "duplicates_removed": 0 when no de-duplication was performed. prisma-flow
+# rejects a record with no identification count (exit 2); it has no
+# screening-only mode.
 ```
 
 ---

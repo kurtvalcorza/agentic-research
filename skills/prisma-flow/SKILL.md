@@ -124,11 +124,20 @@ eight stages were actually checked, and a record where **none** were says so out
 than printing a tick — "Nothing was reconciled … This diagram reports the counts given; it does
 not attest to them." A bare ✅ over a flow nothing had examined was the fail-open behind #9.
 
-One asymmetry worth knowing before trusting a minimal record: `studies_included_total` is
-checked against the sum of the two arm totals whenever it is supplied, and the arm totals
-default to zero. So `identified_other` plus `studies_included_total: 5` does **not** reconcile —
-it reports `0 + 0 = 0, but studies_included_total = 5`, exit 1 under `--strict`. Supply the arm
-total alongside it, or omit the grand total until you have both.
+**That every stage it counts as checked was checked against two supplied numbers.** The stage
+count is only as honest as the gates it derives from, and two gates still compare a supplied
+count against an operand that defaulted to zero:
+
+- `identification` fires on `identified_* ` and `records_screened` alone, so it runs with
+  `duplicates_removed` never supplied and treated as `0`.
+- `merge` in a two-arm record fires when either arm total is present, so it runs with the other
+  arm total never supplied and treated as `0`.
+
+Both overstate: a record can be told "5 of 8 stages checked" where one of those five compared a
+real number against a default. Tracked separately — the general rule is that every edge should
+gate on **all** of its operands, not merely the two its name mentions, and that is a change to
+every gate rather than a fix to these two. Until then, read the stage count as "stages the check
+attempted", not "stages independently confirmed".
 
 ## Boundaries
 
