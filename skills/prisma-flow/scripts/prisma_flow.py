@@ -293,8 +293,27 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     errs = []
     have = c.__contains__
 
-    def gate(name: str, ok: bool) -> bool:
-        """Record an edge as evaluated when its counts were supplied."""
+    def edge(name: str, *operands: tuple[str, ...]) -> bool:
+        """An edge is checked when EVERY count it reads was supplied.
+
+        Each operand is a group of interchangeable keys, and a group counts as
+        supplied when any member is. Two operands genuinely are groups:
+        identification sums `identified_databases` and `identified_registers`,
+        and the removal box sums `duplicates_removed` and
+        `removed_other_reasons`. Requiring every member would reject ordinary
+        records — a review with no register search omits one, and most reviews
+        omit the other. Omitting ONE member of a group asserts that category is
+        zero, which is a real claim about the run; omitting the WHOLE group
+        asserts nothing, which is the case that must skip the edge.
+
+        This replaces gating on the two counts an edge's NAME mentions while
+        letting every further operand default to zero. Six of the eight stages
+        did that, so `screening` was reported as checked with
+        `records_excluded_title_abstract` never supplied, having compared
+        `screened - 0` against `sought`. The stage count could therefore only be
+        read as stages attempted; now it means stages checked.
+        """
+        ok = all(any(have(k) for k in group) for group in operands)
         if ok and checked is not None:
             checked.append(name)
         return ok
@@ -305,25 +324,35 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     removed = _int(c.get("duplicates_removed", 0), "duplicates_removed") \
         + _int(c.get("removed_other_reasons", 0), "removed_other_reasons")
     screened = _int(c.get("records_screened", 0), "records_screened")
-    if gate("identification", have("records_screened") and bool(id_dbreg)) \
+    # Presence, not truthiness. This gate also required `id_dbreg` to be non-zero,
+    # which is the same truthiness test the docstring above rejects: a record
+    # stating it identified zero records and screened five is a contradiction, not
+    # an incomplete record, and skipping it let the count pass unexamined.
+    if edge("identification",
+            ("identified_databases", "identified_registers"),
+            ("duplicates_removed", "removed_other_reasons"),
+            ("records_screened",)) \
             and (id_dbreg - removed) != screened:
         errs.append(f"databases/registers identification: identified {id_dbreg} - removed {removed} = "
                     f"{id_dbreg - removed}, but records_screened = {screened}")
     ex_ta = _int(c.get("records_excluded_title_abstract", 0), "records_excluded_title_abstract")
     sought = _int(c.get("reports_sought", 0), "reports_sought")
-    if gate("screening", have("records_screened") and have("reports_sought")) \
+    if edge("screening", ("records_screened",), ("records_excluded_title_abstract",),
+            ("reports_sought",)) \
             and (screened - ex_ta) != sought:
         errs.append(f"screening: screened {screened} - excluded(t/a) {ex_ta} = {screened - ex_ta}, "
                     f"but reports_sought = {sought}")
     not_ret = _int(c.get("reports_not_retrieved", 0), "reports_not_retrieved")
     assessed = _int(c.get("reports_assessed", 0), "reports_assessed")
-    if gate("retrieval", have("reports_sought") and have("reports_assessed")) \
+    if edge("retrieval", ("reports_sought",), ("reports_not_retrieved",),
+            ("reports_assessed",)) \
             and (sought - not_ret) != assessed:
         errs.append(f"retrieval: sought {sought} - not_retrieved {not_ret} = {sought - not_ret}, "
                     f"but reports_assessed = {assessed}")
     ex_ft = _sum(c.get("reports_excluded"), "reports_excluded")
     inc_db = _int(c.get("studies_included_databases", 0), "studies_included_databases")
-    if gate("eligibility", have("reports_assessed") and have("studies_included_databases")) \
+    if edge("eligibility", ("reports_assessed",), ("reports_excluded",),
+            ("studies_included_databases",)) \
             and (assessed - ex_ft) != inc_db:
         errs.append(f"eligibility (databases/registers): assessed {assessed} - excluded(full-text) {ex_ft} = "
                     f"{assessed - ex_ft}, but studies_included_databases = {inc_db}")
@@ -333,33 +362,36 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     if _has_other(c):
         id_other = _sum(c.get("identified_other"), "identified_other")
         o_sought = _int(c.get("other_reports_sought", 0), "other_reports_sought")
-        if gate("other identification", have("other_reports_sought") and bool(id_other)) \
+        if edge("other identification", ("identified_other",), ("other_reports_sought",)) \
                 and id_other != o_sought:
             errs.append(f"other methods identification: identified {id_other} reports, "
                         f"but other_reports_sought = {o_sought} (every identified report should be sought)")
         o_not_ret = _int(c.get("other_reports_not_retrieved", 0), "other_reports_not_retrieved")
         o_assessed = _int(c.get("other_reports_assessed", 0), "other_reports_assessed")
-        if gate("other retrieval", have("other_reports_sought") and have("other_reports_assessed")) \
+        if edge("other retrieval", ("other_reports_sought",),
+                ("other_reports_not_retrieved",), ("other_reports_assessed",)) \
                 and (o_sought - o_not_ret) != o_assessed:
             errs.append(f"other methods retrieval: sought {o_sought} - not_retrieved {o_not_ret} = "
                         f"{o_sought - o_not_ret}, but other_reports_assessed = {o_assessed}")
         o_ex_ft = _sum(c.get("other_reports_excluded"), "other_reports_excluded")
-        if gate("other eligibility", have("other_reports_assessed") and have("studies_included_other")) \
+        if edge("other eligibility", ("other_reports_assessed",),
+                ("other_reports_excluded",), ("studies_included_other",)) \
                 and (o_assessed - o_ex_ft) != inc_other:
             errs.append(f"other methods eligibility: assessed {o_assessed} - excluded {o_ex_ft} = "
                         f"{o_assessed - o_ex_ft}, but studies_included_other = {inc_other}")
 
     # --- Merge: total included = databases arm + other arm ---
-    # The merge edge obeys the same both-counts-supplied rule as every other one.
-    # It used to fire on the grand total alone, comparing it against arm totals
-    # that default to zero rather than being presence-gated — so a record naming
-    # only `studies_included_total: 0` reported "1 of 8 stages checked: merge"
-    # having compared 0 + 0 against 0. That is the defaulting-to-zero pattern the
-    # rest of this check exists to refuse, and instrumenting it only gave it a
-    # "checked" label it had not earned.
+    # Every arm the record actually describes, not merely one of them. `or` was
+    # enough to stop the grand total being compared against two defaults, but in a
+    # two-arm record it still let the OTHER arm default while reporting the stage
+    # as checked. Which arms must be supplied depends on which the record claims:
+    # the databases arm always, the other-methods arm when _has_other() says the
+    # record describes one.
     total = c.get("studies_included_total")
-    arms = have("studies_included_databases") or have("studies_included_other")
-    if gate("merge", total is not None and arms):
+    arms = [("studies_included_databases",)]
+    if _has_other(c):
+        arms.append(("studies_included_other",))
+    if edge("merge", ("studies_included_total",), *arms) and total is not None:
         total = _int(total, "studies_included_total")
         if (inc_db + inc_other) != total:
             errs.append(f"merge: studies_included_databases {inc_db} + studies_included_other {inc_other} = "
@@ -512,18 +544,24 @@ def main() -> int:
               "supplied, so no arithmetic was checked. This diagram reports the "
               "counts given; it does not attest to them.")
     else:
-        # "attempted", not "checked". A stage reading more than two counts gates
-        # on the two its name mentions and treats any further operand as zero
-        # when it was absent, so six of the eight can be entered without every
-        # number in the comparison having been supplied. That caveat belongs
-        # HERE rather than only in SKILL.md: this file is the published artifact,
-        # and a reader of prisma-flow.md never sees the skill documentation.
-        print(f"✅ Counts reconcile — {len(checked)} of 8 stages attempted: "
+        # "checked", and it now means it: every stage listed compared numbers the
+        # record actually supplied. Until each edge gated on ALL of its operands
+        # this could only claim "attempted", because six of the stages could be
+        # entered with a further operand defaulting to zero.
+        #
+        # Out of the APPLICABLE stages, not a fixed eight: a one-arm record has
+        # no other-methods stages to check, so "5 of 8" reported three as skipped
+        # when they did not apply to it at all.
+        applicable = 8 if _has_other(c) else 5
+        print(f"✅ Counts reconcile — {len(checked)} of {applicable} stages checked: "
               f"{', '.join(checked)}.")
-        print("\n> *Attempted*, not independently confirmed: a stage reading more "
-              "than two counts treats any further operand as zero when it was not "
-              "supplied. See `prisma-flow/SKILL.md`, \"What the flow check CANNOT "
-              "verify\".")
+        if len(checked) < applicable:
+            missing = applicable - len(checked)
+            print(f"\n> {missing} further stage{'s' if missing > 1 else ''} could not be "
+                  f"checked: an edge is compared only when every count it reads was "
+                  f"supplied, so an omitted count leaves its stage unexamined rather "
+                  f"than assumed to be zero. That is an incomplete record, not a "
+                  f"contradictory one.")
     # An unreconciled record is incomplete, not contradictory — the same
     # distinction the presence gates draw — so --strict still fails only on a
     # real contradiction. What changed is that silence no longer reads as a tick.

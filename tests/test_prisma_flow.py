@@ -598,21 +598,34 @@ class TestTheTickMustBeEarned(_RunRecord):
         code, out, err = self.run_record(counts_template1(), "--strict")
         self.assertEqual(code, 0, msg=out + err)
         self.assertIn("✅", out)
-        self.assertRegex(out, r"\d+ of 8 stages attempted")
+        self.assertIn("5 of 5 stages checked", out)
         for stage in ("identification", "screening", "retrieval", "eligibility", "merge"):
             self.assertIn(stage, out)
 
-    def test_the_artifact_carries_its_own_caveat(self):
-        """The caveat has to travel with the artifact, not sit only in SKILL.md.
+    def test_the_denominator_is_the_applicable_stages(self):
+        """"5 of 8" reported three stages as skipped that did not apply at all.
 
-        prisma-flow.md is what gets published and read; six of the eight stages
-        can be entered without every number in the comparison having been
-        supplied, and a reader of the artifact alone would otherwise take the
-        stage list as a list of independent confirmations.
+        A one-arm record has no other-methods stages to check. A two-arm record
+        has eight, and template 2 supplies every count they read.
         """
-        _, out, _ = self.run_record(counts_template1())
-        self.assertIn("not independently confirmed", out)
-        self.assertNotIn("stages checked", out)
+        _, one_arm, _ = self.run_record(counts_template1())
+        self.assertIn("5 of 5 stages checked", one_arm)
+        _, two_arm, _ = self.run_record(counts_template2())
+        self.assertIn("8 of 8 stages checked", two_arm)
+
+    def test_an_unreached_stage_is_named_in_the_artifact(self):
+        """The artifact has to say what it could not check, not only what it did.
+
+        prisma-flow.md is what gets published and read; a reader of the stage
+        list alone would otherwise take a partial reconciliation for a complete
+        one.
+        """
+        rec = counts_template1()
+        del rec["records_excluded_title_abstract"]     # disables `screening` only
+        _, out, _ = self.run_record(rec)
+        self.assertIn("4 of 5 stages checked", out)
+        self.assertIn("could not be checked", out)
+        self.assertNotIn("screening", out.split("## Reconciliation")[1])
 
     def test_the_count_comes_from_the_gates_themselves(self):
         """Not a second copy of the presence rules, which would be free to drift.
@@ -629,6 +642,111 @@ class TestTheTickMustBeEarned(_RunRecord):
     def test_the_optional_parameter_leaves_existing_callers_alone(self):
         self.assertEqual(pf.reconcile(counts_template1()), [])
         self.assertEqual(pf.reconcile(counts_template2()), [])
+
+
+class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
+    """Every count an edge reads, not merely the two its name mentions.
+
+    Six of the eight stages used to gate on two counts and let any further
+    operand default to zero, so `screening` was reported as checked with
+    `records_excluded_title_abstract` never supplied — it had compared
+    `screened - 0` against `sought`. Same shape as the defect this whole check
+    exists to refuse: a number nobody gave being treated as if it were given.
+
+    Each case below removes ONE operand from an otherwise complete record and
+    asserts the stage it feeds drops out. Removing an operand must never turn a
+    reconciling record into a failing one — an incomplete record is not a
+    contradictory one — so each also asserts exit 0 under --strict.
+    """
+
+    # The unit to remove is the OPERAND, which for identification's removal box
+    # is the whole group — deleting only `duplicates_removed` leaves
+    # `removed_other_reasons` supplying it, which is the group rule working as
+    # designed and is covered separately below.
+    OPERANDS = {
+        "identification": ("duplicates_removed", "removed_other_reasons"),
+        "screening": ("records_excluded_title_abstract",),
+        "retrieval": ("reports_not_retrieved",),
+        "eligibility": ("reports_excluded",),
+    }
+
+    def test_removing_any_operand_drops_its_stage(self):
+        for stage, keys in self.OPERANDS.items():
+            with self.subTest(stage=stage, removed=keys):
+                rec = counts_template1()
+                for k in keys:
+                    del rec[k]
+                checked = []
+                pf.reconcile(rec, checked)
+                self.assertNotIn(stage, checked,
+                                 f"{stage} was checked with {keys} never supplied")
+
+    def test_removing_an_operand_never_creates_a_failure(self):
+        for keys in self.OPERANDS.values():
+            with self.subTest(removed=keys):
+                rec = counts_template1()
+                for k in keys:
+                    del rec[k]
+                code, out, err = self.run_record(rec, "--strict")
+                self.assertEqual(code, 0, msg=f"{keys}\n{out}\n{err}")
+
+    def test_the_other_arm_operands_too(self):
+        for stage, key in (("other retrieval", "other_reports_not_retrieved"),
+                           ("other eligibility", "other_reports_excluded"),
+                           ("other identification", "identified_other")):
+            with self.subTest(stage=stage, removed=key):
+                rec = counts_template2()
+                del rec[key]
+                checked = []
+                pf.reconcile(rec, checked)
+                self.assertNotIn(stage, checked)
+
+    def test_a_group_is_supplied_when_any_member_is(self):
+        """`identified_registers` and `removed_other_reasons` are routinely
+        omitted. Omitting one member of a group states that category is zero;
+        omitting the whole group states nothing and must skip the edge."""
+        rec = counts_template1()
+        del rec["identified_registers"]          # group still has identified_databases
+        del rec["removed_other_reasons"]         # group still has duplicates_removed
+        checked = []
+        self.assertEqual(pf.reconcile(rec, checked), [])
+        self.assertIn("identification", checked)
+
+        rec = counts_template1()
+        del rec["duplicates_removed"]
+        del rec["removed_other_reasons"]         # whole removal group gone
+        checked = []
+        pf.reconcile(rec, checked)
+        self.assertNotIn("identification", checked)
+
+    def test_the_merge_requires_every_arm_the_record_describes(self):
+        """The `or` this replaces stopped the grand total being compared against
+        two defaults, but in a two-arm record still let the other arm default."""
+        rec = counts_template2()
+        del rec["studies_included_other"]
+        checked = []
+        pf.reconcile(rec, checked)
+        self.assertNotIn("merge", checked)
+
+        rec = counts_template1()                 # one arm: databases only
+        checked = []
+        self.assertEqual(pf.reconcile(rec, checked), [])
+        self.assertIn("merge", checked)
+
+    def test_identification_is_gated_on_presence_not_truthiness(self):
+        """The old gate also required a non-zero identified count, which is the
+        truthiness test this module's own docstring rejects. A record claiming
+        zero identified and five screened is a contradiction, not a gap."""
+        code, out, _ = self.run_record({
+            "schema_version": "1.0",
+            "identified_databases": {"OpenAlex": 0},
+            "duplicates_removed": 0,
+            "records_screened": 5,
+            "studies_included_databases": 0,
+            "studies_included_total": 0,
+        }, "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("records_screened = 5", out)
 
 
 class TestBreakdownKeysMustBeObjects(_RunRecord):
