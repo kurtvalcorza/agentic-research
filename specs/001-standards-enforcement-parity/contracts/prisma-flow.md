@@ -49,11 +49,15 @@ published and read.
 
 ## The two arms
 
-PRISMA 2020 ships two flow templates and the check renders whichever the counts describe. Adding
-any non-zero `identified_other` / `other_reports_*` / `studies_included_other` value selects
-Template 2, whose parallel arm runs its own sought → assessed → excluded chain and merges at
-*studies included*. The arms are reconciled **independently** and then merged: other-methods
-reports enter at the report level, never pooled into title/abstract screening.
+PRISMA 2020 ships two flow templates and the check renders whichever the counts describe.
+**Supplying** any `identified_other` / `other_reports_*` / `studies_included_other` key selects
+Template 2 — supplying, not supplying a non-zero value: a citation search that found nothing
+described that arm, and a record saying so gets the same treatment as one that found something.
+The same rule applies to the databases arm, which is why an other-methods-only record renders no
+databases column and counts four applicable stages rather than eight. Template 2's parallel arm
+runs its own sought → assessed → excluded chain and merges at *studies included*. The arms are
+reconciled **independently** and then merged: other-methods reports enter at the report level,
+never pooled into title/abstract screening.
 
 ## Rules
 

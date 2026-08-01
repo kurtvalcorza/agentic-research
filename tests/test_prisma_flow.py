@@ -927,6 +927,41 @@ class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
         self.assertIn("8 of 8 stages checked", out)
         self.assertIn("subgraph OTHER", out)
 
+    def test_the_arm_key_sets_partition_every_count(self):
+        """The invariant the whole class rests on, pinned so it cannot rot.
+
+        Both `N of 0` bugs needed a validated record with NO applicable stage.
+        That is impossible while every IDENTIFICATION_KEYS member belongs to
+        exactly one arm tuple: rule 8 requires one of them supplied, which forces
+        an arm predicate true before reconcile() runs. Hand-written tuples can
+        drift out of that property silently, and nothing else would notice.
+        """
+        db, other = set(pf.DATABASE_ARM_KEYS), set(pf.OTHER_ARM_KEYS)
+        self.assertEqual(db & other, set(), "a key cannot belong to both arms")
+        self.assertEqual(db | other | {"studies_included_total"},
+                         pf.COUNT_KEYS | pf.BREAKDOWN_KEYS,
+                         "every count belongs to an arm, or is the grand total")
+        for key in pf.IDENTIFICATION_KEYS:
+            with self.subTest(key=key):
+                self.assertTrue((key in db) ^ (key in other))
+
+    def test_no_rule_8_passing_record_has_zero_applicable_stages(self):
+        """The invariant, exercised rather than argued: every minimal record that
+        passes rule 8 has at least one applicable stage, so the denominator can
+        never be zero while the numerator is not."""
+        for ident in sorted(pf.IDENTIFICATION_KEYS):
+            for incl in sorted(pf.INCLUSION_KEYS):
+                with self.subTest(identification=ident, inclusion=incl):
+                    rec = {"schema_version": "1.0",
+                           ident: {"x": 0} if ident in pf.BREAKDOWN_KEYS else 0,
+                           incl: 0}
+                    pf.validate_record(rec)          # must pass rule 8
+                    stages = pf.applicable_stages(rec)
+                    self.assertTrue(stages, "a validated record with no applicable stage")
+                    checked = []
+                    pf.reconcile(rec, checked)
+                    self.assertTrue(set(checked) <= set(stages))
+
     def test_every_checked_stage_is_an_applicable_one(self):
         """The invariant behind it, across every record shape in the suite."""
         for name, rec in (("template1", counts_template1()),
