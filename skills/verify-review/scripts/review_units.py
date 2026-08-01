@@ -574,7 +574,40 @@ def _validated_checks(data, runner):
                 f"checks.{name}: 'record' is required — it names the record the check "
                 f"runs against")
         out[name] = (runner.argv_for(name, entry), _would_derive(name, entry))
+
+    # Handing an appraisal record to ANOTHER check obliges you to run the check that
+    # owns it. The certainty check reads an appraisal and reports the pending
+    # signatures it finds as diagnostics — but it books them to no unit (a signature
+    # is not auto-reducible) and to no gate (rob_appraisal owns H_rob), so they
+    # vanish from its envelope entirely. A rapid review could therefore declare only
+    # `grade_profile` with an unsigned appraisal and reach VERIFIED while that
+    # subprocess exited 1 for an outstanding human gate.
+    #
+    # This is deliberately structural rather than scope-based: it holds whatever
+    # `units_in_scope` says, which is what makes it cover the review types
+    # GATE_SCOPE_PROXY cannot reach. The two rules overlap on the systematic path
+    # and neither is redundant — the proxy catches a scope that names U_rob_trace
+    # with no appraisal supplied anywhere.
+    if "rob_appraisal" not in out:
+        for name, entry in sorted(raw.items()):
+            if isinstance(entry, dict) and "rob_record" in entry:
+                raise InputError(
+                    f"checks.{name}: supplies 'rob_record' but no 'rob_appraisal' entry "
+                    f"runs that record. Pending signatures in it would be counted by "
+                    f"nothing — {name} books them to no unit and no gate — so the "
+                    f"appraisal check must run alongside")
     return out
+
+
+def _validated_history(data):
+    """The prior weighted totals, validated. Factored out of verdict() so compute()
+    can reject a malformed history BEFORE it spawns four subprocesses."""
+    raw = data.get("history")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise InputError("history: expected an array of weighted totals")
+    return [_as_count(h, f"history[{i}]") for i, h in enumerate(raw)]
 
 
 def _validate_record_schema(data):
@@ -639,10 +672,29 @@ def compute(data, weights, runner=None):
                 f"Remove the direct key so the record cannot state two different "
                 f"things.")
 
-    # Only now are the checks RUN — after every cheap validation the record can
-    # fail. Spawning four subprocesses and then rejecting the record for a
-    # misspelled unit key would do work on input already known to be malformed, and
-    # the ordering is the difference between validating a record and acting on it.
+    # The REST of the cheap validation, hoisted above the run loop. "After every
+    # cheap validation" was only true of the unit keys: a record with valid check
+    # paths but an unknown scope unit, a fractional gate count, a bad cycle or a
+    # non-numeric history still ran all four checks — up to four 120-second
+    # timeouts — before being rejected for a field nothing had looked at yet.
+    declared, declared_present = _validated_scope(data)
+    # `gates` must be present AND an object on the scope-declaring path — an
+    # omitted or null gates value cannot silently assert "all human gates
+    # confirmed". Lenient (no scope declared) keeps the simple default of "no
+    # gates reported = none pending".
+    if declared_present and not isinstance(data.get("gates"), dict):
+        raise InputError("gates: required as an object (even {}) when units_in_scope is declared")
+    raw_gates = _as_object(data.get("gates"), "gates")
+    unknown = [k for k in raw_gates if k not in GATE_KEYS]
+    if unknown:
+        raise InputError(f"gates: unknown gate key(s) {unknown}; expected {list(GATE_KEYS)}")
+    gate_counts = {k: _as_int_count(raw_gates.get(k, 0), f"gates.{k}") for k in GATE_KEYS}
+    # Validated here, used by verdict(). Both are malformed-input conditions the
+    # record can fail on for free, so neither may cost four subprocess runs first.
+    _as_int_count(data.get("cycle", 0), "cycle")
+    _validated_history(data)
+
+    # Only NOW are the checks run.
     derived_units: dict = {}
     derived_gates: dict = {}
     unattributed_issues: list[str] = []
@@ -661,6 +713,26 @@ def compute(data, weights, runner=None):
     # is misled by a record that happens to carry last cycle's number. A
     # disagreement is the case that matters — the record asserts one thing, the
     # check found another, and the verdict rests on the check.
+    # A derived unit outside the FROZEN SCOPE does not enter the verdict. Scope is
+    # resolved once at classification and frozen for the run (spec §3.3), and a
+    # check does not get to widen it: a rapid review may hand `rob_record` to the
+    # certainty check to validate a voluntarily-used confirmed_rob basis, and
+    # `U_rob_trace` would then block a review the contract explicitly freezes that
+    # unit out of. What is dropped is said out loud rather than discarded quietly.
+    #
+    # GATES ARE NOT FILTERED, and that asymmetry is deliberate. A pending signature
+    # is outstanding work whoever declared what: the record's own `gates` object has
+    # always contributed every H_* key regardless of scope, and filtering the
+    # derived value while keeping the reported one would let scope hide the very
+    # count Principle V says a loop may never auto-zero.
+    if declared_present:
+        for key in sorted(set(derived_units) - set(declared)):
+            ignored_inputs.append(
+                f"{DERIVED_BY[key]} derived {key}={derived_units.pop(key)}, which is "
+                f"OUT OF SCOPE for this review — units_in_scope is frozen at "
+                f"classification and a check does not widen it. Drop the check entry, "
+                f"or add the unit to scope if it genuinely applies.")
+
     for key in sorted(derived_units):
         value = float(derived_units[key])
         if key in units and units[key] != value:
@@ -687,7 +759,6 @@ def compute(data, weights, runner=None):
     # required unit that is absent is "not yet checked", not zero, so an input
     # that omits an in-scope check (e.g. a systematic review with no U_prisma)
     # cannot reach a done verdict.
-    declared, declared_present = _validated_scope(data)
     required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
     missing_units = [u for u in required if u not in units]
 
@@ -712,17 +783,6 @@ def compute(data, weights, runner=None):
     # predicate uses RAW counts: every required unit present AND all == 0
     auto_units_zero = not missing_units and all(c == 0 for c in units.values())
 
-    # Human gates: when the caller declares scope (the rigorous/orchestrated path),
-    # `gates` must be present AND an object — an omitted or null gates value cannot
-    # silently assert "all human gates confirmed". Lenient (no scope declared) keeps
-    # the simple default of "no gates reported = none pending".
-    if declared_present and not isinstance(data.get("gates"), dict):
-        raise InputError("gates: required as an object (even {}) when units_in_scope is declared")
-    raw_gates = _as_object(data.get("gates"), "gates")
-    unknown = [k for k in raw_gates if k not in GATE_KEYS]
-    if unknown:
-        raise InputError(f"gates: unknown gate key(s) {unknown}; expected {list(GATE_KEYS)}")
-    gate_counts = {k: _as_int_count(raw_gates.get(k, 0), f"gates.{k}") for k in GATE_KEYS}
     # Same precedence as the units above, for the same reason: the appraisal check
     # counts the confirmations still owed, and a record asserting a different number
     # does not get to overrule it. A human gate is the one count a loop has the most
@@ -749,7 +809,7 @@ def compute(data, weights, runner=None):
 
     return (weighted_total, auto_units_zero, gates_remaining, dominant,
             units, contributions, missing_units, ignored_inputs,
-            underived_units, underived_gates, unattributed_issues)
+            underived_units, underived_gates, unattributed_issues, gate_counts)
 
 
 def detect_plateau(history, current_total):
@@ -776,15 +836,11 @@ def detect_plateau(history, current_total):
 def verdict(data, weights, ceiling, runner=None):
     (weighted_total, auto_zero, gates_remaining, dominant, units,
      contributions, missing_units, ignored_inputs,
-     underived_units, underived_gates, unattributed_issues) = compute(data, weights, runner)
+     underived_units, underived_gates, unattributed_issues,
+     gate_counts) = compute(data, weights, runner)
     cycle = _as_int_count(data.get("cycle", 0), "cycle")
 
-    raw_history = data.get("history")
-    if raw_history is None:
-        raw_history = []
-    elif not isinstance(raw_history, list):
-        raise InputError("history: expected an array of weighted totals")
-    history = [_as_count(h, f"history[{i}]") for i, h in enumerate(raw_history)]
+    history = _validated_history(data)
 
     advisory = cycle >= SOFT_ADVISORY_CYCLE
 
@@ -842,6 +898,11 @@ def verdict(data, weights, ceiling, runner=None):
         "ceiling": ceiling,
         "soft_advisory": advisory,
         "units_evaluated": {k: round(float(v), 3) for k, v in units.items()},
+        # The gate counts the verdict ACTUALLY used, after any derived value
+        # overrode a reported one. `gates_remaining` is their sum; the manifest
+        # records this map rather than the record's own, so the audit trail cannot
+        # state a number the verdict overruled.
+        "gates_evaluated": dict(gate_counts),
         # weighted per-unit contribution — the manifest "by_unit" record
         "by_unit": {k: round(float(v), 3) for k, v in contributions.items()},
     }
@@ -963,7 +1024,12 @@ def append_to_manifest(path, data, result):
         result["hold_reason"] = "floor_guard: " + guard
         result["dominant_unit"] = None
 
-    gates_in = _as_object(data.get("gates"), "gates")
+    # The EVALUATED gates, falling back to the record's own only for a caller that
+    # computed no verdict. Rebuilding this from data["gates"] meant a record
+    # reporting H_rob 0 whose check derived 1 produced a BLOCKED_ON_HUMAN verdict
+    # and then appended a manifest row claiming 0 — the audit trail contradicting
+    # the verdict it was recording, which is the one thing an audit trail may not do.
+    gates_in = result.get("gates_evaluated") or _as_object(data.get("gates"), "gates")
     record = {
         # The version the counts in this record were computed under. Without it, a
         # by_unit value from before the U_grade/U_rob_trace redefinition is
@@ -1010,7 +1076,15 @@ def dry_run_preview(data, ceiling, runner=None):
                       "CONFIRMED AND ai-disclosure.md current"),
         "universal_floor": list(UNIVERSAL_FLOOR),
         "units_in_scope": in_scope,
-        "human_gates_that_will_fire": gates_will_fire,
+        # Only the gates NOT being derived. A gate a declared check will compute is
+        # unknown until it runs, and dry-run runs nothing — so listing the record's
+        # own value here presented an ignored input as the run's plan: a record
+        # asserting H_rob 0 previewed "no gates will fire" and then came back
+        # BLOCKED_ON_HUMAN. The preview may not be more confident than the run.
+        "human_gates_that_will_fire": [g for g in gates_will_fire
+                                       if DERIVED_BY_GATE.get(g) not in planned],
+        "human_gates_derived_by_a_check": sorted(
+            g for g in GATE_KEYS if DERIVED_BY_GATE.get(g) in planned),
         "checks_declared": sorted(planned),
         "units_that_will_be_derived": will_derive,
         # What the run will hold the verdict on. Derived from the same validated
@@ -1025,6 +1099,22 @@ def dry_run_preview(data, ceiling, runner=None):
         "ceiling": ceiling,
         "note": "preview only — no checks run, no state written",
     }
+
+
+def default_skills_root(here):
+    """Walk `skills/<name>/scripts/review_units.py` back to the repository root.
+
+    A plain `parents[3]` is evaluated OUTSIDE main()'s try, so a copy placed fewer
+    than four levels deep raised IndexError — a traceback and exit 1, where the
+    contract says exit 2. Falling back to the nearest ancestor lets the "check is
+    not available" error report it in the documented shape instead.
+
+    A function, not an inline conditional, because the fallback is unreachable at
+    this repository's real directory depth and could only be exercised by
+    contriving a path near the filesystem root. Extracting the decision is what
+    makes it testable at all — the alternative was shipping it unverified.
+    """
+    return here.parents[3] if len(here.parents) > 3 else here.parent
 
 
 def main():
@@ -1085,18 +1175,11 @@ def main():
     # the directory holding units.json, because a review's artifacts sit beside it;
     # the default skills root is this script's own repository, three levels up from
     # skills/verify-review/scripts/.
-    # `parents[3]` is skills/<name>/scripts/ walked back to the repository — but it
-    # is evaluated OUTSIDE the try below that turns an InputError into a structured
-    # verdict, so on a copy placed fewer than four levels deep it would raise
-    # IndexError: a traceback and exit 1, where the contract says exit 2. Fall back
-    # to the nearest ancestor instead and let the "check is not available" error
-    # report it in the documented shape.
-    here = Path(__file__).resolve()
-    default_skills_root = here.parents[3] if len(here.parents) > 3 else here.parent
     runner = CheckRunner(
         records_root=Path(args.records_root) if args.records_root
         else (Path(args.input).resolve().parent if args.input else Path.cwd()),
-        skills_root=Path(args.skills_root) if args.skills_root else default_skills_root)
+        skills_root=Path(args.skills_root) if args.skills_root
+        else default_skills_root(Path(__file__).resolve()))
 
     try:
         if not isinstance(data, dict):

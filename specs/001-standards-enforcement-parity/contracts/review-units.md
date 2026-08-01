@@ -103,6 +103,17 @@ name is still a key into a fixed table, and no part of the record reaches the ar
 
 ### Precedence, and the two new verdict fields
 
+**The frozen scope binds derived counts too.** A unit a check derives that is *not* in
+`units_in_scope` does not enter the verdict — scope is resolved once at classification and a check
+does not widen it. A rapid review may hand `rob_record` to the certainty check to validate a
+voluntarily-used `confirmed_rob` basis, and `U_rob_trace` would otherwise block a review the table
+above explicitly freezes that unit out of. The drop is named in `ignored_inputs`, never silent.
+
+**Gates are not scope-filtered, and the asymmetry is deliberate.** A pending signature is
+outstanding work whatever the scope says; the record's own `gates` object has always contributed
+every `H_*` key regardless, and filtering the derived value while keeping the reported one would let
+scope hide the one count Principle V says a loop may never auto-zero.
+
 A derived count **overrides** a reported one. A disagreement is named in `ignored_inputs`, on the
 same reasoning as the `U_consistency` row below: the verdict is correct either way, and a
 contradiction the check resolves quietly is still a contradiction. An *agreeing* value is not
@@ -112,7 +123,16 @@ reported — nothing was dropped, and flagging it would make the field noise in 
 |:--|:--|:--|
 | `underived_units` | In-scope units a check could have derived, where no entry named its record | Verdict held at `CONTINUE` |
 | `underived_gates` | The same, for a human gate | Verdict held at `CONTINUE` |
+| `gates_evaluated` | The gate map the verdict actually used, after any derived value overrode a reported one | Recorded in the manifest |
 | `unattributed_issues` | Work a check reported that no unit and no gate counts | Verdict held at `CONTINUE` |
+
+**Supplying `rob_record` requires the `rob_appraisal` entry.** The certainty check *reads* an
+appraisal and reports the pending signatures it finds as diagnostics — but books them to no unit (a
+signature is not auto-reducible) and to no gate (`rob_appraisal` owns `H_rob`), so they vanish from
+its envelope. Without this rule a rapid review could declare only `grade_profile` with an unsigned
+appraisal and reach `VERIFIED` while that subprocess exited 1 for an outstanding human gate. The
+rule is **structural, not scope-based**, which is what lets it reach the review types the scope
+proxy below cannot.
 
 **A gate reads its scope from the unit it moves with.** `H_rob` cannot appear in `units_in_scope` —
 that list is validated against the unit weights — so requiring only units left the gate
@@ -158,6 +178,13 @@ allowlist (which hands the argv of a script in the repository to whoever writes 
 `--records-root` and `--skills-root` come from the **argv**, which is the operator's. Someone who
 can pass flags to this script can already run anything on the machine, so constraining them would
 buy nothing.
+
+### The audit trail records what the verdict used
+
+`--manifest` rebuilt its `gates` field from the record's own object, so a verdict that overrode a
+reported `H_rob: 0` with a derived `1` appended a row claiming `0` — the audit trail contradicting
+the verdict it was recording, which is the one thing an audit trail may not do. It now writes
+`gates_evaluated`.
 
 ### Failure is never zero
 

@@ -85,8 +85,11 @@ def record(units=None, gates=None, **extra) -> dict:
     u = {"U_cite_external": 0, "U_cite_internal": 0, "U_screen": 0, "U_extract": 0}
     if units:
         u.update(units)
+    # list(SCOPE), not SCOPE: handing out the module-level list let one test that
+    # appended to it corrupt every test that ran afterwards — passing alone and
+    # failing in the suite, which is the worst way for a test to be wrong.
     d = {"schema_version": ru.SCHEMA_VERSION, "review_type": "systematic",
-         "units_in_scope": SCOPE, "units": u,
+         "units_in_scope": list(SCOPE), "units": u,
          "consistency": {"score": 90, "critical_breaks": 0},
          "gates": dict({"H_rob": 0, "H_screen_adj": 0, "H_cite_manual": 0,
                         "H_numeric": 0}, **(gates or {}))}
@@ -398,12 +401,44 @@ class TestScopeDeclaredMeansChecksRequired(unittest.TestCase):
         surviving for the one count the constitution says a loop may never
         auto-zero.
         """
-        d = record(gates={"H_rob": 0}, checks=clean_checks())
+        d = record(gates={"H_rob": 0}, checks=clean_checks(
+            grade_profile={"record": "grade-profile.valid.json"}))   # no appraisal anywhere
         del d["checks"]["rob_appraisal"]
-        d["checks"]["grade_profile"]["rob_record"] = "risk-of-bias.unconfirmed.json"
         r = verdict(d)
         self.assertEqual(r["underived_gates"], ["H_rob"])
         self.assertNotEqual(r["state"], "VERIFIED")
+
+    def test_handing_an_appraisal_to_another_check_requires_the_appraisal_check(self):
+        """Codex round 1, and the same hole as above in a shape scope cannot see.
+
+        The certainty check READS an appraisal and reports its pending signatures as
+        diagnostics — but books them to no unit (a signature is not auto-reducible)
+        and no gate (rob_appraisal owns H_rob), so they vanish from its envelope. A
+        RAPID review, where U_rob_trace is out of scope and the proxy rule therefore
+        never fires, could declare only grade_profile with an unsigned appraisal and
+        reach VERIFIED while that subprocess exited 1 for an outstanding human gate.
+
+        The rule is structural rather than scope-based, which is exactly why it
+        reaches the review types the proxy cannot.
+        """
+        d = record(checks={"grade_profile": {
+            "record": "grade-profile.valid.json",
+            "rob_record": "risk-of-bias.unconfirmed.json"}})
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        with self.assertRaisesRegex(ru.InputError, "rob_appraisal"):
+            verdict(d)
+
+    def test_and_with_the_appraisal_check_the_signature_is_counted(self):
+        d = record(checks={
+            "prisma_flow": {"record": "counts.valid.json"},
+            "prisma_checklist": {"record": "checklist.valid.json"},
+            "grade_profile": {"record": "grade-profile.valid.json",
+                              "rob_record": "risk-of-bias.unconfirmed.json"},
+            "rob_appraisal": {"record": "risk-of-bias.unconfirmed.json"}})
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        r = verdict(d)
+        self.assertEqual(r["gates_remaining"], 1)
+        self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
 
     def test_and_declaring_it_surfaces_the_pending_signature(self):
         """The other half: with the entry, the gate the record understated is the
@@ -425,8 +460,9 @@ class TestScopeDeclaredMeansChecksRequired(unittest.TestCase):
         basis, so both are out of scope, and a requirement that reached it anyway
         would demand an appraisal the review type says it need not have.
         """
-        d = record(checks=clean_checks())
-        del d["checks"]["rob_appraisal"]
+        d = record(checks=clean_checks(
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.contract-example.json"}))
         d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
         r = verdict(d)
         self.assertEqual(r["underived_gates"], [])
@@ -468,6 +504,92 @@ class TestScopeDeclaredMeansChecksRequired(unittest.TestCase):
         d = record(units={"U_cite_external": 4, "U_prisma": 0, "U_grade": 0,
                           "U_rob_trace": 0, "U_checklist": 0})
         self.assertIsNone(verdict(d)["dominant_unit"])
+
+
+class TestTheAuditTrailRecordsWhatTheVerdictUsed(unittest.TestCase):
+    """Codex round 1, P1. The manifest is the audit trail, and it was rebuilding its
+    `gates` field from the record's own object — so a verdict that overrode a
+    reported `H_rob: 0` with a derived `1` appended a row claiming `0`.
+
+    An audit trail contradicting the verdict it records is worse than no audit
+    trail: it is the artifact a reader trusts when the verdict is long gone.
+    """
+
+    def manifest_row(self, d):
+        r = verdict(d)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "manifest.json"
+            row = ru.append_to_manifest(str(path), d, r)
+        return r, row
+
+    def test_the_manifest_records_the_derived_gate_not_the_reported_one(self):
+        d = record(gates={"H_rob": 0}, checks=clean_checks(
+            rob_appraisal={"record": "risk-of-bias.unconfirmed.json"},
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.unconfirmed.json"}))
+        r, row = self.manifest_row(d)
+        self.assertEqual(r["gates_remaining"], 1)
+        self.assertEqual(row["gates"]["H_rob"], 1)      # not the 0 the record asserts
+
+    def test_the_verdict_exposes_the_gate_map_it_used(self):
+        d = record(gates={"H_rob": 0}, checks=clean_checks(
+            rob_appraisal={"record": "risk-of-bias.unconfirmed.json"},
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.unconfirmed.json"}))
+        r = verdict(d)
+        self.assertEqual(r["gates_evaluated"]["H_rob"], 1)
+        self.assertEqual(sum(r["gates_evaluated"].values()), r["gates_remaining"])
+
+    def test_a_record_with_no_checks_still_records_its_own_gates(self):
+        """The fallback path: no derivation, so the record's own numbers are what
+        the verdict used and what the manifest must show."""
+        d = {"schema_version": ru.SCHEMA_VERSION,
+             "units": {"U_cite_external": 0, "U_cite_internal": 0},
+             "consistency": {"score": 90, "critical_breaks": 0},
+             "gates": {"H_rob": 2, "H_screen_adj": 0, "H_cite_manual": 0, "H_numeric": 0}}
+        r, row = self.manifest_row(d)
+        self.assertEqual(row["gates"]["H_rob"], 2)
+        self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
+
+
+class TestTheFrozenScopeBindsDerivedCountsToo(unittest.TestCase):
+    """Codex round 1, P2. Scope is resolved once at classification and frozen for
+    the run, and a check does not get to widen it."""
+
+    def test_an_out_of_scope_derived_unit_does_not_gate_the_verdict(self):
+        """A rapid review may hand `rob_record` to the certainty check to validate a
+        voluntarily-used confirmed_rob basis. `U_rob_trace` is frozen out of that
+        review type, so unresolved references must not block it."""
+        d = record(checks=clean_checks())
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        r = verdict(d)
+        self.assertNotIn("U_rob_trace", r["units_evaluated"])
+        self.assertTrue(any("OUT OF SCOPE" in m for m in r["ignored_inputs"]))
+        self.assertEqual(r["state"], "VERIFIED")
+
+    def test_the_drop_is_named_rather_than_silent(self):
+        """Dropping a count quietly is the failure mode this whole check exists to
+        refuse — the caller declared a check whose output is being discarded."""
+        d = record(checks=clean_checks())
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        self.assertTrue(any("U_rob_trace" in m and "OUT OF SCOPE" in m
+                            for m in verdict(d)["ignored_inputs"]))
+
+    def test_a_derived_gate_is_NOT_scope_filtered(self):
+        """The deliberate asymmetry. A pending signature is outstanding work
+        whatever the scope says, and the record's own `gates` object has always
+        contributed every H_* key regardless — filtering the derived value while
+        keeping the reported one would let scope hide the one count Principle V
+        says a loop may never auto-zero.
+        """
+        d = record(checks=clean_checks(
+            rob_appraisal={"record": "risk-of-bias.unconfirmed.json"},
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.unconfirmed.json"}))
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        r = verdict(d)
+        self.assertEqual(r["gates_remaining"], 1)
+        self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
 
 
 class TestWorkNoUnitCounts(unittest.TestCase):
@@ -600,6 +722,28 @@ class TestAFailedCheckIsNeverZero(unittest.TestCase):
                                side_effect=AssertionError("a check was executed")):
             with self.assertRaisesRegex(ru.InputError, "U_vibes"):
                 verdict(d)
+
+    def test_no_check_runs_until_the_whole_record_has_been_validated(self):
+        """Codex round 1, P2. Validation ordering covered the unit keys only, so a
+        record with valid check paths but an unknown scope unit, a fractional gate,
+        a bad cycle or a non-numeric history still spawned all four subprocesses —
+        up to four 120-second timeouts — before being rejected for a field nothing
+        had looked at yet."""
+        cases = {
+            "unknown scope unit": lambda d: d["units_in_scope"].append("U_vibes"),
+            "fractional gate": lambda d: d["gates"].update({"H_numeric": 0.5}),
+            "negative cycle": lambda d: d.update({"cycle": -1}),
+            "non-numeric history": lambda d: d.update({"history": ["five"]}),
+            "gates not an object": lambda d: d.update({"gates": []}),
+        }
+        for label, corrupt in cases.items():
+            with self.subTest(malformed=label):
+                d = record(checks=clean_checks())
+                corrupt(d)
+                with mock.patch.object(subprocess, "run",
+                                       side_effect=AssertionError("a check was executed")):
+                    with self.assertRaises(ru.InputError):
+                        verdict(d)
 
     def test_a_negative_derived_count_is_an_error(self):
         with self.assertRaises(ru.InputError):
@@ -739,6 +883,31 @@ class TestThePreviewDescribesTheRunItPreviews(unittest.TestCase):
                 with self.assertRaises(ru.InputError):
                     self.preview(record(checks=block))
 
+    def test_the_preview_does_not_present_an_ignored_gate_as_the_plan(self):
+        """Codex round 1, P2, and the divergence class this class exists to guard.
+
+        `human_gates_that_will_fire` was computed from the record's own `gates`, so
+        a record asserting `H_rob: 0` while declaring the check that derives it
+        previewed "no gates will fire" — and the real run came back
+        BLOCKED_ON_HUMAN. Dry-run cannot know the value, which is precisely why it
+        may not state one: it names the gate as check-derived instead.
+        """
+        d = record(gates={"H_rob": 0}, checks=clean_checks(
+            rob_appraisal={"record": "risk-of-bias.unconfirmed.json"},
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.unconfirmed.json"}))
+        p = self.preview(d)
+        self.assertNotIn("H_rob", p["human_gates_that_will_fire"])
+        self.assertIn("H_rob", p["human_gates_derived_by_a_check"])
+        self.assertEqual(verdict(d)["gates_remaining"], 1)   # what it refused to promise
+
+    def test_a_self_reported_gate_is_still_previewed(self):
+        """The other half: a gate no declared check derives is known from the
+        record, so the preview keeps saying so."""
+        d = record(gates={"H_numeric": 2}, checks=clean_checks())
+        p = self.preview(d)
+        self.assertIn("H_numeric", p["human_gates_that_will_fire"])
+
     def test_the_preview_still_runs_nothing(self):
         with mock.patch.object(subprocess, "run",
                                side_effect=AssertionError("a check was executed")):
@@ -777,6 +946,37 @@ class TestTheCommandLine(unittest.TestCase):
             code, out, err = self.run_main(str(p), "--records-root", str(FIXTURES))
         self.assertEqual(code, 0, msg=err)
         self.assertEqual(json.loads(out)["state"], "VERIFIED")
+
+    def test_a_shallow_copy_of_the_skill_exits_two_not_a_traceback(self):
+        """The Claude review's finding: the `parents[3]` fallback added at Gate 0
+        had no test, and is dead code at this repo's real directory depth.
+
+        `skills/<name>/scripts/` is always four levels below the root here, so the
+        `else here.parent` branch is unreachable in place — the fix is only
+        observable on a copy shallower than that, which is the Principle III
+        scenario it was written for. Copy the script two levels deep and drive
+        `main()` through it: the contract says an unavailable check is exit 2 with
+        a diagnostic, and before the fix this raised IndexError outside the handler
+        and exited 1 with a traceback.
+        """
+        deep = pathlib.PurePosixPath("/a/repo/skills/verify-review/scripts/review_units.py")
+        self.assertEqual(str(ru.default_skills_root(deep)), "/a/repo")
+
+        # Shallower than four levels: the case that used to raise IndexError
+        # OUTSIDE main()'s try, producing a traceback and exit 1 where the contract
+        # says exit 2. No path near the filesystem root is contrived on disk — the
+        # decision is a function precisely so it can be exercised without one.
+        for shallow in ("/x/review_units.py", "/review_units.py"):
+            with self.subTest(path=shallow):
+                p = pathlib.PurePosixPath(shallow)
+                self.assertEqual(ru.default_skills_root(p), p.parent)
+
+    def test_and_at_real_depth_it_still_finds_the_repository(self):
+        """The fallback must not change the ordinary case it guards."""
+        here = pathlib.Path(
+            REPO / "skills/verify-review/scripts/review_units.py").resolve()
+        self.assertEqual(ru.default_skills_root(here), REPO)
+        self.assertTrue((ru.default_skills_root(here) / "skills").is_dir())
 
     def test_a_failed_check_exits_two_with_a_message_not_a_traceback(self):
         """The gate fails closed the same way every other malformed input does."""

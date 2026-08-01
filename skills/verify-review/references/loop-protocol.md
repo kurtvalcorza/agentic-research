@@ -100,6 +100,7 @@ Rules:
   "missing_units": [],
   "underived_units": [],
   "underived_gates": [],
+  "gates_evaluated": { "H_rob": 0, "H_screen_adj": 0, "H_cite_manual": 0, "H_numeric": 0 },
   "unattributed_issues": [],
   "dominant_unit": "U_cite_external",
   "cycle": 2,
@@ -130,6 +131,10 @@ Rules:
 - `underived_gates` is the same for a human gate. A gate cannot appear in
   `units_in_scope`, so it reads its scope from the unit it moves with: `H_rob` is
   required whenever `U_rob_trace` is in scope. **Non-empty ⇒ never `VERIFIED`.**
+- `gates_evaluated` is the gate map the verdict actually used, after any derived
+  value overrode a reported one; `gates_remaining` is its sum. `--manifest` records
+  this map rather than the record's own, so the audit trail cannot state a number
+  the verdict overruled.
 - `unattributed_issues` lists work a check reported that no unit and no gate
   counts, so it appears nowhere else in the verdict. Today that is a risk-of-bias
   record failing its own instrument. **Non-empty ⇒ never `VERIFIED`.**
