@@ -992,6 +992,65 @@ class TestThePreviewDescribesTheRunItPreviews(unittest.TestCase):
         p = self.preview(d)
         self.assertIn("H_numeric", p["human_gates_that_will_fire"])
 
+    def test_the_preview_does_not_report_an_out_of_scope_unit_as_applicable(self):
+        """Codex round 4. The run filtered the merged unit map to the frozen scope;
+        the preview unioned the record's own `units` keys with `declared`. So a
+        record carrying a stale out-of-scope entry previewed it as applicable and
+        then verified without ever evaluating it."""
+        d = record(units={"U_rob_trace": 1}, checks=clean_checks())
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        self.assertNotIn("U_rob_trace", self.preview(d)["units_in_scope"])
+        self.assertNotIn("U_rob_trace", verdict(d)["units_evaluated"])
+
+    def test_preview_and_run_read_ONE_scope_resolution(self):
+        """The seam, pinned — not the instance.
+
+        This class of defect appeared twice: on gates in round 1, on units in
+        round 4. Both times the cause was the same — preview and run deriving the
+        same concept separately. Patching the second instance would have left the
+        seam intact and a third instance available.
+
+        `effective_scope` is now the only place that decides, and this test fails
+        if either side grows its own answer again.
+        """
+        cases = [
+            ("full scope", SCOPE, {}),
+            ("one unit dropped", [u for u in SCOPE if u != "U_rob_trace"],
+             {"U_rob_trace": 1}),
+            ("floor not listed", ["U_prisma", "U_grade", "U_rob_trace", "U_checklist"], {}),
+        ]
+        for label, scope, units in cases:
+            with self.subTest(case=label):
+                d = record(units=units, checks=clean_checks())
+                d["units_in_scope"] = list(scope)
+                previewed = set(self.preview(d)["units_in_scope"])
+                evaluated = set(verdict(d)["units_evaluated"])
+                allowed, bounded = ru.effective_scope(d)
+                self.assertTrue(bounded)
+                # Neither side may range outside the single resolution.
+                self.assertLessEqual(previewed, allowed, f"{label}: preview exceeded scope")
+                self.assertLessEqual(evaluated, allowed, f"{label}: run exceeded scope")
+
+    def test_the_floor_is_allowed_even_when_scope_omits_it(self):
+        """Filtering on `declared` alone would drop the units that must never be
+        droppable, and a citation-less record would then verify."""
+        d = record(checks=clean_checks())
+        d["units_in_scope"] = ["U_prisma", "U_grade", "U_rob_trace", "U_checklist"]
+        allowed, bounded = ru.effective_scope(d)
+        self.assertTrue(bounded)
+        for unit in ru.UNIVERSAL_FLOOR:
+            self.assertIn(unit, allowed)
+
+    def test_an_undeclared_scope_is_unbounded_not_bounded_by_everything(self):
+        """`allowed` is None on the lenient path on purpose: "no bound" and
+        "bounded by whatever happens to be supplied" are different claims, and
+        conflating them is how a filter starts dropping things on a path that
+        never filtered."""
+        allowed, bounded = ru.effective_scope(
+            {"schema_version": ru.SCHEMA_VERSION, "units": {"U_prisma": 0}})
+        self.assertFalse(bounded)
+        self.assertIsNone(allowed)
+
     def test_the_preview_still_runs_nothing(self):
         with mock.patch.object(subprocess, "run",
                                side_effect=AssertionError("a check was executed")):
@@ -1099,6 +1158,33 @@ class TestTheCommandLine(unittest.TestCase):
         message = json.loads(err)["error"]
         self.assertIn("manifest error", message)
         self.assertNotIn("cannot read", message)
+
+    def test_a_missing_manifest_parent_costs_no_check_runs(self):
+        """Codex round 4. A missing leaf and a missing parent both raise
+        `FileNotFoundError`, and treating them alike meant `--manifest
+        out/manifest.json` with no `out/` ran every declared check before the write
+        failed — recreating the exact cost the preflight was added to avoid."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "no-such-dir" / "manifest.json"
+            units = pathlib.Path(tmp) / "units.json"
+            units.write_text(json.dumps(record(checks=clean_checks())), encoding="utf-8")
+            with mock.patch.object(subprocess, "run",
+                                   side_effect=AssertionError("a check was executed")):
+                code, out, err = self.run_main(str(units), "--records-root", str(FIXTURES),
+                                               "--manifest", str(target))
+        self.assertEqual(code, 2)
+        message = json.loads(err)["error"]
+        self.assertIn("manifest error", message)
+        self.assertNotIn("cannot read", message)   # the input handler's wording
+
+    def test_but_a_missing_manifest_LEAF_is_still_created(self):
+        """The distinction the fix turns on. Rejecting both would break the
+        ordinary first-cycle case, where the manifest legitimately does not exist
+        yet."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "manifest.json"
+            self.assertFalse(target.exists())
+            ru.preflight_manifest(str(target))      # must not raise
 
     def test_a_usable_manifest_is_still_written(self):
         """The preflight must not become a new way to fail."""

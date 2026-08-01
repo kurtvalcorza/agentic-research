@@ -148,6 +148,20 @@ Rules:
 - `soft_advisory` is `true` from cycle 10 onward; it is informational and never
   changes `state`.
 
+### `--dry-run` and the run resolve scope ONCE
+
+Both read `effective_scope()`. They used to derive it separately — the run filtering
+the merged unit map to `declared | UNIVERSAL_FLOOR`, the preview unioning the
+record's own `units` keys with `declared` — so a record carrying a stale
+out-of-scope entry previewed it as applicable and then verified without evaluating
+it. Two derivations of one concept produced a finding twice, on gates and then on
+units; there is now one.
+
+The universal floor is always allowed, whether or not the declared list names it.
+With no scope declared the resolution is *unbounded* rather than bounded by
+whatever happens to be supplied — a different claim, and conflating them is how a
+filter starts dropping things on the path that never filtered.
+
 ## 3. State machine (precedence order)
 
 Evaluated top-down each cycle; first match wins:

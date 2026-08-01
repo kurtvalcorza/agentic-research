@@ -657,6 +657,32 @@ def _validated_history(data):
     return [_as_count(h, f"history[{i}]") for i, h in enumerate(raw)]
 
 
+def effective_scope(data):
+    """The units a verdict on this record may evaluate. ONE resolution, shared.
+
+    compute() and dry_run_preview() derived this separately and drifted exactly as
+    `_validated_scope` did before them: the run filtered the merged unit map to
+    `declared | UNIVERSAL_FLOOR`, while the preview unioned the record's own `units`
+    keys with `declared`. So a record carrying a stale out-of-scope entry previewed
+    it as applicable and then verified without ever evaluating it.
+
+    Two derivations of one concept is the seam, and it produced a finding twice —
+    on gates in round 1, on units in round 4. Patching the second instance would
+    have left the seam. This removes it.
+
+    Returns (allowed, bounded). `bounded` is False on the lenient path, where no
+    scope is declared and nothing is filtered out at all; `allowed` is None there,
+    because "no bound" is not the same claim as "bounded by everything".
+    """
+    declared, declared_present = _validated_scope(data)
+    if not declared_present:
+        return None, False
+    # The universal floor is always allowed: it is required whether or not it
+    # appears in the declared list, and filtering on `declared` alone would drop the
+    # units that must never be droppable — a citation-less record would then verify.
+    return set(declared) | set(UNIVERSAL_FLOOR), True
+
+
 def _validate_record_schema(data):
     """Apply the closed input schema before interpreting any optional defaults."""
     if not isinstance(data, dict):
@@ -800,8 +826,8 @@ def compute(data, weights, runner=None):
     # `auto_units_zero` stayed false and the review could never verify — blocked by
     # a unit its own frozen scope excludes. The universal floor is always allowed:
     # it is required whether or not it appears in the declared list.
-    if declared_present:
-        allowed = set(declared) | set(UNIVERSAL_FLOOR)
+    allowed, bounded = effective_scope(data)
+    if bounded:
         for key in sorted(set(units) - allowed):
             source = (f"{DERIVED_BY[key]} derived" if key in derived_units
                       else "the record reports")
@@ -1031,7 +1057,16 @@ def preflight_manifest(path):
         with open(path, encoding="utf-8") as f:
             manifest = json.load(f)
     except FileNotFoundError:
-        return                      # a manifest that does not exist yet is created
+        # A manifest that does not exist yet is created — but only if its PARENT
+        # directory does. Both raise FileNotFoundError, and treating them alike let
+        # `--manifest out/manifest.json` with no `out/` run every declared check
+        # before append_to_manifest failed to open the path for writing, which is
+        # the very cost this preflight exists to avoid.
+        parent = Path(path).parent
+        if parent and not parent.is_dir():
+            raise ValueError(
+                f"cannot write {path}: {parent} is not a directory") from None
+        return
     # Everything else propagates UNWRAPPED, to main()'s `except (ValueError, OSError)`
     # which labels it "manifest error: …". Wrapping it as "cannot read <path>" put
     # the INPUT read handler's wording on a manifest failure — the exact mislabel an
@@ -1158,8 +1193,12 @@ def dry_run_preview(data, ceiling, runner=None):
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]
     declared, declared_present = _validated_scope(data)
-    in_scope = sorted((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
-                      | set(declared) | ({"U_consistency"} if data.get("consistency") else set()))
+    # Bounded by the SAME resolution the run uses, so the preview cannot report a
+    # unit as applicable that the run will drop.
+    allowed, bounded = effective_scope(data)
+    offered = ((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
+               | set(declared) | ({"U_consistency"} if data.get("consistency") else set()))
+    in_scope = sorted(offered & allowed if bounded else offered)
     # The full block validation — unknown check names, unknown entry keys, records
     # that do not resolve inside the root, scripts that are not there. It just does
     # not EXECUTE anything, so the promise below still holds while the preview
