@@ -30,14 +30,6 @@ on:
   issues:
     types: [opened, assigned]
 
-# One run per issue or PR. A second @claude while the first is still working
-# queues rather than racing it — two runs pushing to the same branch is how a
-# review loop starts contradicting itself. Not cancel-in-progress: a run that is
-# midway through pushing a fix should finish, not be killed by a follow-up.
-concurrency:
-  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
-  cancel-in-progress: false
-
 jobs:
   claude:
     # Gate on the trigger phrase BEFORE starting a runner. Without this the job
@@ -50,6 +42,23 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    # One run per issue or PR. A second @claude while the first is still working
+    # queues rather than racing it — two runs pushing to the same branch is how a
+    # review loop starts contradicting itself. Not cancel-in-progress: a run that
+    # is midway through pushing a fix should finish, not be killed by a follow-up.
+    #
+    # WHY THIS IS ON THE JOB AND NOT THE WORKFLOW. At workflow level the group is
+    # entered by every comment on the issue, including ones this job then skips —
+    # a Codex rate-limit notice, a CI bot, anything. GitHub keeps one running run
+    # and one pending run per group and cancels the rest, so bot chatter evicted a
+    # legitimately queued @claude request before it ever started (run 30680681359
+    # on PR #3, cancelled with no jobs, by a Codex comment eight seconds later).
+    # On the job, the `if` above is evaluated first and a skipped job never enters
+    # the group, so only real @claude requests contend with each other.
+    concurrency:
+      group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
 
     # Least privilege for what this repository actually asks of Claude: read the
     # code, push a fix branch, and comment. `actions: read` lets it read failing
@@ -81,4 +90,11 @@ jobs:
           # .specify/memory/constitution.md, which the action reads on its own —
           # stdlib-only, no cross-skill imports, fail closed. Restating them here
           # would create a second copy to drift.
-          claude_args: --max-turns 30
+          #
+          # 30 turns was not enough to review anything real. On PR #3 (138 files,
+          # 22k lines) the run died on `Reached maximum number of turns (30)`
+          # after 3m09s, having finished exactly one item of its own checklist —
+          # a red run that looks like a Claude failure but is a budget failure.
+          # `timeout-minutes` above is the actual safety net; this cap only needs
+          # to stop a genuine runaway, so it belongs well clear of normal work.
+          claude_args: --max-turns 150

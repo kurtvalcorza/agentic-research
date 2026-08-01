@@ -74,4 +74,7 @@ jobs:
           # Repository standards come from CLAUDE.md and
           # .specify/memory/constitution.md, which the action reads on its own.
           # Restating them in the prompt would create a second copy to drift.
-          claude_args: --max-turns 30
+          #
+          # Sized to match claude.yml, and for the same reason: 30 turns did not
+          # survive a real pull request here. `timeout-minutes` is the safety net.
+          claude_args: --max-turns 150
