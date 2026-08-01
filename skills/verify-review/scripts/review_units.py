@@ -1193,18 +1193,25 @@ def dry_run_preview(data, ceiling, runner=None):
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]
     declared, declared_present = _validated_scope(data)
-    # Bounded by the SAME resolution the run uses, so the preview cannot report a
-    # unit as applicable that the run will drop.
-    allowed, bounded = effective_scope(data)
-    offered = ((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
-               | set(declared) | ({"U_consistency"} if data.get("consistency") else set()))
-    in_scope = sorted(offered & allowed if bounded else offered)
     # The full block validation — unknown check names, unknown entry keys, records
     # that do not resolve inside the root, scripts that are not there. It just does
     # not EXECUTE anything, so the promise below still holds while the preview
     # catches everything the run would.
     planned = _validated_checks(data, runner)
     will_derive = sorted({u for _, expected in planned.values() for u in expected})
+
+    # Bounded by the SAME resolution the run uses, and built from the same two
+    # sources: what the record supplies AND what the declared checks will derive.
+    # Sharing only the BOUND was half a fix — on the lenient path there is no bound,
+    # so a record declaring `prisma_flow` and no scope previewed the floor alone
+    # while the run went on to insert and evaluate `U_prisma`. The preview
+    # understated the work rather than overstating the scope, which is the same
+    # divergence pointing the other way.
+    allowed, bounded = effective_scope(data)
+    offered = ((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
+               | set(declared) | set(will_derive)
+               | ({"U_consistency"} if data.get("consistency") else set()))
+    in_scope = sorted(offered & allowed if bounded else offered)
     return {
         "dry_run": True,
         "review_type": review_type,

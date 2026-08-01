@@ -70,10 +70,18 @@ Rules:
   silently omits `U_prisma` is caught (`missing_units`) instead of passing. Omit
   it and only the universal floor is enforced. The floor is always required,
   whether or not it appears in the list.
-  When a cycle re-runs only the checks whose inputs changed, **carry forward the
-  last-known value of every in-scope unit** (floor *and* declared) into that
-  cycle's `units.json` (and pass `consistency` with its score) so nothing lands in
-  `missing_units` — otherwise the cycle cannot reach `VERIFIED`/`BLOCKED_ON_HUMAN`.
+  **Carry forward the last-known value of every in-scope unit that has no runnable
+  check** — `U_cite_external`, `U_cite_internal`, `U_screen`, `U_extract` — into
+  each cycle's `units.json` (and pass `consistency` with its score) so nothing
+  lands in `missing_units`.
+  **A DERIVABLE unit cannot be carried forward.** `U_prisma`, `U_checklist`,
+  `U_grade`, `U_rob_trace` and the `H_rob` gate must be re-derived every cycle: a
+  `checks` entry omitted this cycle puts its unit in `underived_units` and holds
+  the verdict, whatever value `units` carries. That is deliberate — the guarantee
+  is that a derived count came from a run *in this cycle*, not that it was true
+  three cycles ago, and a carried value is indistinguishable from a hand-written
+  one. The four checks are sub-second local scripts, so the cost is small and the
+  optimization it replaces was never safe for these units.
   Declaring `units_in_scope` also **requires the `gates` key to be present** (even
   `{}`): an omitted gates object cannot silently assert all human gates confirmed.
 - `U_consistency` is derived **only** from the `consistency` object (which needs a

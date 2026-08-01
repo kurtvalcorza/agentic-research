@@ -191,7 +191,7 @@ Print the banner: predicate, in-scope units, gates that will fire, ceiling (25).
 
 ### Step 4 — Loop
 Each cycle:
-1. Recompute units (re-run only the checks whose inputs changed since last cycle).
+1. Recompute units. **Every check in the `checks` block runs every cycle** — a derivable unit cannot be carried forward, because the guarantee is that its count came from a run *this* cycle. Only units with no runnable check (`U_cite_external`, `U_cite_internal`, `U_screen`, `U_extract`) are carried forward from the last cycle.
 2. Read the verdict from `review_units.py`:
    - `VERIFIED` → stop, emit final report + refresh `ai-disclosure.md`.
    - `BLOCKED_ON_HUMAN` → stop; emit the human-handoff report (§ below).

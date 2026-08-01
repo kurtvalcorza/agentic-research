@@ -381,6 +381,35 @@ class TestScopeDeclaredMeansChecksRequired(unittest.TestCase):
         self.assertEqual(verdict(d)["underived_units"],
                          ["U_checklist", "U_grade", "U_rob_trace"])
 
+    def test_a_derivable_unit_may_not_be_CARRIED_FORWARD(self):
+        """A decision, not an accident — and the docs now say so.
+
+        `loop-protocol.md` used to tell callers to re-run only the checks whose
+        inputs changed and carry the rest forward. For a derivable unit that
+        conflicts with the guarantee this whole feature provides: a carried value
+        is indistinguishable from a hand-written one, so accepting it would mean
+        the count came from a run three cycles ago, or from nowhere.
+
+        Codex round 1 (post-reset) surfaced the tension. Resolution: every check in
+        the block runs every cycle, and the documented optimization is now scoped
+        to the units that have no runnable check. This pins the behaviour so the
+        doc and the code cannot drift apart again.
+        """
+        d = record(units={"U_prisma": 0, "U_checklist": 0}, cycle=3,
+                   checks={"prisma_flow": {"record": "counts.valid.json"}})
+        d["units_in_scope"] = ["U_cite_external", "U_cite_internal", "U_consistency",
+                               "U_prisma", "U_checklist"]
+        r = verdict(d)
+        self.assertEqual(r["underived_units"], ["U_checklist"])
+        self.assertNotEqual(r["state"], "VERIFIED")
+
+    def test_but_a_unit_with_no_runnable_check_still_carries_forward(self):
+        """The other half of the same decision: the optimization survives exactly
+        where it was always safe."""
+        d = record(units={"U_screen": 0, "U_extract": 0}, cycle=3,
+                   checks=clean_checks())
+        self.assertEqual(verdict(d)["state"], "VERIFIED")
+
     def test_certainty_without_an_appraisal_record_leaves_the_trace_underived(self):
         """The conditional unit, end to end: `grade_profile` is declared, so
         `U_grade` is derived — but nothing traced anything, so `U_rob_trace` is
@@ -1001,6 +1030,48 @@ class TestThePreviewDescribesTheRunItPreviews(unittest.TestCase):
         d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
         self.assertNotIn("U_rob_trace", self.preview(d)["units_in_scope"])
         self.assertNotIn("U_rob_trace", verdict(d)["units_evaluated"])
+
+    def test_the_preview_names_derived_units_on_the_lenient_path_too(self):
+        """The third appearance of this class, and the one that showed sharing the
+        BOUND was only half a fix.
+
+        With no `units_in_scope` there is no bound to share, so `offered` — built
+        from the record's own `units` keys — never mentioned what the declared
+        checks would derive. A record declaring `prisma_flow` and no scope
+        previewed the floor alone while the run inserted and evaluated `U_prisma`.
+        Understating the work rather than overstating the scope: the same
+        divergence pointing the other way.
+        """
+        d = {"schema_version": ru.SCHEMA_VERSION,
+             "units": {"U_cite_external": 0, "U_cite_internal": 0},
+             "consistency": {"score": 90, "critical_breaks": 0},
+             "checks": {"prisma_flow": {"record": "counts.valid.json"}}}
+        self.assertIn("U_prisma", self.preview(d)["units_in_scope"])
+        self.assertIn("U_prisma", verdict(d)["units_evaluated"])
+
+    def test_the_preview_lists_exactly_what_the_run_evaluates(self):
+        """Stronger than either instance: the two sets must MATCH, on both the
+        bounded and the unbounded path. Each earlier fix closed one direction —
+        the preview overstating, then understating — because each pinned an
+        example rather than the equality.
+        """
+        cases = {
+            "lenient, derived unit": {
+                "schema_version": ru.SCHEMA_VERSION,
+                "units": {"U_cite_external": 0, "U_cite_internal": 0},
+                "consistency": {"score": 90, "critical_breaks": 0},
+                "checks": {"prisma_flow": {"record": "counts.valid.json"}}},
+            "scoped, full block": record(checks=clean_checks()),
+            "scoped, stale out-of-scope entry": None,   # built below
+        }
+        stale = record(units={"U_rob_trace": 1}, checks=clean_checks())
+        stale["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        cases["scoped, stale out-of-scope entry"] = stale
+        for label, d in cases.items():
+            with self.subTest(case=label):
+                self.assertEqual(set(self.preview(d)["units_in_scope"]),
+                                 set(verdict(d)["units_evaluated"]),
+                                 f"{label}: preview and run disagree")
 
     def test_preview_and_run_read_ONE_scope_resolution(self):
         """The seam, pinned — not the instance.
