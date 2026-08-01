@@ -320,6 +320,34 @@ class TestTheScopeDerivedExampleMatchesItsScope(unittest.TestCase):
                 self.assertFalse(missing, f"{review_type}: {sorted(missing)} in scope "
                                           f"but no check declared to derive it")
 
+    def test_a_traced_appraisal_implies_certainty_in_every_scope(self):
+        """The invariant the example's `setdefault` rests on, asserted not assumed.
+
+        `U_rob_trace` is a CONDITIONAL unit of `grade_profile`: the only way to derive
+        it is to run that check, which necessarily derives `U_grade` too. A scope
+        holding U_rob_trace without U_grade is therefore not something the backend can
+        express — and it would hand the documented example a `grade_profile` entry
+        carrying only `rob_record`, which `_validated_checks` rejects for a missing
+        `record`. That is this round's own defect class, one table edit away.
+
+        The Claude review flagged it as latent-but-unasserted. Asserting it here rather
+        than defending against it in the example is deliberate: the constraint belongs
+        to the backend's derivation table, so a future scope-table row that violates it
+        should fail loudly at the source, not be silently absorbed by a doc example.
+        """
+        self.assertEqual(ru.DERIVED_BY["U_rob_trace"], "grade_profile",
+                         "U_rob_trace no longer comes from grade_profile — the coupling "
+                         "below, and the example's setdefault, need rechecking")
+        self.assertIn("U_grade", ru.CHECK_TABLE["grade_profile"]["units"])
+        for review_type, (in_scope, _absent) in self.table.items():
+            with self.subTest(review_type=review_type):
+                if "U_rob_trace" in in_scope:
+                    self.assertIn(
+                        "U_grade", in_scope,
+                        f"{review_type}: scope holds U_rob_trace without U_grade, which "
+                        f"no `checks` block can express — grade_profile derives both or "
+                        f"neither")
+
     def test_the_guard_catches_the_block_that_was_actually_printed(self):
         """Mutation check against the real defect, not a synthetic one.
 
