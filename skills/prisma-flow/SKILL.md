@@ -115,14 +115,17 @@ one, which is strictly worse than the failing check you started with.
 
 **That the record is complete.** Requiring an identification and an inclusion count establishes
 that the flow has two named ends; it does not establish that everything between them was
-reported. An edge is checked only when both of its counts were supplied, so a partially reported
-flow is incomplete rather than contradictory, and the check says nothing either way about the
-stages left out.
+reported. An edge is checked only when **every count it reads** was supplied, so a partially
+reported flow is incomplete rather than contradictory, and the check says nothing either way
+about the stages left out.
 
-What it will no longer do is pretend otherwise. The reconciliation line names how many of the
-eight stages were actually checked, and a record where **none** were says so outright rather
-than printing a tick — "Nothing was reconciled … This diagram reports the counts given; it does
-not attest to them." A bare ✅ over a flow nothing had examined was the fail-open behind #9.
+What it will no longer do is pretend otherwise. The reconciliation line reports how many of the
+**applicable** stages were checked and **names the ones it could not reach**; a record where
+none were checked says so outright rather than printing a tick — "Nothing was reconciled … This
+diagram reports the counts given; it does not attest to them." A bare ✅ over a flow nothing had
+examined was the fail-open behind #9. Applicable means the stages belonging to the arms the
+record actually describes: four plus the merge for a databases-only flow, three plus the merge
+for an other-methods-only one, all eight when it describes both.
 
 **Which stages it did not check.** An edge is compared only when **every** count it reads was
 supplied — not merely the two its name mentions. So an omitted count leaves its stage unexamined

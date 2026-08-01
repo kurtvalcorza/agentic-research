@@ -613,19 +613,25 @@ class TestTheTickMustBeEarned(_RunRecord):
         _, two_arm, _ = self.run_record(counts_template2())
         self.assertIn("8 of 8 stages checked", two_arm)
 
-    def test_an_unreached_stage_is_named_in_the_artifact(self):
-        """The artifact has to say what it could not check, not only what it did.
+    def checked_line(self, out):
+        """The '✅ … stages checked: a, b, c.' line, without the unreached list."""
+        return [ln for ln in out.splitlines() if "stages checked" in ln][0]
 
-        prisma-flow.md is what gets published and read; a reader of the stage
-        list alone would otherwise take a partial reconciliation for a complete
-        one.
+    def test_an_unreached_stage_is_named_in_the_artifact(self):
+        """The artifact has to say WHICH stages it could not check.
+
+        The first version of this test asserted the opposite of its own name:
+        the code printed a bare count, the contract already promised names, and
+        the assertion pinned the absence of them. A count tells a reader how much
+        is missing without telling them what, which is the half they cannot act
+        on.
         """
         rec = counts_template1()
         del rec["records_excluded_title_abstract"]     # disables `screening` only
         _, out, _ = self.run_record(rec)
         self.assertIn("4 of 5 stages checked", out)
-        self.assertIn("could not be checked", out)
-        self.assertNotIn("screening", out.split("## Reconciliation")[1])
+        self.assertIn("Not checked: screening", out)
+        self.assertNotIn("screening", self.checked_line(out))
 
     def test_the_count_comes_from_the_gates_themselves(self):
         """Not a second copy of the presence rules, which would be free to drift.
@@ -753,7 +759,12 @@ class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
         self.assertEqual(pf.reconcile(rec, checked), [])
         self.assertNotIn("merge", checked)
         _, out, _ = self.run_record(rec)
-        self.assertNotIn("merge", out.split("## Reconciliation")[1])
+        # merge now appears in the artifact — as a stage NOT reached, which is
+        # the point. It must not appear in the checked list.
+        checked_line = [ln for ln in out.splitlines() if "stages checked" in ln][0]
+        self.assertNotIn("merge", checked_line)
+        self.assertIn("Not checked:", out)
+        self.assertIn("merge", out.split("Not checked:")[1])
 
     def test_a_null_breakdown_operand_also_skips_its_edge(self):
         rec = counts_template1()
@@ -761,6 +772,57 @@ class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
         checked = []
         pf.reconcile(rec, checked)
         self.assertNotIn("eligibility", checked)
+
+    def test_an_empty_breakdown_is_a_supplied_operand(self):
+        """`{}` here means zero, itemised as nothing — a real claim.
+
+        Deliberately NOT the stricter test rule 8 applies, where an empty
+        breakdown is the vacuous case (`identified_databases: {}` names no
+        source, and a record whose only identification key is empty exits 2).
+        As an operand it is different: "we excluded nothing at full text" is an
+        ordinary outcome, and 18 assessed − 0 = 18 included is an ordinary
+        reconciliation. Requiring a non-empty breakdown would force a fabricated
+        exclusion reason to get the stage checked.
+        """
+        rec = counts_template1(reports_excluded={}, studies_included_databases=72,
+                               studies_included_total=72)
+        checked = []
+        self.assertEqual(pf.reconcile(rec, checked), [])
+        self.assertIn("eligibility", checked)
+
+    def test_the_applicable_stages_follow_the_arms_the_record_describes(self):
+        """The denominator was one-sided: `_has_other` removed the other arm's
+        stages while the databases arm was assumed always present, so an
+        other-methods-only record was told four databases stages "could not be
+        checked" for an arm it never claimed — the same complaint that made the
+        denominator applicable rather than a fixed eight, mirrored."""
+        other_only = {
+            "schema_version": "1.0",
+            "identified_other": {"citation searching": 20},
+            "other_reports_sought": 20, "other_reports_not_retrieved": 0,
+            "other_reports_assessed": 20,
+            "other_reports_excluded": {"wrong outcome": 5},
+            "studies_included_other": 15, "studies_included_total": 15,
+        }
+        self.assertEqual(
+            pf.applicable_stages(other_only),
+            ("other identification", "other retrieval", "other eligibility", "merge"))
+        code, out, err = self.run_record(other_only, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("4 of 4 stages checked", out)
+        self.assertNotIn("Not checked", out)
+        # Compare the stage list itself rather than searching for substrings:
+        # "other identification" contains "identification".
+        listed = out.split("stages checked: ")[1].rstrip().rstrip(".").split(", ")
+        self.assertEqual(listed, ["other identification", "other retrieval",
+                                  "other eligibility", "merge"])
+        checked = []
+        pf.reconcile(other_only, checked)
+        self.assertEqual(checked, listed)
+
+    def test_applicable_stages_for_each_template(self):
+        self.assertEqual(len(pf.applicable_stages(counts_template1())), 5)
+        self.assertEqual(len(pf.applicable_stages(counts_template2())), 8)
 
     def test_identification_is_gated_on_presence_not_truthiness(self):
         """The old gate also required a non-zero identified count, which is the

@@ -73,7 +73,7 @@ EXIT CODES
     naming NO identification count or NO inclusion count, where `null` and `{}`
     do not count as naming one.
 
-  A reconciling record reports how many of the eight stages were actually
+  A reconciling record reports how many of the APPLICABLE stages were actually
   checked. One that checks none of them says so rather than printing ✅ — an
   empty error list means nothing failed, which is not the claim that everything
   held.
@@ -267,10 +267,48 @@ def _has_other(c: dict) -> bool:
     return _sum(c.get("other_reports_excluded"), "other_reports_excluded") > 0
 
 
+def _has_databases(c: dict) -> bool:
+    """True if the counts describe a databases/registers arm.
+
+    The mirror of _has_other, and it did not exist: the arm was assumed always
+    present, so an other-methods-only record was told five stages "could not be
+    checked" when four of them belonged to an arm it never claimed — the exact
+    complaint that made the denominator applicable-rather-than-eight in the first
+    place, reflected onto the other side.
+    """
+    if _sum(c.get("identified_databases"), "identified_databases") > 0:
+        return True
+    if _sum(c.get("identified_registers"), "identified_registers") > 0:
+        return True
+    keys = ("records_screened", "records_excluded_title_abstract", "reports_sought",
+            "reports_not_retrieved", "reports_assessed", "studies_included_databases")
+    if any(_int(c.get(k, 0), k) > 0 for k in keys):
+        return True
+    return _sum(c.get("reports_excluded"), "reports_excluded") > 0
+
+
+DATABASE_STAGES = ("identification", "screening", "retrieval", "eligibility")
+OTHER_STAGES = ("other identification", "other retrieval", "other eligibility")
+
+
+def applicable_stages(c: dict) -> tuple[str, ...]:
+    """The stages this record could have checked, given the arms it describes.
+
+    A one-arm record has nothing to say about the other arm's stages, so counting
+    them as unchecked reports a gap that does not exist.
+    """
+    stages: tuple[str, ...] = ()
+    if _has_databases(c):
+        stages += DATABASE_STAGES
+    if _has_other(c):
+        stages += OTHER_STAGES
+    return stages + ("merge",) if stages else ()
+
+
 def reconcile(c: dict, checked: list | None = None) -> list[str]:
     """Return a list of reconciliation errors (empty = clean).
 
-    An edge is checked when BOTH of its counts were SUPPLIED, not when both are
+    An edge is checked when EVERY count it reads was SUPPLIED, not when they are
     truthy. Truthiness could not tell an omitted count from one explicitly recorded
     as `0`, so a record stating 500 identified, 96 removed and `records_screened: 0`
     disabled three edges at once and reconciled clean under --strict — the same
@@ -293,10 +331,18 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     errs = []
 
     def have(key: str) -> bool:
-        """Supplied means carrying a value, the same as it means everywhere else.
+        """Supplied means carrying a value: present, and not null.
 
-        This was `c.__contains__` — raw key presence — while validate_record()
-        defines supplied as `v is not None`. One word, two meanings, one file.
+        This was `c.__contains__` — raw key presence. validate_record() uses a
+        STRICTER test for rule 8, `v is not None and v != {}`, and the difference
+        is deliberate rather than drift. There, an empty breakdown is the vacuous
+        case the rule exists to refuse: `identified_databases: {}` names no
+        source, so a record whose only identification key is empty is rejected
+        outright. Here, an empty breakdown is a real operand — `reports_excluded:
+        {}` says nothing was excluded at full text, and `18 assessed − 0 = 18
+        included` is an ordinary reconciliation. Requiring a non-empty exclusion
+        breakdown would force a fabricated reason to get a stage checked, which
+        is the opposite of what this check is for.
         Most keys hid the difference because they are coerced through _int()
         before their edge is gated, so an explicit null raises CountError and
         exits 2 first. `studies_included_total` is the exception: it is read
@@ -404,7 +450,9 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     # the databases arm always, the other-methods arm when _has_other() says the
     # record describes one.
     total = c.get("studies_included_total")
-    arms = [("studies_included_databases",)]
+    arms = []
+    if _has_databases(c):
+        arms.append(("studies_included_databases",))
     if _has_other(c):
         arms.append(("studies_included_other",))
     # No `and total is not None` here any more: have() now guarantees it, and a
@@ -550,17 +598,23 @@ def main() -> int:
     print(diagram)
     print("\n## Reconciliation\n")
     if errs:
-        print("⚠️ **Counts do NOT reconcile** — fix before reporting:")
+        # The failing branch reports its coverage too. A reader told which stages
+        # broke still needs to know how many were examined at all — a single
+        # mismatch out of one stage checked is a different situation from one out
+        # of eight, and only the second says the rest of the flow held.
+        applicable = applicable_stages(c)
+        print(f"⚠️ **Counts do NOT reconcile** — {len(checked)} of {len(applicable)} "
+              f"stages checked, and the following failed. Fix before reporting:")
         for e in errs:
             print(f"- {e}")
     elif not checked:
         # No error is not the same claim as no problem. A record naming only two
-        # ends supplies no edge with both of its counts, so nothing is compared
+        # ends supplies no edge with every count it reads, so nothing is compared
         # and the error list is empty for want of any check — which used to print
         # as "counts reconcile end to end" over a flow that had never been
         # examined. Issue #9 asked for this message to be a function of how many
         # edges were actually checked, and this is that.
-        print("⚠️ **Nothing was reconciled** — no stage had both of its counts "
+        print("⚠️ **Nothing was reconciled** — no stage had every count it reads "
               "supplied, so no arithmetic was checked. This diagram reports the "
               "counts given; it does not attest to them.")
     else:
@@ -572,16 +626,18 @@ def main() -> int:
         # Out of the APPLICABLE stages, not a fixed eight: a one-arm record has
         # no other-methods stages to check, so "5 of 8" reported three as skipped
         # when they did not apply to it at all.
-        applicable = 8 if _has_other(c) else 5
-        print(f"✅ Counts reconcile — {len(checked)} of {applicable} stages checked: "
+        applicable = applicable_stages(c)
+        print(f"✅ Counts reconcile — {len(checked)} of {len(applicable)} stages checked: "
               f"{', '.join(checked)}.")
-        if len(checked) < applicable:
-            missing = applicable - len(checked)
-            print(f"\n> {missing} further stage{'s' if missing > 1 else ''} could not be "
-                  f"checked: an edge is compared only when every count it reads was "
-                  f"supplied, so an omitted count leaves its stage unexamined rather "
-                  f"than assumed to be zero. That is an incomplete record, not a "
-                  f"contradictory one.")
+        unreached = [s for s in applicable if s not in checked]
+        if unreached:
+            # NAME them. A bare count told a reader how much was missing without
+            # telling them what, which is the half of the answer they cannot act
+            # on — and the contract already promised the names.
+            print(f"\n> Not checked: {', '.join(unreached)}. An edge is compared only "
+                  f"when every count it reads was supplied, so an omitted count leaves "
+                  f"its stage unexamined rather than assumed to be zero. That is an "
+                  f"incomplete record, not a contradictory one.")
     # An unreconciled record is incomplete, not contradictory — the same
     # distinction the presence gates draw — so --strict still fails only on a
     # real contradiction. What changed is that silence no longer reads as a tick.
