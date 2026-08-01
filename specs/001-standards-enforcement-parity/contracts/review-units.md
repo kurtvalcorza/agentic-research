@@ -134,6 +134,20 @@ appraisal and reach `VERIFIED` while that subprocess exited 1 for an outstanding
 rule is **structural, not scope-based**, which is what lets it reach the review types the scope
 proxy below cannot.
 
+It must be the **same** appraisal, not merely some appraisal: `grade_profile.rob_record` and
+`rob_appraisal.record` must resolve to the same file. Requiring only that the entry exist left the
+two checks free to read different records — the certainty check reading one with a pending
+signature, the appraisal check reading a clean one and reporting `H_rob: 0`.
+
+**Why this rule is total** where the two before it were partial. A pending signature lives in an
+appraisal *file* and reaches the verdict only through `H_rob`, which only `rob_appraisal` derives
+and only from its own `record`. So the property needed is: every appraisal file the block names is
+read by `rob_appraisal`. A file can be named by `rob_appraisal.record` — read by definition — or by
+a secondary record key, and `grade_profile.rob_record` is the **only** secondary record key in the
+table. Forcing it equal closes the set with nothing left over. The enumeration is pinned by
+`test_every_appraisal_route_is_read_by_the_gate_owner`, so a fifth check adding a record key cannot
+reopen it silently.
+
 **A gate reads its scope from the unit it moves with.** `H_rob` cannot appear in `units_in_scope` —
 that list is validated against the unit weights — so requiring only units left the gate
 self-reported on the rigorous path: a record could declare systematic scope, omit the

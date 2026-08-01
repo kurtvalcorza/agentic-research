@@ -418,7 +418,7 @@ class CheckRunner:
         self.skills_root = Path(skills_root)
         self.timeout = timeout
 
-    def _contained_record(self, value, ctx):
+    def contained_record(self, value, ctx):
         if not isinstance(value, str) or not value.strip():
             raise InputError(f"{ctx}: expected a non-empty path string")
         root = Path(os.path.realpath(self.records_root))
@@ -440,6 +440,22 @@ class CheckRunner:
             raise InputError(f"{ctx}: no file at {value!r} (resolved to {str(resolved)!r})")
         return str(resolved)
 
+    def same_record(self, a, b):
+        """Whether two already-resolved record paths name the same file.
+
+        Equality first, then `samefile`: both are realpath'd by contained_record
+        above, so equal strings are the common case, and samefile then catches the
+        spellings a string compare misses — case on Windows, a hard link, a
+        substituted drive. A path that cannot be stat'd is NOT the same file; this
+        never widens what counts as a match.
+        """
+        if a == b:
+            return True
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+
     def argv_for(self, name, entry):
         """Build the full command line. Nothing here comes from `entry` but paths."""
         spec = CHECK_TABLE[name]
@@ -454,11 +470,11 @@ class CheckRunner:
                 f"underived_units and the verdict is held, so a standalone copy "
                 f"needs either the sibling skills or an undeclared scope")
         argv = [sys.executable, str(script),
-                self._contained_record(entry["record"], f"checks.{name}.record"),
+                self.contained_record(entry["record"], f"checks.{name}.record"),
                 "--strict", "--json"]
         for key, flag in spec["optional_records"]:
             if key in entry:
-                argv += [flag, self._contained_record(entry[key], f"checks.{name}.{key}")]
+                argv += [flag, self.contained_record(entry[key], f"checks.{name}.{key}")]
         return argv
 
     def run(self, name, argv, expected_units):
@@ -588,14 +604,45 @@ def _validated_checks(data, runner):
     # GATE_SCOPE_PROXY cannot reach. The two rules overlap on the systematic path
     # and neither is redundant — the proxy catches a scope that names U_rob_trace
     # with no appraisal supplied anywhere.
-    if "rob_appraisal" not in out:
-        for name, entry in sorted(raw.items()):
-            if isinstance(entry, dict) and "rob_record" in entry:
-                raise InputError(
-                    f"checks.{name}: supplies 'rob_record' but no 'rob_appraisal' entry "
-                    f"runs that record. Pending signatures in it would be counted by "
-                    f"nothing — {name} books them to no unit and no gate — so the "
-                    f"appraisal check must run alongside")
+    # It must be the SAME record, not merely some appraisal record. Requiring only
+    # that an entry exist left the two checks free to read different files: the
+    # certainty check reads an appraisal with a pending signature (excluded from
+    # U_grade, excluded from unattributed, its U_rob_trace filtered out of scope for
+    # a rapid review) while the appraisal check reads a clean one and reports
+    # H_rob 0 — VERIFIED, over a signature nobody counted.
+    #
+    # WHY THIS ONE IS TOTAL where the two before it were partial. A pending
+    # signature lives in an appraisal FILE and reaches the verdict only through
+    # H_rob, which only `rob_appraisal` derives, and only from its own `record`. So
+    # the property needed is: every appraisal file the block names is read by
+    # `rob_appraisal`. A file can be named by `rob_appraisal.record` (read by
+    # definition) or by a secondary record key — and `grade_profile.rob_record` is
+    # the ONLY secondary record key in CHECK_TABLE. Forcing it equal closes the set
+    # with nothing left over. `test_every_appraisal_route_is_read_by_the_gate_owner`
+    # pins the enumeration, so a fifth check adding a record key cannot silently
+    # reopen it.
+    for name, entry in sorted(raw.items()):
+        if not (isinstance(entry, dict) and "rob_record" in entry):
+            continue
+        rob = raw.get("rob_appraisal")
+        if not isinstance(rob, dict) or "record" not in rob:
+            raise InputError(
+                f"checks.{name}: supplies 'rob_record' but no 'rob_appraisal' entry "
+                f"runs that record. Pending signatures in it would be counted by "
+                f"nothing — {name} books them to no unit and no gate — so the "
+                f"appraisal check must run alongside")
+        mine = runner.contained_record(entry["rob_record"], f"checks.{name}.rob_record")
+        theirs = runner.contained_record(rob["record"], "checks.rob_appraisal.record")
+        # samefile, not string equality: it is the identity of the FILE that
+        # matters, and two spellings of one path (case on Windows, a link, a
+        # relative hop) are the same appraisal.
+        if not runner.same_record(mine, theirs):
+            raise InputError(
+                f"checks.{name}.rob_record and checks.rob_appraisal.record name "
+                f"DIFFERENT files ({entry['rob_record']!r} vs {rob['record']!r}). "
+                f"They must be the same appraisal: {name} reports the pending "
+                f"signatures it finds to no unit and no gate, so only the appraisal "
+                f"check running on that same record can count them")
     return out
 
 
@@ -689,6 +736,16 @@ def compute(data, weights, runner=None):
     if unknown:
         raise InputError(f"gates: unknown gate key(s) {unknown}; expected {list(GATE_KEYS)}")
     gate_counts = {k: _as_int_count(raw_gates.get(k, 0), f"gates.{k}") for k in GATE_KEYS}
+    # The manifest-only fields too. They were validated inside append_to_manifest(),
+    # which runs AFTER the checks, so `--manifest` with a fractional denominator
+    # spent every declared check before rejecting the record. Validating them
+    # unconditionally also makes them consistent with every other declared field: a
+    # malformed value is malformed whether or not it ends up being written.
+    for key, value in _as_object(data.get("denominators"), "denominators").items():
+        _as_int_count(value, f"denominators.{key}")
+    excl = data.get("exclusions_logged")
+    if excl is not None and not isinstance(excl, bool):
+        raise InputError("exclusions_logged: expected a boolean")
     # Validated here, used by verdict(). Both are malformed-input conditions the
     # record can fail on for free, so neither may cost four subprocess runs first.
     _as_int_count(data.get("cycle", 0), "cycle")

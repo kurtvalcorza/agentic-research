@@ -49,6 +49,13 @@ class ReportedBack(ru.CheckRunner):
     def argv_for(self, name, entry):
         return ["<substituted>", name]
 
+    def contained_record(self, value, ctx):
+        # Path resolution is part of what this stub stands in for. The identity
+        # rule between `grade_profile.rob_record` and `rob_appraisal.record` calls
+        # it directly, and these records name fixtures that do not exist on disk.
+        return f"<substituted>/{value}"
+
+
     def run(self, name, argv, expected_units):
         return ({u: self.data.get("units", {}).get(u, 0) for u in expected_units},
                 {g: self.data.get("gates", {}).get(g, 0)

@@ -50,6 +50,10 @@ Rules:
   reads its scope from the unit it moves with, and it lands in `underived_gates`.
   A disagreement between a derived and a reported count is named in
   `ignored_inputs`; an agreeing one is not, because nothing was dropped.
+  **`grade_profile.rob_record` requires a `rob_appraisal` entry on the SAME
+  record** — the certainty check books the pending signatures it finds to no unit
+  and no gate, so only the appraisal check running on that file counts them. Two
+  entries naming different appraisals is malformed input.
   The check name is a key into a fixed table, never a path, and the argv is built
   by the backend — nothing here reaches it. Record paths must resolve inside
   `--records-root` (default: the directory holding `units.json`). A check that

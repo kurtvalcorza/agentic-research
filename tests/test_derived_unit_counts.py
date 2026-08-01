@@ -468,6 +468,56 @@ class TestScopeDeclaredMeansChecksRequired(unittest.TestCase):
         self.assertEqual(r["underived_gates"], [])
         self.assertEqual(r["state"], "VERIFIED")
 
+    def test_two_checks_may_not_read_different_appraisals(self):
+        """Codex round 2, P1 — the third variant of "a pending signature can hide".
+
+        Requiring only that a `rob_appraisal` entry EXIST left the two checks free
+        to read different files: the certainty check reads an appraisal with a
+        pending signature (excluded from U_grade, excluded from unattributed, its
+        U_rob_trace filtered out of scope for a rapid review) while the appraisal
+        check reads a clean one and reports H_rob 0 — VERIFIED, over a signature
+        nobody counted.
+        """
+        d = record(checks=clean_checks(
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.unconfirmed.json"},
+            rob_appraisal={"record": "risk-of-bias.contract-example.json"}))
+        with self.assertRaisesRegex(ru.InputError, "DIFFERENT files"):
+            verdict(d)
+
+    def test_and_the_same_appraisal_is_accepted(self):
+        d = record(checks=clean_checks(
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.unconfirmed.json"},
+            rob_appraisal={"record": "risk-of-bias.unconfirmed.json"}))
+        self.assertEqual(verdict(d)["gates_remaining"], 1)
+
+    def test_every_appraisal_route_is_read_by_the_gate_owner(self):
+        """The closure argument, pinned rather than asserted in a comment.
+
+        This class of defect has now appeared three times — no gate requirement,
+        then a scope proxy that missed rapid reviews, then an existence rule that
+        ignored file identity. Each earlier fix was partial BY CONSTRUCTION, which
+        is why another variant kept surfacing. This test states why the identity
+        rule is different: a pending signature lives in an appraisal FILE and
+        reaches the verdict only through `H_rob`, which only `rob_appraisal`
+        derives and only from its own `record`. So every appraisal file the block
+        can name must be read by `rob_appraisal` — and the enumeration below shows
+        there is exactly ONE way to name a file other than through `rob_appraisal`
+        itself, which the identity rule forces equal.
+
+        A fifth check adding a second record key would reopen the hole silently.
+        This fails when that happens.
+        """
+        secondary = {(name, key)
+                     for name, spec in ru.CHECK_TABLE.items()
+                     for key, _ in spec["optional_records"]}
+        self.assertEqual(secondary, {("grade_profile", "rob_record")},
+                         "a new secondary record key needs its own identity rule — "
+                         "see _validated_checks")
+        self.assertEqual(ru.DERIVED_BY_GATE, {"H_rob": "rob_appraisal"},
+                         "a second gate producer changes which check must read the file")
+
     def test_the_gate_proxy_is_wired_to_a_real_unit_and_a_real_check(self):
         """The proxy is hand-written and could drift out of the property it needs:
         a gate whose proxy unit no check derives would silently never be required."""
@@ -598,7 +648,9 @@ class TestWorkNoUnitCounts(unittest.TestCase):
         counts. Ignoring them would let an appraisal record its own instrument
         rejects pass through as nothing outstanding."""
         d = record(checks=clean_checks(
-            rob_appraisal={"record": "risk-of-bias.wrong-instrument.json"}))
+            rob_appraisal={"record": "risk-of-bias.wrong-instrument.json"},
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.wrong-instrument.json"}))
         r = verdict(d)
         self.assertTrue(r["unattributed_issues"])
         self.assertNotEqual(r["state"], "VERIFIED")
@@ -608,7 +660,9 @@ class TestWorkNoUnitCounts(unittest.TestCase):
         rejects is the agent's to fix, and mislabelling it would stall the loop
         waiting for a signature nobody was asked for."""
         d = record(gates={"H_rob": 0}, checks=clean_checks(
-            rob_appraisal={"record": "risk-of-bias.wrong-instrument.json"}))
+            rob_appraisal={"record": "risk-of-bias.wrong-instrument.json"},
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.wrong-instrument.json"}))
         self.assertEqual(verdict(d)["state"], "CONTINUE")
 
 
@@ -735,6 +789,11 @@ class TestAFailedCheckIsNeverZero(unittest.TestCase):
             "negative cycle": lambda d: d.update({"cycle": -1}),
             "non-numeric history": lambda d: d.update({"history": ["five"]}),
             "gates not an object": lambda d: d.update({"gates": []}),
+            # Codex round 2: these two were validated inside append_to_manifest(),
+            # which runs AFTER the checks — so `--manifest` with a fractional
+            # denominator spent every declared check before rejecting the record.
+            "fractional denominator": lambda d: d.update({"denominators": {"studies": 1.5}}),
+            "non-boolean exclusions_logged": lambda d: d.update({"exclusions_logged": "yes"}),
         }
         for label, corrupt in cases.items():
             with self.subTest(malformed=label):

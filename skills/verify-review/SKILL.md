@@ -89,10 +89,11 @@ What the check reports overrides what the record asserts, and a disagreement is 
 it is listed under `underived_units` and the verdict is held at `CONTINUE`. A check that cannot
 produce a verdict — exit 2, a crash, a timeout — is an error, never a count of zero.
 
-**Supplying `rob_record` requires the `rob_appraisal` entry**, whatever the scope says. The
-certainty check reads an appraisal and reports its pending signatures as diagnostics, but books them
-to no unit and no gate — so without the appraisal check running alongside, they are counted by
-nothing.
+**Supplying `rob_record` requires the `rob_appraisal` entry on the SAME record**, whatever the
+scope says. The certainty check reads an appraisal and reports its pending signatures as
+diagnostics, but books them to no unit and no gate — so without the appraisal check running on that
+same file, they are counted by nothing. Two entries naming different appraisals is malformed input
+(exit 2).
 
 **A derived unit outside `units_in_scope` does not enter the verdict.** Scope is frozen at
 classification and a check does not widen it; the drop is named in `ignored_inputs`. Gates are the
