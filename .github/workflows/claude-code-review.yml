@@ -1,0 +1,77 @@
+# Reviews pull requests automatically, without anyone having to ask.
+#
+# HOW THIS DIFFERS FROM claude.yml. That workflow is reactive: it wakes on an
+# @claude mention and does whatever the comment asked. This one is unprompted —
+# it runs the `code-review` plugin against the diff the moment a pull request
+# becomes reviewable. The two are complementary and both are wanted: the first
+# review arrives without being requested, and every round after that is driven
+# by @claude in a comment, which claude.yml handles.
+#
+# WHY THIS FILE MUST LIVE ON THE DEFAULT BRANCH. `pull_request` workflows do run
+# from the head branch, unlike the `issue_comment` triggers in claude.yml — but
+# claude-code-action refuses to act unless the workflow file is byte-identical to
+# the copy on the default branch. On the pull request that first adds this file
+# the run goes green having done nothing, and says so in the log. That is
+# expected once, on this pull request only.
+#
+# REQUIRED SECRET: CLAUDE_CODE_OAUTH_TOKEN — the same repository secret
+# claude.yml uses. See the comments there for how to generate it.
+name: Claude Code Review
+
+on:
+  pull_request:
+    # No `synchronize`. Reviewing every push would re-review the same pull
+    # request several times an hour and collide with the @claude round-trips of
+    # the review loop. The unprompted review is the FIRST one; subsequent rounds
+    # are requested explicitly by commenting @claude. Add `synchronize` here if
+    # a review of every push is ever wanted.
+    types: [opened, reopened, ready_for_review]
+
+# One review per pull request, and cancel a review already in flight. This is
+# the opposite of the `cancel-in-progress: false` in claude.yml, deliberately:
+# that workflow may be midway through pushing a commit and must not be killed,
+# whereas a review of a commit that has already been superseded is worth
+# nothing and should give up its runner.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    # Drafts are work in progress by definition. `ready_for_review` above is the
+    # trigger that catches them, once they stop being drafts.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Read-only on purpose. The review is posted with the GitHub App token the
+    # action mints from `id-token`, not with GITHUB_TOKEN, so this job never
+    # needs write access to say anything. `actions: read` lets the review read
+    # failing CI logs, which is often where the real finding is.
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history: a review is a diff against the base branch, and a
+          # shallow clone cannot produce one.
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # Repository standards come from CLAUDE.md and
+          # .specify/memory/constitution.md, which the action reads on its own.
+          # Restating them in the prompt would create a second copy to drift.
+          claude_args: --max-turns 30
