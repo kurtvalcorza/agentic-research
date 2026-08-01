@@ -733,6 +733,35 @@ class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
         self.assertEqual(pf.reconcile(rec, checked), [])
         self.assertIn("merge", checked)
 
+    def test_an_explicit_null_operand_does_not_count_as_supplied(self):
+        """Supplied means carrying a value here too, not merely a key.
+
+        `reconcile()` tested key presence while `validate_record()` tested for a
+        value — one word, two meanings, one file. Most keys hid it because they
+        are coerced through _int() before their edge is gated, so a null exits 2
+        first. `studies_included_total` is read without eager coercion, so
+        `"studies_included_total": null` satisfied presence, `merge` was recorded
+        as checked as a side effect of the edge() call, and the arithmetic was
+        then skipped by a guard AFTER it. A stage reported as confirmed with
+        nothing compared.
+        """
+        rec = {"schema_version": "1.0",
+               "identified_databases": {"x": 10}, "duplicates_removed": 0,
+               "records_screened": 10, "studies_included_databases": 7,
+               "studies_included_total": None}
+        checked = []
+        self.assertEqual(pf.reconcile(rec, checked), [])
+        self.assertNotIn("merge", checked)
+        _, out, _ = self.run_record(rec)
+        self.assertNotIn("merge", out.split("## Reconciliation")[1])
+
+    def test_a_null_breakdown_operand_also_skips_its_edge(self):
+        rec = counts_template1()
+        rec["reports_excluded"] = None
+        checked = []
+        pf.reconcile(rec, checked)
+        self.assertNotIn("eligibility", checked)
+
     def test_identification_is_gated_on_presence_not_truthiness(self):
         """The old gate also required a non-zero identified count, which is the
         truthiness test this module's own docstring rejects. A record claiming

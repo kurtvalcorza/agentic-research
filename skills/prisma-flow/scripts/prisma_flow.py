@@ -291,7 +291,23 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     unchanged; only main() asks.
     """
     errs = []
-    have = c.__contains__
+
+    def have(key: str) -> bool:
+        """Supplied means carrying a value, the same as it means everywhere else.
+
+        This was `c.__contains__` — raw key presence — while validate_record()
+        defines supplied as `v is not None`. One word, two meanings, one file.
+        Most keys hid the difference because they are coerced through _int()
+        before their edge is gated, so an explicit null raises CountError and
+        exits 2 first. `studies_included_total` is the exception: it is read
+        without eager coercion, so `"studies_included_total": null` satisfied key
+        presence, `edge("merge", ...)` recorded merge as checked as a side effect
+        of the call, and the arithmetic was then skipped by the separate
+        `total is not None` guard on the same line. A stage reported as confirmed
+        with nothing compared — the exact defect this function was rewritten to
+        remove, reached through the one operand that could still hide it.
+        """
+        return c.get(key) is not None
 
     def edge(name: str, *operands: tuple[str, ...]) -> bool:
         """An edge is checked when EVERY count it reads was supplied.
@@ -391,7 +407,11 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     arms = [("studies_included_databases",)]
     if _has_other(c):
         arms.append(("studies_included_other",))
-    if edge("merge", ("studies_included_total",), *arms) and total is not None:
+    # No `and total is not None` here any more: have() now guarantees it, and a
+    # guard AFTER the edge() call is exactly how merge came to be recorded as
+    # checked without being compared — edge() appends as a side effect, so
+    # anything gating the arithmetic has to be inside it.
+    if edge("merge", ("studies_included_total",), *arms):
         total = _int(total, "studies_included_total")
         if (inc_db + inc_other) != total:
             errs.append(f"merge: studies_included_databases {inc_db} + studies_included_other {inc_other} = "
