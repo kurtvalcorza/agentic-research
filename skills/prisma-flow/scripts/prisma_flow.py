@@ -502,6 +502,14 @@ def _src_label(d, name: str) -> str:
 
 def mermaid(c: dict) -> str:
     has_other = _has_other(c)
+    # Draw only the arms the record describes. The databases column used to be
+    # emitted unconditionally with every count defaulting to zero, so an
+    # other-methods-only record published a complete databases workflow reading
+    # n=0 at every node beside a reconciliation line calling those stages
+    # inapplicable. A fabricated column in the artifact is worse than a missing
+    # one, and this is the same predicate applicability uses so the diagram and
+    # the verdict cannot describe different flows.
+    has_db = _describes_databases(c)
     id_db = _sum(c.get("identified_databases"), "identified_databases")
     id_reg = _sum(c.get("identified_registers"), "identified_registers")
     id_dbreg = id_db + id_reg
@@ -519,8 +527,9 @@ def mermaid(c: dict) -> str:
     total = c.get("studies_included_total")
     total = _int(total, "studies_included_total") if total is not None else inc_db + inc_other
 
-    L = ["```mermaid", "flowchart TB",
-         '  subgraph DBREG["Identification via databases & registers"]',
+    L = ["```mermaid", "flowchart TB"]
+    if has_db:
+        L += ['  subgraph DBREG["Identification via databases & registers"]',
          f'    ID["Records identified: n={id_dbreg}<br/>{dbreg_src}"]',
          f'    DUP["Records removed before screening:<br/>duplicates n={dup}, other n={rem_oth}"]',
          f'    SCR["Records screened: n={_int(c.get("records_screened",0),"records_screened")}"]',
@@ -546,10 +555,11 @@ def mermaid(c: dict) -> str:
               f'    OEXFT["Reports excluded:<br/>{o_ex_ft_lines}"]',
               f'    INCO["Studies included (other methods): n={inc_other}"]',
               "  end"]
-    L += [f'  INC["Studies included in review: n={total}"]',
-          "  ID --> DUP", "  ID --> SCR", "  SCR --> EXTA", "  SCR --> SOU",
-          "  SOU --> NR", "  SOU --> ASS", "  ASS --> EXFT", "  ASS --> INCDB",
-          "  INCDB --> INC"]
+    L += [f'  INC["Studies included in review: n={total}"]']
+    if has_db:
+        L += ["  ID --> DUP", "  ID --> SCR", "  SCR --> EXTA", "  SCR --> SOU",
+              "  SOU --> NR", "  SOU --> ASS", "  ASS --> EXFT", "  ASS --> INCDB",
+              "  INCDB --> INC"]
     if has_other:
         L += ["  IDO --> OSOU", "  OSOU --> ONR", "  OSOU --> OASS",
               "  OASS --> OEXFT", "  OASS --> INCO", "  INCO --> INC"]
@@ -607,16 +617,31 @@ def main() -> int:
     print("# PRISMA 2020 Flow Diagram\n")
     print(diagram)
     print("\n## Reconciliation\n")
+    # Coverage is computed once, for every branch. It used to be worked out only
+    # inside the clean branch, so a record with one failing stage and another it
+    # could not reach reported "4 of 5" and never said which one was missing —
+    # the artifact contract promises the names, and a reader fixing the failure
+    # would not have learned there was a second gap at all.
+    applicable = applicable_stages(c)
+    unreached = [s for s in applicable if s not in checked]
+
+    def report_unreached() -> None:
+        if unreached:
+            print(f"\n> Not checked: {', '.join(unreached)}. An edge is compared only "
+                  f"when every count it reads was supplied, so an omitted count leaves "
+                  f"its stage unexamined rather than assumed to be zero. That is an "
+                  f"incomplete record, not a contradictory one.")
+
     if errs:
         # The failing branch reports its coverage too. A reader told which stages
         # broke still needs to know how many were examined at all — a single
         # mismatch out of one stage checked is a different situation from one out
         # of eight, and only the second says the rest of the flow held.
-        applicable = applicable_stages(c)
         print(f"⚠️ **Counts do NOT reconcile** — {len(checked)} of {len(applicable)} "
               f"stages checked, and the following failed. Fix before reporting:")
         for e in errs:
             print(f"- {e}")
+        report_unreached()
     elif not checked:
         # No error is not the same claim as no problem. A record naming only two
         # ends supplies no edge with every count it reads, so nothing is compared
@@ -627,6 +652,7 @@ def main() -> int:
         print("⚠️ **Nothing was reconciled** — no stage had every count it reads "
               "supplied, so no arithmetic was checked. This diagram reports the "
               "counts given; it does not attest to them.")
+        report_unreached()
     else:
         # "checked", and it now means it: every stage listed compared numbers the
         # record actually supplied. Until each edge gated on ALL of its operands
@@ -636,18 +662,9 @@ def main() -> int:
         # Out of the APPLICABLE stages, not a fixed eight: a one-arm record has
         # no other-methods stages to check, so "5 of 8" reported three as skipped
         # when they did not apply to it at all.
-        applicable = applicable_stages(c)
         print(f"✅ Counts reconcile — {len(checked)} of {len(applicable)} stages checked: "
               f"{', '.join(checked)}.")
-        unreached = [s for s in applicable if s not in checked]
-        if unreached:
-            # NAME them. A bare count told a reader how much was missing without
-            # telling them what, which is the half of the answer they cannot act
-            # on — and the contract already promised the names.
-            print(f"\n> Not checked: {', '.join(unreached)}. An edge is compared only "
-                  f"when every count it reads was supplied, so an omitted count leaves "
-                  f"its stage unexamined rather than assumed to be zero. That is an "
-                  f"incomplete record, not a contradictory one.")
+        report_unreached()
     # An unreconciled record is incomplete, not contradictory — the same
     # distinction the presence gates draw — so --strict still fails only on a
     # real contradiction. What changed is that silence no longer reads as a tick.

@@ -851,6 +851,44 @@ class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
         self.assertEqual(code, 0, msg=out + err)
         self.assertIn("5 of 5 stages checked", out)
 
+    def test_the_diagram_draws_only_the_arms_the_record_describes(self):
+        """An other-methods-only record used to publish a complete databases
+        column reading n=0 at every node, beside a reconciliation line calling
+        those stages inapplicable. A fabricated column in the artifact is worse
+        than a missing one, and the diagram must not describe a different flow
+        from the verdict — both now use the same arm predicate."""
+        other_only = {
+            "schema_version": "1.0",
+            "identified_other": {"citation searching": 20},
+            "other_reports_sought": 20, "other_reports_not_retrieved": 0,
+            "other_reports_assessed": 20,
+            "other_reports_excluded": {"wrong outcome": 5},
+            "studies_included_other": 15, "studies_included_total": 15,
+        }
+        _, out, _ = self.run_record(other_only)
+        self.assertIn('subgraph OTHER', out)
+        self.assertNotIn("DBREG", out)
+        self.assertNotIn("INCDB", out)
+        self.assertIn('INC["Studies included in review: n=15"]', out)
+        # and the databases arm still renders for a record that describes it
+        _, t1, _ = self.run_record(counts_template1())
+        self.assertIn("DBREG", t1)
+
+    def test_unreached_stages_are_named_on_the_failing_branch_too(self):
+        """The names were computed only inside the clean branch, so a record with
+        one failing stage and another it could not reach reported "2 of 5" and
+        never said which was missing — the reader fixing the failure would not
+        have learned there was a second gap."""
+        rec = {"schema_version": "1.0", "identified_databases": {"x": 100},
+               "duplicates_removed": 0, "records_screened": 50,   # identification fails
+               "reports_sought": 50,                              # screening unreachable
+               "studies_included_databases": 0, "studies_included_total": 0}
+        code, out, _ = self.run_record(rec, "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("do NOT reconcile", out)
+        self.assertIn("Not checked:", out)
+        self.assertIn("screening", out.split("Not checked:")[1])
+
     def test_every_checked_stage_is_an_applicable_one(self):
         """The invariant behind it, across every record shape in the suite."""
         for name, rec in (("template1", counts_template1()),
