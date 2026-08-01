@@ -91,10 +91,17 @@ jobs:
 
             This repository is governed by .specify/memory/constitution.md and
             CLAUDE.md — read them. The rules that actually get broken here: stdlib
-            only (no dependency may be added, including for tests), no imports
-            across skills, fail closed (reject unknown keys, reject empty
-            collections, report missing rather than defaulting to zero), and state
-            what a check cannot verify whenever a check is added or changed.
+            only, no imports across skills, fail closed (reject unknown keys,
+            reject empty collections, report missing rather than defaulting to
+            zero), and state what a check cannot verify whenever a check is added
+            or changed.
+
+            Read the stdlib rule from the constitution rather than from this
+            prompt: it carries a narrow carve-out for an optional dependency that
+            is lazy, guarded, non-blocking and disclosed in the README, which
+            `rlm_corpus_loader.py` relies on for PDF extraction. Treating the rule
+            as absolute would make you report a conforming optional dependency as
+            a violation.
 
             Weight these, in order:
               1. Fail-open behaviour — anything that accepts malformed input, or
@@ -186,7 +193,13 @@ jobs:
             # Config that silently stops matching itself is the failure class
             # this whole workflow exists to catch, so it should not ship one.
             # GITHUB_WORKFLOW_REF is `owner/repo/path/to/file.yml@refs/...`.
-            me=$(printf '%s' "${GITHUB_WORKFLOW_REF}" | sed -E 's#^[^/]+/[^/]+/##; s#@.*$##')
+            # Strip the ref at the LAST `@`, not the first: a path may legally
+            # contain one, and cutting at the first would silently resolve to a
+            # truncated path that matches no file. Owner and repo names cannot
+            # contain `/`, so two prefix strips remove exactly `owner/repo/`.
+            me="${GITHUB_WORKFLOW_REF%@*}"
+            me="${me#*/}"
+            me="${me#*/}"
             echo "this workflow is ${me}"
             self=$(count "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" \
                      "[.[] | select(.filename == \"${me}\")] | length")
