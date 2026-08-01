@@ -140,20 +140,48 @@ jobs:
           EXECUTED: ${{ steps.claude-review.outputs.execution_file }}
         run: |
           set -euo pipefail
-          # `execution_file` is set only when the action actually ran. It is empty
-          # when the action refused to start — which on a pull request that edits
-          # THIS FILE is expected, not a fault, because the copy under review is
-          # not yet byte-identical to the default branch. Enforcing "must post" in
-          # that case would turn every workflow change red, including this one.
+          # Count across ALL pages. The comments endpoints return 30 per page
+          # oldest-first, so a single-page read sees the OLDEST 30 and misses the
+          # comment this run just posted — on PR #3 the unpaginated call stops at
+          # 2026-07-31T04:01Z while the newest is 2026-08-01T03:32Z, a full day
+          # invisible. That would fail a review that genuinely happened, on
+          # exactly the long iterative threads this repo produces.
+          count () {
+            gh api --paginate "$1" --jq "$2" | awk '{s += $1} END {print s + 0}'
+          }
+
+          # `execution_file` is set only when the action actually ran, so an empty
+          # value means it never started. That has one BENIGN cause — a pull
+          # request editing this very file, which the action refuses to run
+          # because the copy under review is not yet byte-identical to the default
+          # branch — and several malignant ones: an expired
+          # CLAUDE_CODE_OAUTH_TOKEN, an API outage, a crash before outputs.
           #
-          # The #13 failure is NOT exempted by this: that run reached the model,
-          # burned three turns and produced an execution file before giving up, so
-          # it still has to answer for posting nothing.
+          # Exempting all of them alike would mean a dead secret silently
+          # downgrades every future review to a green warning nobody reads. That
+          # is the same fail-open #13 was filed for, one level down. So the
+          # exemption is scoped: benign only when this pull request actually
+          # touches this workflow file.
+          #
+          # The #13 failure is exempt under neither test — it reached the model
+          # and produced an execution file before giving up, so it still has to
+          # answer for posting nothing.
           if [ -z "${EXECUTED}" ]; then
-            echo "::warning::The action did not execute, so no review happened." \
-                 "Expected on a pull request that changes this workflow file;" \
-                 "investigate otherwise. Not treated as a review."
-            exit 0
+            self=$(count "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" \
+                     '[.[] | select(.filename == ".github/workflows/claude-code-review.yml")] | length')
+            if [ "${self}" -gt 0 ]; then
+              echo "::warning::The action did not execute because this pull" \
+                   "request changes the review workflow itself, which it refuses" \
+                   "to run until the change is on the default branch. Expected." \
+                   "No review happened; this is not one."
+              exit 0
+            fi
+            echo "::error::The action never executed, and this pull request does" \
+                 "not touch the review workflow — so the usual benign cause does" \
+                 "not apply. Check for an expired CLAUDE_CODE_OAUTH_TOKEN, an API" \
+                 "outage, or a crash before outputs were written. Failing rather" \
+                 "than reporting a review that did not happen (#13)."
+            exit 1
           fi
           # Match on the authors this workflow can post as, not on "any comment
           # in the window": gemini-code-assist posts a notice on every pull
@@ -165,8 +193,8 @@ jobs:
           # and takes one commit to fix, a false pass is the original bug.
           mine='["claude[bot]","github-actions[bot]"]'
           q="[.[] | select(.created_at > \"${SINCE}\") | select(.user.login as \$l | ${mine} | index(\$l))] | length"
-          top=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --jq "$q")
-          inline=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" --jq "$q")
+          top=$(count "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" "$q")
+          inline=$(count "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" "$q")
           echo "posted since ${SINCE}: ${top} top-level, ${inline} inline"
           if [ "$((top + inline))" -eq 0 ]; then
             echo "::error::The review posted nothing. A green check here would" \
