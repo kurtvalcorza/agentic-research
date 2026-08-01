@@ -56,7 +56,11 @@ emitted — a record that cannot be read must not produce a document that looks 
 Binding on all four, like `--strict`. It **replaces** the artifact: standard output carries one
 JSON object and nothing else, so a consumer parses the whole stream rather than a prefix of it.
 
-```json
+Deliberately not in a `json` fence: `tests/test_contract_examples.py` executes every fenced `json`
+block in this directory as an input RECORD, and this is a sample of OUTPUT — it could only fail
+there for being the wrong kind of thing.
+
+```
 {"check": "grade_profile", "schema_version": "1.0", "issues": 5,
  "units": {"U_grade": 2, "U_rob_trace": 1}, "gates": {}, "unattributed": 1,
  "detail": {"failing_results": ["O1", "O4"]}}

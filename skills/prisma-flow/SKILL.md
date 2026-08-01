@@ -30,13 +30,14 @@ python scripts/prisma_flow.py counts.json --strict   # exit 1 if counts do not r
 python scripts/prisma_flow.py counts.json --strict --json   # counts only, no diagram
 ```
 
-**`--json`** replaces the artifact with the machine-readable counts envelope that `verify-review`
-consumes to DERIVE `U_prisma` rather than trust the number its own record asserts. Both scripts
-here support it, and both report the count they define rather than leaving it to be reconstructed
-from their prose. `U_prisma` is failing stages **plus stages nothing could reach** — a record
+**`--json`** replaces the artifact with the machine-readable counts envelope, so a consumer can
+READ `U_prisma` rather than re-derive it from the prose. Both scripts here support it, and both
+report the count they define rather than leaving it to be reconstructed from their rendered
+output. `U_prisma` is failing stages **plus stages nothing could reach** — a record
 naming only two ends fails nothing for want of anything to check, and a unit counting only
 failures would report it as zero outstanding work. The flag does not change the exit code, and
-malformed input still emits nothing. Full shape in
+malformed input still emits nothing. `verify-review` consumes the envelope — its `checks` block
+runs these checks and takes what they report over what its own record asserts. Full shape in
 `specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
 
 The script renders a Mermaid flowchart (GitHub/Markdown-renderable) and runs a **reconciliation check** on each arm:
