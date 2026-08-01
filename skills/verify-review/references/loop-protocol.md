@@ -32,6 +32,7 @@ Assembled each cycle from the in-scope checks' outputs and passed to
   "exclusions_logged": false,
   "checks": {
     "prisma_flow": { "record": "artifacts/counts.json" },
+    "rob_appraisal": { "record": "artifacts/appraisal.json" },
     "grade_profile": { "record": "artifacts/certainty.json",
                        "rob_record": "artifacts/appraisal.json" }
   }
