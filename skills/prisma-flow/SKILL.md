@@ -124,20 +124,31 @@ eight stages were actually checked, and a record where **none** were says so out
 than printing a tick — "Nothing was reconciled … This diagram reports the counts given; it does
 not attest to them." A bare ✅ over a flow nothing had examined was the fail-open behind #9.
 
-**That every stage it counts as checked was checked against two supplied numbers.** The stage
-count is only as honest as the gates it derives from, and two gates still compare a supplied
-count against an operand that defaulted to zero:
+**That every stage it counts as checked was checked against supplied numbers.** The stage count
+is only as honest as the gates it derives from, and **every gate reading more than two counts
+has this problem** — each gates on the two counts its name mentions and lets any further operand
+default to zero:
 
-- `identification` fires on `identified_* ` and `records_screened` alone, so it runs with
-  `duplicates_removed` never supplied and treated as `0`.
-- `merge` in a two-arm record fires when either arm total is present, so it runs with the other
-  arm total never supplied and treated as `0`.
+| Stage | compares | operand that silently defaults |
+|:--|:--|:--|
+| `identification` | `identified − removed = screened` | `duplicates_removed`, `removed_other_reasons` |
+| `screening` | `screened − excluded(t/a) = sought` | `records_excluded_title_abstract` |
+| `retrieval` | `sought − not_retrieved = assessed` | `reports_not_retrieved` |
+| `eligibility` | `assessed − excluded(full-text) = included` | `reports_excluded` |
+| `other retrieval` | `sought − not_retrieved = assessed` | `other_reports_not_retrieved` |
+| `other eligibility` | `assessed − excluded = included` | `other_reports_excluded` |
+| `merge` | `databases + other = total` | whichever arm total is absent |
 
-Both overstate: a record can be told "5 of 8 stages checked" where one of those five compared a
-real number against a default. Tracked separately — the general rule is that every edge should
-gate on **all** of its operands, not merely the two its name mentions, and that is a change to
-every gate rather than a fix to these two. Until then, read the stage count as "stages the check
-attempted", not "stages independently confirmed".
+Only `other identification` reads exactly two counts and is therefore exact. So a record told
+"3 of 8 stages checked" may have had any of those three compare a real number against a zero
+nobody supplied — `{"identified_databases": {"x": 100}, "duplicates_removed": 0,
+"records_screened": 100, "reports_sought": 100}` reports `screening` as checked without
+`records_excluded_title_abstract` ever appearing.
+
+Tracked separately, because the fix is one rule applied to every gate rather than a patch to
+any of them: an edge should gate on **all** of its operands, not merely the two its name
+mentions. Until that lands, read the stage count as **stages the check attempted**, never
+stages independently confirmed.
 
 ## Boundaries
 
