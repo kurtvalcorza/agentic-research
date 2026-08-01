@@ -824,6 +824,48 @@ class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
         self.assertEqual(len(pf.applicable_stages(counts_template1())), 5)
         self.assertEqual(len(pf.applicable_stages(counts_template2())), 8)
 
+    def test_the_numerator_can_never_exceed_the_denominator(self):
+        """It could, and printed "5 of 0 stages checked".
+
+        Applicability used a MAGNITUDE test for the databases arm while the
+        edges gate on presence, and reconcile() does not gate that arm's block at
+        all. So a record supplying the whole arm as real zeros checked five
+        stages while the denominator counted none applicable — a fraction that
+        does not parse, and worse than the wording this change removed.
+
+        Applicability has to describe what reconcile() could actually have run,
+        which is presence for the ungated arm and _has_other() for the gated one.
+        """
+        all_zero = {
+            "schema_version": "1.0",
+            "identified_databases": {"OpenAlex": 0}, "duplicates_removed": 0,
+            "records_screened": 0, "records_excluded_title_abstract": 0,
+            "reports_sought": 0, "reports_not_retrieved": 0, "reports_assessed": 0,
+            "reports_excluded": {}, "studies_included_databases": 0,
+            "studies_included_total": 0,
+        }
+        checked = []
+        self.assertEqual(pf.reconcile(all_zero, checked), [])
+        self.assertLessEqual(len(checked), len(pf.applicable_stages(all_zero)))
+        code, out, err = self.run_record(all_zero, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("5 of 5 stages checked", out)
+
+    def test_every_checked_stage_is_an_applicable_one(self):
+        """The invariant behind it, across every record shape in the suite."""
+        for name, rec in (("template1", counts_template1()),
+                          ("template2", counts_template2()),
+                          ("byo", {"schema_version": "1.0",
+                                   "identified_databases": {"pre-collected corpus": 5},
+                                   "duplicates_removed": 0, "records_screened": 5,
+                                   "studies_included_databases": 5,
+                                   "studies_included_total": 5})):
+            with self.subTest(record=name):
+                checked = []
+                pf.reconcile(rec, checked)
+                self.assertTrue(set(checked) <= set(pf.applicable_stages(rec)),
+                                f"{set(checked) - set(pf.applicable_stages(rec))}")
+
     def test_identification_is_gated_on_presence_not_truthiness(self):
         """The old gate also required a non-zero identified count, which is the
         truthiness test this module's own docstring rejects. A record claiming

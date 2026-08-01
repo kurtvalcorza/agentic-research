@@ -267,24 +267,32 @@ def _has_other(c: dict) -> bool:
     return _sum(c.get("other_reports_excluded"), "other_reports_excluded") > 0
 
 
-def _has_databases(c: dict) -> bool:
-    """True if the counts describe a databases/registers arm.
+DATABASE_ARM_KEYS = (
+    "identified_databases", "identified_registers",
+    "duplicates_removed", "removed_other_reasons",
+    "records_screened", "records_excluded_title_abstract",
+    "reports_sought", "reports_not_retrieved", "reports_assessed",
+    "reports_excluded", "studies_included_databases",
+)
 
-    The mirror of _has_other, and it did not exist: the arm was assumed always
-    present, so an other-methods-only record was told five stages "could not be
-    checked" when four of them belonged to an arm it never claimed — the exact
-    complaint that made the denominator applicable-rather-than-eight in the first
-    place, reflected onto the other side.
+
+def _describes_databases(c: dict) -> bool:
+    """True if the record says anything at all about the databases arm.
+
+    PRESENCE, deliberately, where _has_other() is a magnitude test — because
+    reconcile() gates the two arms differently and applicability has to describe
+    what it could actually have run. The other-methods block sits behind
+    `if _has_other(c)`, so its stages are unreachable when that is false. The
+    databases block is not gated at all: its edges fire on have(), a presence
+    test, so a record supplying that arm entirely as real zeros checks all five
+    stages.
+
+    Using a magnitude test here made the two disagree exactly there, and the
+    artifact said `✅ Counts reconcile — 5 of 0 stages checked` — five stages
+    checked out of none applicable, which does not even parse as a fraction and
+    is worse than the wording this change removed.
     """
-    if _sum(c.get("identified_databases"), "identified_databases") > 0:
-        return True
-    if _sum(c.get("identified_registers"), "identified_registers") > 0:
-        return True
-    keys = ("records_screened", "records_excluded_title_abstract", "reports_sought",
-            "reports_not_retrieved", "reports_assessed", "studies_included_databases")
-    if any(_int(c.get(k, 0), k) > 0 for k in keys):
-        return True
-    return _sum(c.get("reports_excluded"), "reports_excluded") > 0
+    return any(c.get(k) is not None for k in DATABASE_ARM_KEYS)
 
 
 DATABASE_STAGES = ("identification", "screening", "retrieval", "eligibility")
@@ -298,7 +306,7 @@ def applicable_stages(c: dict) -> tuple[str, ...]:
     them as unchecked reports a gap that does not exist.
     """
     stages: tuple[str, ...] = ()
-    if _has_databases(c):
+    if _describes_databases(c):
         stages += DATABASE_STAGES
     if _has_other(c):
         stages += OTHER_STAGES
@@ -447,11 +455,13 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     # enough to stop the grand total being compared against two defaults, but in a
     # two-arm record it still let the OTHER arm default while reporting the stage
     # as checked. Which arms must be supplied depends on which the record claims:
-    # the databases arm always, the other-methods arm when _has_other() says the
-    # record describes one.
+    # the databases arm when it says anything about that arm, the other-methods arm
+    # when _has_other() says the record describes one. The two predicates differ
+    # because reconcile() gates the two blocks differently -- see
+    # _describes_databases().
     total = c.get("studies_included_total")
     arms = []
-    if _has_databases(c):
+    if _describes_databases(c):
         arms.append(("studies_included_databases",))
     if _has_other(c):
         arms.append(("studies_included_other",))
