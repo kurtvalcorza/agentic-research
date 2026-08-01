@@ -256,15 +256,35 @@ def _sum(d, name: str) -> int:
     return sum(_int(v, f"{name}.{k}") for k, v in _as_mapping(d, name).items())
 
 
+OTHER_ARM_KEYS = (
+    "identified_other",
+    "other_reports_sought", "other_reports_not_retrieved", "other_reports_assessed",
+    "other_reports_excluded", "studies_included_other",
+)
+
+
 def _has_other(c: dict) -> bool:
-    """True if the counts describe an 'other methods' arm (Template 2)."""
-    if _sum(c.get("identified_other"), "identified_other") > 0:
-        return True
-    keys = ("other_reports_sought", "other_reports_not_retrieved",
-            "other_reports_assessed", "studies_included_other")
-    if any(_int(c.get(k, 0), k) > 0 for k in keys):
-        return True
-    return _sum(c.get("other_reports_excluded"), "other_reports_excluded") > 0
+    """True if the record says anything at all about the other-methods arm.
+
+    PRESENCE, matching _describes_databases(). This was a magnitude test, and
+    keeping one arm on magnitude while the other moved to presence left the exact
+    defect that change was made to fix, mirrored:
+
+      * A record supplying the whole arm as real zeros — a review that searched
+        citations and found nothing — was treated as never having mentioned it.
+        Its three stages vanished from the count and its column from the diagram,
+        which is the truthiness-over-presence reading this file rejects
+        everywhere else.
+      * Worse, `{"identified_other": {"citation searching": 0},
+        "studies_included_total": 0}` passes rule 8, describes no arm under a
+        magnitude test, and so had NO applicable stages while the merge edge
+        still fired on the grand total alone — printing `1 of 0 stages checked`,
+        the same unparseable fraction as before, reached from the other side.
+
+    Both arms now answer the same question the same way: did the record say
+    anything about this arm. Zero is an answer.
+    """
+    return any(c.get(k) is not None for k in OTHER_ARM_KEYS)
 
 
 DATABASE_ARM_KEYS = (
@@ -279,13 +299,10 @@ DATABASE_ARM_KEYS = (
 def _describes_databases(c: dict) -> bool:
     """True if the record says anything at all about the databases arm.
 
-    PRESENCE, deliberately, where _has_other() is a magnitude test — because
-    reconcile() gates the two arms differently and applicability has to describe
-    what it could actually have run. The other-methods block sits behind
-    `if _has_other(c)`, so its stages are unreachable when that is false. The
-    databases block is not gated at all: its edges fire on have(), a presence
-    test, so a record supplying that arm entirely as real zeros checks all five
-    stages.
+    PRESENCE, matching _has_other(). Applicability has to describe what
+    reconcile() could actually have run, and both arms now answer the same
+    question: did the record say anything about this arm. Zero is an answer —
+    a review that searched and found nothing described that arm.
 
     Using a magnitude test here made the two disagree exactly there, and the
     artifact said `✅ Counts reconcile — 5 of 0 stages checked` — five stages
@@ -454,11 +471,9 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
     # Every arm the record actually describes, not merely one of them. `or` was
     # enough to stop the grand total being compared against two defaults, but in a
     # two-arm record it still let the OTHER arm default while reporting the stage
-    # as checked. Which arms must be supplied depends on which the record claims:
-    # the databases arm when it says anything about that arm, the other-methods arm
-    # when _has_other() says the record describes one. The two predicates differ
-    # because reconcile() gates the two blocks differently -- see
-    # _describes_databases().
+    # as checked. Which arms must be supplied depends on which the record claims,
+    # and both arms are detected the same way: did the record say anything about
+    # this arm. An arm described entirely as zeros is still described.
     total = c.get("studies_included_total")
     arms = []
     if _describes_databases(c):

@@ -889,6 +889,44 @@ class TestAnEdgeGatesOnAllOfItsOperands(_RunRecord):
         self.assertIn("Not checked:", out)
         self.assertIn("screening", out.split("Not checked:")[1])
 
+    def test_both_arms_are_detected_the_same_way(self):
+        """Keeping one arm on magnitude while the other moved to presence left
+        the same defect mirrored. Two shapes, both raised by both reviewers:
+
+        A record supplying the whole other arm as real zeros — a citation search
+        that found nothing — was treated as never having mentioned it: three
+        stages gone from the count, its column gone from the diagram.
+
+        And `{"identified_other": {"citation searching": 0},
+        "studies_included_total": 0}` passes rule 8, described no arm under a
+        magnitude test, so had NO applicable stages while the merge still fired
+        on the grand total alone — printing `1 of 0 stages checked`.
+        """
+        mirror = {"schema_version": "1.0",
+                  "identified_other": {"citation searching": 0},
+                  "studies_included_total": 0}
+        checked = []
+        pf.reconcile(mirror, checked)
+        self.assertLessEqual(len(checked), len(pf.applicable_stages(mirror)))
+        _, out, _ = self.run_record(mirror)
+        self.assertNotIn("1 of 0", out)
+        self.assertIn("Nothing was reconciled", out)
+
+    def test_an_arm_described_entirely_as_zeros_is_still_described(self):
+        """Zero is an answer. A review that searched citations and found nothing
+        described that arm, and presence is what this file uses everywhere else."""
+        rec = counts_template2(
+            identified_other={"citation searching": 0}, other_reports_sought=0,
+            other_reports_not_retrieved=0, other_reports_assessed=0,
+            other_reports_excluded={}, studies_included_other=0,
+            studies_included_total=38)
+        self.assertTrue(pf._has_other(rec))
+        self.assertEqual(len(pf.applicable_stages(rec)), 8)
+        code, out, err = self.run_record(rec, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("8 of 8 stages checked", out)
+        self.assertIn("subgraph OTHER", out)
+
     def test_every_checked_stage_is_an_applicable_one(self):
         """The invariant behind it, across every record shape in the suite."""
         for name, rec in (("template1", counts_template1()),
