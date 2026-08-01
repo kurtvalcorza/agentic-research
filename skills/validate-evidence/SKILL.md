@@ -101,8 +101,8 @@ the only one producing **two** units — `U_grade` (results that fail) and `U_ro
 references that do not resolve) — and they overlap on purpose, so neither may be derived from the
 other. `U_rob_trace` is emitted **only with `--rob`**: without an appraisal record nothing was
 traced, and reporting `0` would claim every reference resolved. The flag does not change the exit
-code, and malformed input still emits nothing. **Nothing consumes the envelope yet** — having
-`verify-review` run the checks and take their counts is tracked as issue #4. Full shape in `specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
+code, and malformed input still emits nothing. `verify-review` consumes the envelope — its
+`checks` block runs this check and takes both units over what its own record asserts. Full shape in `specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
 
 `--rob` supplies the appraisal record. It is **required** whenever a result declares
 `basis: confirmed_rob`: claiming confirmed appraisal without supplying it is a violation, not a

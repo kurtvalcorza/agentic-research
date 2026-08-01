@@ -1418,7 +1418,8 @@ def main() -> int:
         # U_rob_trace is emitted ONLY when --rob was supplied. Without an appraisal
         # record no traceability was attempted, and reporting 0 would state that
         # every reference resolved — a consumer must see the unit as ABSENT rather
-        # than read an unrun check as a clean one.
+        # than read an unrun check as a clean one. review_units.py reports it under
+        # `underived_units` and holds the verdict.
         units = {"U_grade": len(failing)}
         if args.rob:
             units["U_rob_trace"] = rob_trace

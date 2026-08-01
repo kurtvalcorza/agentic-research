@@ -36,8 +36,8 @@ report the count they define rather than leaving it to be reconstructed from the
 output. `U_prisma` is failing stages **plus stages nothing could reach** — a record
 naming only two ends fails nothing for want of anything to check, and a unit counting only
 failures would report it as zero outstanding work. The flag does not change the exit code, and
-malformed input still emits nothing. **Nothing consumes the envelope yet** — having
-`verify-review` run the checks and take their counts is tracked as issue #4. Full shape in
+malformed input still emits nothing. `verify-review` consumes the envelope — its `checks` block
+runs these checks and takes what they report over what its own record asserts. Full shape in
 `specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
 
 The script renders a Mermaid flowchart (GitHub/Markdown-renderable) and runs a **reconciliation check** on each arm:

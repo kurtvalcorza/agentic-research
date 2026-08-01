@@ -73,8 +73,9 @@ auto-reducible — see §5).
 > outstanding work. Both now count what their check emits. `U_rob_trace` and `U_checklist` were
 > added after this document and are absent from this table entirely.
 >
-> Both counts are readable from the artifact; `--strict --json` emits them as data instead,
-> which is the same number in a different format and has no consumer in this repository yet.
+> Both counts are readable from the artifact; `--strict --json` emits them as data instead, which
+> is the same number in a different format. That is the form `verify-review`'s `checks` block reads
+> when it derives the count by running the check itself; the column above is the human path.
 >
 > **This spec is the original design, not the current contract.** The shipped definitions live in
 > `skills/verify-review/SKILL.md` and

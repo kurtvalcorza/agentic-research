@@ -29,11 +29,37 @@ Assembled each cycle from the in-scope checks' outputs and passed to
   "gates": { "H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0 },
   "history": [14, 11, 9],
   "denominators": { "citations": 40, "studies": 22, "themes": 8 },
-  "exclusions_logged": false
+  "exclusions_logged": false,
+  "checks": {
+    "prisma_flow": { "record": "artifacts/counts.json" },
+    "rob_appraisal": { "record": "artifacts/appraisal.json" },
+    "grade_profile": { "record": "artifacts/certainty.json",
+                       "rob_record": "artifacts/appraisal.json" }
+  }
 }
 ```
 
 Rules:
+- `checks` (optional) makes a count **derived** instead of asserted: the named
+  check is run with `--strict --json` and what it reports overrides what `units`
+  says. `prisma_flow` → `U_prisma`; `prisma_checklist` → `U_checklist`;
+  `grade_profile` → `U_grade`, and `U_rob_trace` only when `rob_record` is given;
+  `rob_appraisal` → the `H_rob` gate. **When `units_in_scope` is declared, every
+  in-scope unit a check can derive needs an entry**, or it lands in
+  `underived_units` and the verdict is held. So does **`H_rob` whenever
+  `U_rob_trace` is in scope** — a gate cannot be named in `units_in_scope`, so it
+  reads its scope from the unit it moves with, and it lands in `underived_gates`.
+  A disagreement between a derived and a reported count is named in
+  `ignored_inputs`; an agreeing one is not, because nothing was dropped.
+  **`grade_profile.rob_record` requires a `rob_appraisal` entry on the SAME
+  record** — the certainty check books the pending signatures it finds to no unit
+  and no gate, so only the appraisal check running on that file counts them. Two
+  entries naming different appraisals is malformed input.
+  The check name is a key into a fixed table, never a path, and the argv is built
+  by the backend — nothing here reaches it. Record paths must resolve inside
+  `--records-root` (default: the directory holding `units.json`). A check that
+  exits 2, crashes, times out, or emits an envelope the backend cannot validate is
+  an **error**, never a count of zero.
 - **Only include in-scope units**, but the **universal floor** (`U_cite_external`,
   `U_cite_internal`, `U_consistency`) must always be present — a `VERIFIED` verdict
   is impossible while any floor unit is missing (`missing_units` lists them). An
@@ -45,10 +71,18 @@ Rules:
   silently omits `U_prisma` is caught (`missing_units`) instead of passing. Omit
   it and only the universal floor is enforced. The floor is always required,
   whether or not it appears in the list.
-  When a cycle re-runs only the checks whose inputs changed, **carry forward the
-  last-known value of every in-scope unit** (floor *and* declared) into that
-  cycle's `units.json` (and pass `consistency` with its score) so nothing lands in
-  `missing_units` — otherwise the cycle cannot reach `VERIFIED`/`BLOCKED_ON_HUMAN`.
+  **Carry forward the last-known value of every in-scope unit that has no runnable
+  check** — `U_cite_external`, `U_cite_internal`, `U_screen`, `U_extract` — into
+  each cycle's `units.json` (and pass `consistency` with its score) so nothing
+  lands in `missing_units`.
+  **A DERIVABLE unit cannot be carried forward.** `U_prisma`, `U_checklist`,
+  `U_grade`, `U_rob_trace` and the `H_rob` gate must be re-derived every cycle: a
+  `checks` entry omitted this cycle puts its unit in `underived_units` and holds
+  the verdict, whatever value `units` carries. That is deliberate — the guarantee
+  is that a derived count came from a run *in this cycle*, not that it was true
+  three cycles ago, and a carried value is indistinguishable from a hand-written
+  one. The four checks are sub-second local scripts, so the cost is small and the
+  optimization it replaces was never safe for these units.
   Declaring `units_in_scope` also **requires the `gates` key to be present** (even
   `{}`): an omitted gates object cannot silently assert all human gates confirmed.
 - `U_consistency` is derived **only** from the `consistency` object (which needs a
@@ -77,6 +111,10 @@ Rules:
   "auto_units_zero": false,
   "gates_remaining": 0,
   "missing_units": [],
+  "underived_units": [],
+  "underived_gates": [],
+  "gates_evaluated": { "H_rob": 0, "H_screen_adj": 0, "H_cite_manual": 0, "H_numeric": 0 },
+  "unattributed_issues": [],
   "dominant_unit": "U_cite_external",
   "cycle": 2,
   "ceiling": 25,
@@ -99,25 +137,64 @@ Rules:
   run that omits a declared `U_prisma`, fails closed rather than passing.
   (`U_consistency` is derived **only** from the `consistency` object; a value
   placed directly in `units` is ignored, so it can't fake the floor.)
+- `underived_units` lists in-scope units a check could have derived where the
+  `checks` block named no record for it. The count is present — it is simply
+  self-reported, which on the scope-declaring path is not enough. **Non-empty ⇒
+  never `VERIFIED`**, and no amount of repair work clears it: add the entry.
+- `underived_gates` is the same for a human gate. A gate cannot appear in
+  `units_in_scope`, so it reads its scope from the unit it moves with: `H_rob` is
+  required whenever `U_rob_trace` is in scope. **Non-empty ⇒ never `VERIFIED`.**
+- `gates_evaluated` is the gate map the verdict actually used, after any derived
+  value overrode a reported one; `gates_remaining` is its sum. `--manifest` records
+  this map rather than the record's own, so the audit trail cannot state a number
+  the verdict overruled.
+- `unattributed_issues` lists work a check reported that no unit and no gate
+  counts, so it appears nowhere else in the verdict. Today that is a risk-of-bias
+  record failing its own instrument. **Non-empty ⇒ never `VERIFIED`.**
 - `dominant_unit` is populated only when `state == CONTINUE`; it is the in-scope
   unit with the largest **weighted** contribution (ties broken by weight, then
   name). This is the routing target.
 - `soft_advisory` is `true` from cycle 10 onward; it is informational and never
   changes `state`.
 
+### `--dry-run` and the run resolve scope ONCE
+
+Both read `effective_scope()`. They used to derive it separately — the run filtering
+the merged unit map to `declared | UNIVERSAL_FLOOR`, the preview unioning the
+record's own `units` keys with `declared` — so a record carrying a stale
+out-of-scope entry previewed it as applicable and then verified without evaluating
+it. Two derivations of one concept produced a finding twice, on gates and then on
+units; there is now one.
+
+The universal floor is always allowed, whether or not the declared list names it.
+With no scope declared the resolution is *unbounded* rather than bounded by
+whatever happens to be supplied — a different claim, and conflating them is how a
+filter starts dropping things on the path that never filtered.
+
 ## 3. State machine (precedence order)
 
 Evaluated top-down each cycle; first match wins:
 
-1. `auto_units_zero AND gates_remaining == 0` → **VERIFIED**
-2. `auto_units_zero AND gates_remaining > 0` → **BLOCKED_ON_HUMAN**
-3. plateau (`PLATEAU_K = 3` consecutive non-improving cycles) → **PLATEAU**
-4. `cycle ≥ ceiling (25)` → **CEILING**
-5. otherwise → **CONTINUE**
+1. `underived_units OR underived_gates OR unattributed_issues` non-empty →
+   **CONTINUE** (**CEILING** at the ceiling)
+2. `auto_units_zero AND gates_remaining == 0` → **VERIFIED**
+3. `auto_units_zero AND gates_remaining > 0` → **BLOCKED_ON_HUMAN**
+4. `missing_units` non-empty → **CONTINUE** (**CEILING** at the ceiling)
+5. plateau (`PLATEAU_K = 3` consecutive non-improving cycles) → **PLATEAU**
+6. `cycle ≥ ceiling (25)` → **CEILING**
+7. otherwise → **CONTINUE**
 
 Note ordering: a run that reaches all-mechanical-zero **and** has open human
 gates is `BLOCKED_ON_HUMAN`, not `PLATEAU`, even if the scalar was flat while the
 human work waited — human-gate work is not a stall.
+
+Rule 1 sits above the human gate for the same kind of reason, pointing the other
+way. A count nothing established, or work no unit counts, is the **agent's** to
+resolve — declare the check, or fix the record the check rejected — and reaching
+`BLOCKED_ON_HUMAN` there would park an unestablished verdict on a person, waiting
+for a signature nobody asked for. Neither is a repair stall either, so neither may
+be reported as `PLATEAU`: the loop is not stuck, it has been handed an incomplete
+question.
 
 ## 4. Plateau definition
 

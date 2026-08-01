@@ -962,42 +962,62 @@ class TestAHumanGateIsNotAutoReducibleWork(_Base):
         self.assertIn("have no human confirmation", out)
         self.assertIn("**U_grade: 1**", out)
 
+    def loop_on(self, certainty: str, rob: str):
+        """Run the backend over a record whose `U_grade` the certainty check DERIVES.
+
+        These two tests were written when the backend read the count out of
+        units.json. Since issue #4 a scope-declaring record cannot reach a done
+        state on a self-reported derivable unit, so the count now comes from an
+        actual run of the check — which is what the pair were trying to demonstrate
+        in the first place, and could only assert by hand-writing the number.
+
+        The scope is the two units the certainty check produces plus two it does
+        not, so the record still declares scope while the block stays about the one
+        check under test. Records are copied into the run's own directory because
+        `--records-root` bounds where a caller-supplied path may point.
+        """
+        for name in (certainty, rob):
+            self.path(name).write_text(fixture(name).read_text(encoding="utf-8"),
+                                       encoding="utf-8")
+        units = {"schema_version": "1.0", "review_type": "systematic", "cycle": 4,
+                 "units": {"U_cite_external": 0, "U_cite_internal": 0, "U_screen": 0,
+                           "U_extract": 0},
+                 "units_in_scope": ["U_screen", "U_extract", "U_grade", "U_rob_trace"],
+                 "consistency": {"score": 90, "critical_breaks": 0},
+                 "gates": {"H_rob": 0, "H_screen_adj": 0, "H_cite_manual": 0,
+                           "H_numeric": 0},
+                 # Both checks: declaring `U_rob_trace` in scope also commits the
+                 # record to deriving `H_rob`, since the two are in scope for
+                 # exactly the same review types and come from the same appraisal
+                 # record. So the gate below is DERIVED from that record too, not
+                 # asserted — which is what these tests were reaching for.
+                 "checks": {"grade_profile": {"record": certainty, "rob_record": rob},
+                            "rob_appraisal": {"record": rob}},
+                 "history": [1, 1, 1]}
+        return self.run_module(ru, "review_units.py", self.write(units, "units.json"),
+                               "--records-root", self.dir.name)
+
     def test_the_loop_then_reaches_the_handoff_state(self):
         """End to end: the count this check emits, fed to the backend that routes on it."""
-        units = {"schema_version": "1.0", "review_type": "systematic", "cycle": 4,
-                 "units": {"U_cite_external": 0, "U_cite_internal": 0, "U_screen": 0,
-                           "U_extract": 0, "U_prisma": 0, "U_grade": 0,
-                           "U_rob_trace": 0, "U_checklist": 0},
-                 "units_in_scope": ["U_screen", "U_prisma", "U_grade", "U_rob_trace",
-                                    "U_checklist", "U_extract"],
-                 "consistency": {"score": 90, "critical_breaks": 0},
-                 "gates": {"H_rob": 1, "H_screen_adj": 0, "H_cite_manual": 0,
-                           "H_numeric": 0},
-                 "history": [1, 1, 1]}
-        code, out, err = self.run_module(ru, "review_units.py",
-                                         self.write(units, "units.json"))
+        code, out, err = self.loop_on("grade-profile.valid.json",
+                                      "risk-of-bias.unconfirmed.json")
         self.assertEqual(code, 1, msg=err)
         verdict = json.loads(out)
+        self.assertEqual(verdict["by_unit"]["U_grade"], 0)    # derived, not asserted
         self.assertEqual(verdict["state"], "BLOCKED_ON_HUMAN")
         self.assertTrue(verdict["auto_units_zero"])
+        # DERIVED from the appraisal record, not the 0 the record above asserts.
         self.assertEqual(verdict["gates_remaining"], 1)
+        self.assertTrue(any("H_rob" in m for m in verdict["ignored_inputs"]))
 
     def test_and_would_have_plateaued_on_the_old_count(self):
-        """The same record with U_grade booked at 1, which is what the check used to
-        emit — the state the loop actually reached."""
-        units = {"schema_version": "1.0", "review_type": "systematic", "cycle": 4,
-                 "units": {"U_cite_external": 0, "U_cite_internal": 0, "U_screen": 0,
-                           "U_extract": 0, "U_prisma": 0, "U_grade": 1,
-                           "U_rob_trace": 0, "U_checklist": 0},
-                 "units_in_scope": ["U_screen", "U_prisma", "U_grade", "U_rob_trace",
-                                    "U_checklist", "U_extract"],
-                 "consistency": {"score": 90, "critical_breaks": 0},
-                 "gates": {"H_rob": 1, "H_screen_adj": 0, "H_cite_manual": 0,
-                           "H_numeric": 0},
-                 "history": [1, 1, 1]}
-        _, out, _ = self.run_module(ru, "review_units.py",
-                                    self.write(units, "units.json"))
-        self.assertEqual(json.loads(out)["state"], "PLATEAU")
+        """A record the check DOES fail, booking the unit of work an unconfirmed
+        appraisal used to book — the state the loop actually reached."""
+        _, out, err = self.loop_on("grade-profile.bad-arithmetic.json",
+                                   "risk-of-bias.unconfirmed.json")
+        verdict = json.loads(out)
+        self.assertEqual(verdict["by_unit"]["U_grade"], 1, msg=err)
+        self.assertEqual(verdict["state"], "PLATEAU")
 
 
 class TestDiagnosticsCannotBeForged(_Base):

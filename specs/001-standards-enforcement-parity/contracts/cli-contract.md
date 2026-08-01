@@ -88,10 +88,8 @@ Three rules make the number trustworthy rather than merely present:
   envelope of zeros there is the shape a consumer trusts carrying counts nothing produced — the
   single worst output this contract could permit.
 
-**Nothing consumes this yet.** The envelope exists so a count can be READ rather than re-derived;
-wiring `review_units.py` to run these checks and take their counts is a separate change (issue #4).
-Stating it that way is deliberate — a contract that describes a consumer which does not exist reads
-as a guarantee the repository does not make.
+`review_units.py` consumes this to derive its counts instead of trusting the ones its own record
+asserts; see [review-units.md](./review-units.md).
 
 ## Discrepancy message style
 

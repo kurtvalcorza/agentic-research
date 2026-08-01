@@ -28,6 +28,54 @@ def verdict(data):
     return ru.verdict(data, ru.DEFAULT_WEIGHTS, ru.CEILING)
 
 
+class ReportedBack(ru.CheckRunner):
+    """A runner that hands the record's own counts back as if a check produced them.
+
+    Since issue #4 a record declaring systematic scope cannot reach a done state
+    while a derivable unit is self-reported, so the tests below — which are about
+    verdict ARITHMETIC: plateau detection, gate routing, scope resolution — need a
+    runner to be exercised at all. Substituting one keeps each of them asserting
+    what it was written to assert instead of re-testing derivation.
+
+    Nothing here stands in for the real path. Argv construction from the table,
+    records-root containment, exit 2 failing closed and envelope validation are
+    proven against the actual scripts in tests/test_derived_unit_counts.py.
+    """
+
+    def __init__(self, data):
+        super().__init__(records_root=".", skills_root=".")
+        self.data = data
+
+    def argv_for(self, name, entry):
+        return ["<substituted>", name]
+
+    def contained_record(self, value, ctx):
+        # Path resolution is part of what this stub stands in for. The identity
+        # rule between `grade_profile.rob_record` and `rob_appraisal.record` calls
+        # it directly, and these records name fixtures that do not exist on disk.
+        return f"<substituted>/{value}"
+
+
+    def run(self, name, argv, expected_units):
+        return ({u: self.data.get("units", {}).get(u, 0) for u in expected_units},
+                {g: self.data.get("gates", {}).get(g, 0)
+                 for g in ru.CHECK_TABLE[name]["gates"]},
+                0)
+
+
+ALL_CHECKS = {"prisma_flow": {"record": "flow.json"},
+              "prisma_checklist": {"record": "checklist.json"},
+              "rob_appraisal": {"record": "appraisal.json"},
+              "grade_profile": {"record": "certainty.json",
+                                "rob_record": "appraisal.json"}}
+
+
+def derived_verdict(data):
+    """The verdict for a record whose derivable units come from a check."""
+    d = dict(data, checks=ALL_CHECKS)
+    return ru.verdict(d, ru.DEFAULT_WEIGHTS, ru.CEILING, ReportedBack(d))
+
+
 def systematic(units=None, gates=None, **extra):
     """A fully-scoped systematic review record."""
     scope = ["U_cite_external", "U_cite_internal", "U_consistency", "U_screen",
@@ -62,18 +110,18 @@ class TestNewUnitsRegistered(unittest.TestCase):
 
 class TestVerifiedRequiresEverything(unittest.TestCase):
     def test_complete_clean_systematic_review_verifies(self):
-        self.assertEqual(verdict(systematic())["state"], "VERIFIED")
+        self.assertEqual(derived_verdict(systematic())["state"], "VERIFIED")
 
     def test_outstanding_grade_unit_continues(self):
-        r = verdict(systematic({"U_grade": 2}))
+        r = derived_verdict(systematic({"U_grade": 2}))
         self.assertEqual(r["state"], "CONTINUE")
         self.assertFalse(r["auto_units_zero"])
 
     def test_outstanding_rob_trace_continues(self):
-        self.assertEqual(verdict(systematic({"U_rob_trace": 1}))["state"], "CONTINUE")
+        self.assertEqual(derived_verdict(systematic({"U_rob_trace": 1}))["state"], "CONTINUE")
 
     def test_outstanding_checklist_continues(self):
-        self.assertEqual(verdict(systematic({"U_checklist": 15}))["state"], "CONTINUE")
+        self.assertEqual(derived_verdict(systematic({"U_checklist": 15}))["state"], "CONTINUE")
 
     def test_missing_in_scope_unit_blocks_verification(self):
         """The headline fail-closed property: an applicable check that was never
@@ -86,13 +134,17 @@ class TestVerifiedRequiresEverything(unittest.TestCase):
 
     def test_missing_unit_is_not_mislabelled_plateau(self):
         d = systematic(history=[5, 5, 5, 5])
-        del d["units"]["U_grade"]
-        self.assertEqual(verdict(d)["state"], "CONTINUE")
+        del d["units"]["U_screen"]          # no check produces it, so it can go missing
+        r = derived_verdict(d)
+        self.assertEqual(r["missing_units"], ["U_screen"])
+        self.assertEqual(r["state"], "CONTINUE")
 
     def test_no_routing_while_a_unit_is_missing(self):
         d = systematic({"U_cite_external": 4})
-        del d["units"]["U_grade"]
-        self.assertIsNone(verdict(d)["dominant_unit"])
+        del d["units"]["U_screen"]
+        r = derived_verdict(d)
+        self.assertEqual(r["missing_units"], ["U_screen"])
+        self.assertIsNone(r["dominant_unit"])
 
 
 class TestScopeResolution(unittest.TestCase):
@@ -199,13 +251,13 @@ class TestFailClosed(unittest.TestCase):
 
 class TestHumanGates(unittest.TestCase):
     def test_pending_h_rob_blocks_on_human_not_verified(self):
-        r = verdict(systematic(gates={"H_rob": 3}))
+        r = derived_verdict(systematic(gates={"H_rob": 3}))
         self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
         self.assertEqual(r["gates_remaining"], 3)
 
     def test_unconfirmed_appraisals_are_not_also_auto_units(self):
         """H_rob exclusively owns matching-but-unconfirmed appraisals."""
-        r = verdict(systematic({"U_rob_trace": 0}, gates={"H_rob": 3}))
+        r = derived_verdict(systematic({"U_rob_trace": 0}, gates={"H_rob": 3}))
         self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
         self.assertTrue(r["auto_units_zero"])
         self.assertIsNone(r["dominant_unit"])
@@ -228,7 +280,7 @@ class TestHumanGates(unittest.TestCase):
 class TestPlateauAndCeiling(unittest.TestCase):
     def test_plateau_after_k_flat_cycles(self):
         d = systematic({"U_grade": 5}, history=[5, 5, 5, 5])
-        self.assertEqual(verdict(d)["state"], "PLATEAU")
+        self.assertEqual(derived_verdict(d)["state"], "PLATEAU")
 
     def test_improvement_breaks_the_plateau_run(self):
         d = systematic({"U_grade": 3}, history=[9, 8, 7, 5])

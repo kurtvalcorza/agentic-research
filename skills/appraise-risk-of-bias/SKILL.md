@@ -63,7 +63,7 @@ python scripts/rob_appraisal.py appraisal/risk-of-bias.json --strict
 **Exit codes**: `0` clean (or violations found without `--strict`) · `1` method violation under
 `--strict` · `2` malformed input, in which case **no artifact is emitted**.
 
-**`--json`** replaces the artifact with the machine-readable counts envelope (`{"check": …, "units": {…}, "gates": {…}, "unattributed": N}`) so a consumer can READ the count this check defines rather than re-derive it from the prose. It does not change the exit code, and malformed input still emits nothing. Nothing consumes it yet — having `verify-review` run the checks and take their counts is tracked as issue #4. Full shape in `specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
+**`--json`** replaces the artifact with the machine-readable counts envelope (`{"check": …, "units": {…}, "gates": {…}, "unattributed": N}`) so a consumer can READ the count this check defines rather than re-derive it from the prose. It does not change the exit code, and malformed input still emits nothing. `verify-review` consumes it — its `checks` block runs this check and takes the `H_rob` it reports over what its own record asserts. Full shape in `specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
 
 Generated: the per-appraisal table, the traffic-light summary, and the `H_rob` count of
 **appraisals** awaiting confirmation. Appraisals, not studies: identity is `(study, result)`, so a
