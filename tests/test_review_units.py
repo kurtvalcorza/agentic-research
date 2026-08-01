@@ -298,6 +298,83 @@ class TestDryRun(unittest.TestCase):
         self.assertIn("preview only", preview_note)
 
 
+class TestDryRunValidatesScopeLikeCompute(unittest.TestCase):
+    """The preview and the run must reject the same records.
+
+    They did not. Scope-entry validation lived inside compute(); dry_run_preview()
+    built its scope set through `isinstance(declared, list) else []`, which checked
+    nothing. Every shape below diverged: the first two raised an uncaught TypeError
+    (traceback, exit 1) and the last three exited 0 — `"U_prisma"` as a bare string
+    silently DISCARDING the declared scope and previewing an empty one.
+
+    The earlier fix for this finding moved dry_run_preview() onto
+    _validate_record_schema(), which closed the top-level KEY set but never looked
+    at the scope ENTRIES, so the gap survived and was believed closed. These tests
+    assert the invariant that actually matters — the two paths agree — rather than
+    any one shape, so the next divergence fails here instead of in a review round.
+    """
+
+    BAD_SCOPES = {
+        "unhashable-entry": [{}],
+        "mixed-types": ["U_bogus", 1],
+        "non-string-entry": [1],
+        "unknown-unit": ["U_bogus"],
+        "scalar-not-list": "U_prisma",
+        "nested-list-entry": [[]],
+        "null-entry": [None],
+    }
+
+    def record(self, scope):
+        return {"schema_version": ru.SCHEMA_VERSION, "units_in_scope": scope,
+                "units": dict(FLOOR), "gates": dict(NO_GATES)}
+
+    def test_compute_rejects_every_bad_scope(self):
+        for name, scope in self.BAD_SCOPES.items():
+            with self.subTest(scope=name):
+                with self.assertRaises(ru.InputError):
+                    verdict(self.record(scope))
+
+    def test_dry_run_rejects_every_bad_scope(self):
+        """The regression proper: no traceback, no silent acceptance."""
+        for name, scope in self.BAD_SCOPES.items():
+            with self.subTest(scope=name):
+                with self.assertRaises(ru.InputError):
+                    ru.dry_run_preview(self.record(scope), ru.CEILING)
+
+    def test_the_two_paths_agree(self):
+        """Neither may accept what the other rejects, whatever the shape."""
+        for name, scope in self.BAD_SCOPES.items():
+            with self.subTest(scope=name):
+                rec = self.record(scope)
+                compute_ok = dry_run_ok = True
+                try:
+                    verdict(rec)
+                except ru.InputError:
+                    compute_ok = False
+                try:
+                    ru.dry_run_preview(rec, ru.CEILING)
+                except ru.InputError:
+                    dry_run_ok = False
+                self.assertEqual(compute_ok, dry_run_ok,
+                                 f"{name}: compute and --dry-run disagree")
+
+    def test_a_declared_scope_is_never_silently_dropped(self):
+        """`"U_prisma"` instead of `["U_prisma"]` previewed an empty scope and
+        exited 0 — the failure mode this check exists to refuse."""
+        with self.assertRaisesRegex(ru.InputError, "units_in_scope"):
+            ru.dry_run_preview(self.record("U_prisma"), ru.CEILING)
+
+    def test_valid_scope_still_previews(self):
+        """The guard must not cost the feature it protects."""
+        preview = ru.dry_run_preview(systematic(), ru.CEILING)
+        self.assertIn("U_prisma", preview["units_in_scope"])
+
+    def test_absent_scope_is_still_allowed(self):
+        """No declared scope is legitimate — the universal floor alone applies."""
+        rec = {"schema_version": ru.SCHEMA_VERSION, "units": dict(FLOOR), "gates": {}}
+        self.assertTrue(ru.dry_run_preview(rec, ru.CEILING)["dry_run"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

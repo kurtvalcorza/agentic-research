@@ -217,6 +217,37 @@ def _reject_unknown_keys(value, allowed, ctx):
             f"expected only {sorted(allowed)}")
 
 
+def _validated_scope(data):
+    """Return (declared, declared_present) with every entry checked.
+
+    Shared by compute() and dry_run_preview() because they MUST agree. They did
+    not: this validation lived inside compute(), and --dry-run reached the scope
+    set through its own `isinstance(declared, list) else []` coercion, which
+    validated nothing. Five shapes diverged — `[{}]` and `["U_bogus", 1]` raised
+    an uncaught TypeError (traceback, exit 1) while `[1]`, `["U_bogus"]` and a
+    bare string all exited 0, the last of them silently DISCARDING the declared
+    scope and previewing an empty one. A preview that reports a different scope
+    from the run it previews is worse than no preview, and a silent drop is the
+    exact overclaim this whole check exists to refuse.
+
+    Callers that only need the names can ignore the second element.
+    """
+    raw_scope = data.get("units_in_scope")
+    if raw_scope is None:
+        return [], False
+    if not isinstance(raw_scope, list):
+        raise InputError("units_in_scope: expected an array of unit names")
+    for u in raw_scope:
+        # isinstance before membership: an unhashable entry (a dict, a list)
+        # raises TypeError on `in` and on set(), which would surface as a
+        # traceback and exit 1 instead of the documented exit 2.
+        if not isinstance(u, str):
+            raise InputError(f"units_in_scope: entries must be unit-name strings (got {u!r})")
+        if u not in DEFAULT_WEIGHTS:
+            raise InputError(f"units_in_scope: unknown unit {u!r}; expected one of {sorted(DEFAULT_WEIGHTS)}")
+    return raw_scope, True
+
+
 def _validate_record_schema(data):
     """Apply the closed input schema before interpreting any optional defaults."""
     if not isinstance(data, dict):
@@ -289,18 +320,7 @@ def compute(data, weights):
     # required unit that is absent is "not yet checked", not zero, so an input
     # that omits an in-scope check (e.g. a systematic review with no U_prisma)
     # cannot reach a done verdict.
-    raw_scope = data.get("units_in_scope")
-    if raw_scope is None:
-        declared, declared_present = [], False
-    elif isinstance(raw_scope, list):
-        declared, declared_present = raw_scope, True
-    else:
-        raise InputError("units_in_scope: expected an array of unit names")
-    for u in declared:
-        if not isinstance(u, str):
-            raise InputError(f"units_in_scope: entries must be unit-name strings (got {u!r})")
-        if u not in DEFAULT_WEIGHTS:
-            raise InputError(f"units_in_scope: unknown unit {u!r}; expected one of {sorted(DEFAULT_WEIGHTS)}")
+    declared, declared_present = _validated_scope(data)
     required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
     missing_units = [u for u in required if u not in units]
 
@@ -553,8 +573,7 @@ def dry_run_preview(data, ceiling):
     review_type = data.get("review_type", "unspecified")
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]
-    declared = data.get("units_in_scope")
-    declared = declared if isinstance(declared, list) else []
+    declared, _ = _validated_scope(data)
     in_scope = sorted((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
                       | set(declared) | ({"U_consistency"} if data.get("consistency") else set()))
     return {
