@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "review_type": "narrative",
+  "units_in_scope": [
+    "U_cite_external",
+    "U_cite_internal",
+    "U_consistency"
+  ],
+  "units": {
+    "U_cite_external": 0,
+    "U_cite_internal": 0
+  },
+  "consistency": {
+    "score": 88,
+    "critical_breaks": 0
+  },
+  "gates": {
+    "H_cite_manual": 0
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "schema_version": "1.0",
+  "variant": "prisma_2020",
+  "items": [
+    {
+      "number": "1",
+      "location": "Title, p.1"
+    },
+    {
+      "number": "2",
+      "location": "Abstract, p.1"
+    },
+    {
+      "number": "3",
+      "location": "Introduction, p.1"
+    },
+    {
+      "number": "4",
+      "location": "Introduction, p.1"
+    },
+    {
+      "number": "5",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "6",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "7",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "8",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "9",
+      "location": "Methods, p.3"
+    },
+    {
+      "number": "10a",
+      "location": "Methods, p.3"
+    },
+    {
+      "number": "10b",
+      "location": "Methods, p.3"
+    },
+    {
+      "number": "11",
+      "location": "Methods, p.3"
+    },
+    {
+      "number": "12",
+      "location": "Methods, p.4"
+    },
+    {
+      "number": "13a",
+      "location": "Methods, p.4"
+    },
+    {
+      "number": "13b",
+      "location": "Methods, p.4"
+    },
+    {
+      "number": "13c",
+      "location": "Methods, p.4"
+    },
+    {
+      "number": "13d",
+      "not_applicable": "No meta-analysis performed; synthesis is narrative per SWiM."
+    },
+    {
+      "number": "13e",
+      "not_applicable": "No meta-analysis; heterogeneity not explored statistically."
+    },
+    {
+      "number": "13f",
+      "not_applicable": "No meta-analysis; no sensitivity analyses of a pooled estimate."
+    },
+    {
+      "number": "14",
+      "location": "Methods, p.5"
+    }
+  ]
+}

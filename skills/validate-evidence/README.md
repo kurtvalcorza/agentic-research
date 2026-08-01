@@ -4,9 +4,9 @@ Evidence strength grading using GRADE (Grading of Recommendations Assessment, De
 
 ## What It Does
 
-- **Study Design Classification**: Identifies study type (RCT, cohort, case-control, etc.)
-- **Bias Risk Assessment**: Evaluates methodological quality
-- **Evidence Grading**: Assigns strength rating (High, Moderate, Low, Very Low)
+- **Evidence-Body Classification**: Summarizes the design mix contributing to each result
+- **Risk-of-Bias Synthesis**: Consumes human-confirmed, per-result study appraisals
+- **Result-Level Grading**: Assigns certainty (High, Moderate, Low, Very Low) to each protocol outcome or synthesis theme
 - **Domain-Specific**: Adapts criteria for clinical, AI/ML, social science, or policy research
 
 > **Where the "risk of bias" downgrade comes from.** GRADE has five downgrade domains: risk of bias, inconsistency, indirectness, imprecision, publication bias. The **risk-of-bias** domain is driven by the per-study appraisal from the **`appraise-risk-of-bias`** skill — the design-appropriate validated instrument (RoB 2, ROBINS-I, Newcastle-Ottawa, QUADAS-2), human-confirmed — and this skill **consumes those confirmed overall ratings** rather than forming an ad hoc LLM judgment (LLM RoB accuracy is ~0.62, the pipeline's weakest link). The other four domains are assessed here across the body of evidence.
@@ -51,20 +51,20 @@ Evidence strength grading using GRADE (Grading of Recommendations Assessment, De
 ## Output Formats
 
 **Detailed Report**
-- Study design breakdown
-- Bias risk assessment
+- Evidence-body design breakdown
+- Risk-of-bias synthesis
 - Grade rationale
 - Limitations noted
 
 **Summary Table**
 - Quick reference grid
-- Grade per study
+- One certainty rating per protocol outcome or synthesis theme
 - Key quality indicators
 
 **Evidence Profile**
-- Aggregated across studies
-- Overall recommendation strength
-- Certainty assessment
+- Aggregated across all studies contributing to each result
+- Domain judgments for the evidence body
+- Result-level certainty assessment
 
 ## When to Use
 
@@ -77,23 +77,20 @@ Evidence strength grading using GRADE (Grading of Recommendations Assessment, De
 ## Example Output
 
 ```markdown
-## Evidence Assessment: Study XYZ (2024)
+## Evidence Profile: All-cause mortality
 
-**Study Design**: Randomized Controlled Trial
-**Domain**: Clinical (intervention study)
-**Sample**: N=450, multi-center
+**Evidence body**: 8 studies (5 randomized, 3 non-randomized)
+**Result assessed**: All-cause mortality at 12 months
+**Risk-of-bias basis**: Human-confirmed appraisals for the contributing studies
 
-**Risk of Bias Assessment**:
-- Randomization: Low risk (computer-generated)
-- Blinding: Some concerns (single-blind only)
-- Attrition: Low risk (5% dropout, ITT analysis)
-- Selective reporting: Low risk (pre-registered)
+**GRADE domains**:
+- Risk of bias: Serious (downgrade 1)
+- Inconsistency: Not serious
+- Indirectness: Not serious
+- Imprecision: Not serious
+- Publication bias: Undetected
 
-**GRADE Assessment**: MODERATE
-- Started as HIGH (RCT)
-- Downgraded 1 level (lack of double-blinding)
-
-**Recommendation**: Can support claims with moderate confidence
+**Certainty**: MODERATE
 ```
 
 ## Related Skills

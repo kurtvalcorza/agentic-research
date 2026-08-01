@@ -1,0 +1,125 @@
+# Contract: Review Units Record (`units.json`) — extension
+
+Consumed by the existing `skills/verify-review/scripts/review_units.py`. This feature **extends**
+an established contract; everything not listed here is unchanged.
+
+## Existing configuration (unchanged)
+
+```python
+DEFAULT_WEIGHTS = {
+    "U_cite_external": 3, "U_cite_internal": 1, "U_screen": 1,
+    "U_extract": 1, "U_prisma": 1, "U_grade": 1, "U_consistency": 1,
+}
+GATE_KEYS      = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
+UNIVERSAL_FLOOR = ("U_cite_external", "U_cite_internal", "U_consistency")
+CONSISTENCY_GATE = 75 ; PLATEAU_K = 3 ; CEILING = 25
+```
+
+## Additions
+
+```python
+DEFAULT_WEIGHTS["U_rob_trace"] = 1
+DEFAULT_WEIGHTS["U_checklist"] = 1
+```
+
+`U_grade` keeps its weight of 1 and its key. Only its **definition** changes: from the undocumented
+"themes not yet graded" to "results failing the certainty check under `--strict`" (FR-023).
+`H_rob` keeps its key and its position in `GATE_KEYS`; only its **source** changes, from asserted
+to computed by the appraisal check (FR-014). A matching but unconfirmed appraisal belongs
+exclusively to `H_rob`; it is not also counted as `U_rob_trace`.
+
+`UNIVERSAL_FLOOR` is **not** extended. The floor is the set every review type must satisfy however
+light; certainty, traceability, and reporting completeness are review-type dependent and belong in
+the in-scope set instead.
+
+## Unit definitions
+
+| Unit | Weight | Produced by | Counts |
+|:--|:--:|:--|:--|
+| `U_grade` | 1 | certainty check | Results violating any certainty rule |
+| `U_rob_trace` | 1 | certainty check with `--rob` | References not resolving at the named `(study, result)` target; matching but unconfirmed appraisals are excluded |
+| `U_checklist` | 1 | checklist check | Rows neither located nor justified |
+| `H_rob` | gate | appraisal check | **Appraisals** lacking confirmation, keyed `(study, result)` — one study appraised for two results counts twice |
+
+## In-scope resolution by review type
+
+Passed as `units_in_scope`, resolved once at classification and frozen for the run.
+
+| Unit | systematic | umbrella | rapid | scoping | narrative |
+|:--|:--:|:--:|:--:|:--:|:--:|
+| `U_grade` | ✅ | ✅ | ✅ | ⬜ | ⬜ |
+| `U_rob_trace` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
+| `U_checklist` | ✅ | ✅ | ✅ | ⬜ | ⬜ |
+| `H_rob` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
+
+`U_rob_trace` and `H_rob` are out of scope for rapid reviews because the heuristic basis is
+permitted there (research.md D-009); a rapid review still grades certainty, so `U_grade` applies.
+The PRISMA-ScR checklist checker is deliberately unimplemented, so scoping reviews keep
+`U_checklist` out of scope rather than treating an unavailable check as zero. They also do not
+grade certainty.
+
+## Fail-closed behaviour (existing, extended to the new units)
+
+The backend already refuses `VERIFIED` when a declared in-scope unit is absent from the map. The
+new units inherit this without new machinery: a systematic review whose `units.json` omits
+`U_checklist` lists it under `missing_units` and cannot be reported verified (FR-024).
+
+Inapplicable units are **absent**, not zero-to-achieve (FR-025). The existing distinction between
+"missing" and "out of scope" is what makes this correct, and it is not modified.
+
+## Reported-but-unused input
+
+`U_consistency` is derived **only** from a `consistency` object carrying a numeric score. A value
+written into `units` is dropped, so a caller cannot hand-write `"U_consistency": 0` and clear the
+universal floor without a real score.
+
+The input is a closed schema. Unknown top-level fields are rejected, and the optional
+`consistency` object accepts exactly `score` and `critical_breaks`; misspellings cannot fall
+through to an optional-field default.
+
+Dropping it is correct; dropping it silently was not. The verdict carries an `ignored_inputs`
+array — empty in the normal case — naming what was received, why it was not used, and the remedy.
+It is populated **whenever the direct key is present**, in both situations:
+
+| Supplied | Verdict effect | Reported |
+|:--|:--|:--|
+| Direct key only, no usable `consistency` object | Unit is missing; cannot reach `VERIFIED` | "supply the object" — read alongside `missing_units`, which names the same unit, the pair means "supplied, but not in a form that counts" rather than "forgotten" |
+| **Both**, disagreeing | Derived value wins, which may be `VERIFIED` | "the derived value is authoritative; remove the direct key" — the record must not be able to state two different things without saying so |
+
+The second row is the one that matters most and the easiest to omit: the verdict is correct, so
+nothing looks wrong. A contradiction the check silently resolves is still a contradiction the
+reader is entitled to see.
+
+## Example
+
+A complete record captured **mid-review**, with units still outstanding — two ungraded results,
+one unresolved risk-of-bias reference, four unaddressed checklist rows. The verdict is therefore
+not `VERIFIED` and the exit code is 1. That is the fail-closed behaviour above, shown working
+rather than described. `tests/test_contract_examples.py` runs this record and asserts the whole
+diagnostic — `missing_units` empty, `by_unit` exact — not merely the exit code.
+
+Note that `U_consistency` is **not** listed in `units`. It is derived solely from the
+`consistency` object, so that a caller cannot write `"U_consistency": 0` and satisfy the
+universal floor without a real score. A value supplied under `units` is ignored and the unit is
+then reported missing; the check says so explicitly rather than dropping it silently.
+
+```json
+{
+  "schema_version": "1.0",
+  "review_type": "systematic",
+  "units_in_scope": ["U_cite_external", "U_cite_internal", "U_consistency",
+                     "U_screen", "U_extract", "U_prisma",
+                     "U_grade", "U_rob_trace", "U_checklist"],
+  "units": {
+    "U_cite_external": 0, "U_cite_internal": 0,
+    "U_screen": 0, "U_extract": 0, "U_prisma": 0,
+    "U_grade": 2, "U_rob_trace": 1, "U_checklist": 4
+  },
+  "consistency": {"score": 82, "critical_breaks": 0},
+  "gates": {"H_rob": 3, "H_screen_adj": 0, "H_cite_manual": 0, "H_numeric": 0},
+  "cycle": 4
+}
+```
+
+Verdict: **CONTINUE** — seven units outstanding across three checks, and three appraisals awaiting
+human confirmation. `H_rob` is never auto-satisfied by further cycles (FR-026).

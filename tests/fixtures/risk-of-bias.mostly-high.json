@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "studies": [
+    {
+      "id": "H1",
+      "design": "rct",
+      "instrument": "rob2",
+      "result_assessed": "diagnostic accuracy at 12 months",
+      "domains": {
+        "randomization": "low",
+        "deviations": "low",
+        "missing_data": "high",
+        "measurement": "low",
+        "selection_of_result": "low"
+      },
+      "overall": "high",
+      "confirmed_by": "K. Valcorza",
+      "confirmed_at": "2026-07-26"
+    },
+    {
+      "id": "H2",
+      "design": "rct",
+      "instrument": "rob2",
+      "result_assessed": "diagnostic accuracy at 12 months",
+      "domains": {
+        "randomization": "low",
+        "deviations": "low",
+        "missing_data": "high",
+        "measurement": "low",
+        "selection_of_result": "low"
+      },
+      "overall": "high",
+      "confirmed_by": "K. Valcorza",
+      "confirmed_at": "2026-07-26"
+    },
+    {
+      "id": "H3",
+      "design": "rct",
+      "instrument": "rob2",
+      "result_assessed": "diagnostic accuracy at 12 months",
+      "domains": {
+        "randomization": "low",
+        "deviations": "low",
+        "missing_data": "high",
+        "measurement": "low",
+        "selection_of_result": "low"
+      },
+      "overall": "high",
+      "confirmed_by": "K. Valcorza",
+      "confirmed_at": "2026-07-26"
+    },
+    {
+      "id": "P1",
+      "design": "rct",
+      "instrument": "rob2",
+      "result_assessed": "diagnostic accuracy at 12 months",
+      "domains": {
+        "randomization": "low",
+        "deviations": "low",
+        "missing_data": "low",
+        "measurement": "low",
+        "selection_of_result": "low"
+      },
+      "overall": "low",
+      "confirmed_by": "K. Valcorza",
+      "confirmed_at": "2026-07-26"
+    }
+  ]
+}

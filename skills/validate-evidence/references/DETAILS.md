@@ -16,13 +16,15 @@
 
 ## Executive Summary
 
-**Overall Evidence Quality:** MODERATE (⊕⊕⊕◯)
+> **Certainty is reported per result — there is no overall grade.** GRADE rates a *body of
+> evidence for one result*. It defines no aggregate across results and no per-paper rating, so
+> neither "overall evidence quality" nor a distribution of papers by certainty belongs here.
+> Report each result's certainty and let the reader see the spread.
 
-**Distribution:**
-- HIGH quality evidence: 8 papers (32%)
-- MODERATE quality evidence: 12 papers (48%)
-- LOW quality evidence: 4 papers (16%)
-- VERY LOW quality evidence: 1 paper (4%)
+**Certainty by result:**
+- Theme A — Diagnostic accuracy: **HIGH** ⊕⊕⊕⊕
+- Theme B — Implementation barriers: **MODERATE** ⊕⊕⊕◯
+- Theme C — Long-term outcomes: **VERY LOW** ⊕◯◯◯
 
 **Key Findings:**
 - ✅ Strong evidence base for AI diagnostic accuracy (Theme A)
@@ -44,15 +46,19 @@
 - Direct outcomes (diagnostic accuracy, not proxies)
 
 **Study Design Breakdown:**
-| Paper | Study Design | Sample Size | Risk of Bias | Grade Contribution |
-|-------|--------------|-------------|--------------|-------------------|
-| P1 (Smith 2024) | RCT | n=1,200 | Low | ⊕⊕⊕⊕ |
-| P3 (Jones 2023) | RCT | n=850 | Low | ⊕⊕⊕⊕ |
-| P5 (Brown 2025) | Cohort (prospective) | n=3,450 | Low | ⊕⊕⊕◯ |
-| P7 (Lee 2024) | RCT | n=2,100 | Moderate | ⊕⊕⊕◯ |
-| P12 (Martinez 2024) | Cohort (prospective) | n=4,200 | Low | ⊕⊕⊕◯ |
-| P15 (Taylor 2023) | RCT | n=1,800 | Low | ⊕⊕⊕⊕ |
-| P18 (Wang 2025) | Cohort (prospective) | n=1,634 | Moderate | ⊕⊕◯◯ |
+> Studies are listed with their design, size and risk of bias — the inputs to the domain
+> judgments. They carry **no individual certainty rating**: certainty is a property of the body
+> of evidence for a result, not of a paper.
+
+| Paper | Study Design | Sample Size | Risk of Bias (confirmed) |
+|-------|--------------|-------------|--------------------------|
+| P1 (Smith 2024) | RCT | n=1,200 | Low |
+| P3 (Jones 2023) | RCT | n=850 | Low |
+| P5 (Brown 2025) | Cohort (prospective) | n=3,450 | Low |
+| P7 (Lee 2024) | RCT | n=2,100 | Moderate |
+| P12 (Martinez 2024) | Cohort (prospective) | n=4,200 | Low |
+| P15 (Taylor 2023) | RCT | n=1,800 | Low |
+| P18 (Wang 2025) | Cohort (prospective) | n=1,634 | Moderate |
 
 **Consensus:** STRONG CONSENSUS (7/7 papers positive, effect sizes 12-25%)
 
@@ -81,13 +87,13 @@
 - Indirect outcomes (self-reported barriers, not measured impact)
 
 **Study Design Breakdown:**
-| Paper | Study Design | Sample Size | Risk of Bias | Grade Contribution |
-|-------|--------------|-------------|--------------|-------------------|
-| P2 (Johnson 2023) | RCT | n=600 | Low | ⊕⊕⊕⊕ |
-| P4 (Miller 2024) | Cohort (retrospective) | n=1,200 | Moderate | ⊕⊕◯◯ |
-| P8 (Garcia 2024) | Cross-sectional survey | n=450 | Moderate | ⊕⊕◯◯ |
-| P11 (Kim 2025) | RCT | n=800 | Low | ⊕⊕⊕⊕ |
-| P14 (Patel 2023) | Cohort (prospective) | n=950 | Low | ⊕⊕⊕◯ |
+| Paper | Study Design | Sample Size | Risk of Bias (confirmed) |
+|-------|--------------|-------------|--------------------------|
+| P2 (Johnson 2023) | RCT | n=600 | Low |
+| P4 (Miller 2024) | Cohort (retrospective) | n=1,200 | Moderate |
+| P8 (Garcia 2024) | Cross-sectional survey | n=450 | Moderate |
+| P11 (Kim 2025) | RCT | n=800 | Low |
+| P14 (Patel 2023) | Cohort (prospective) | n=950 | Low |
 
 **Consensus:** MODERATE CONSENSUS (barriers identified: cost [4/5], workflow [5/5], training [3/5])
 
@@ -116,10 +122,10 @@
 - Inconsistent outcome measures across studies
 
 **Study Design Breakdown:**
-| Paper | Study Design | Sample Size | Follow-up | Risk of Bias | Grade Contribution |
-|-------|--------------|-------------|-----------|--------------|-------------------|
-| P21 (Martinez 2025) | Cohort (prospective) | n=180 | 24 months | Moderate | ⊕⊕◯◯ |
-| P23 (Lee & Park 2024) | Cohort (retrospective) | n=200 | 18 months | High | ⊕◯◯◯ |
+| Paper | Study Design | Sample Size | Follow-up | Risk of Bias (confirmed) |
+|-------|--------------|-------------|-----------|--------------------------|
+| P21 (Martinez 2025) | Cohort (prospective) | n=180 | 24 months | Moderate |
+| P23 (Lee & Park 2024) | Cohort (retrospective) | n=200 | 18 months | High |
 
 **Consensus:** INSUFFICIENT EVIDENCE (only 2 papers, inconsistent findings)
 
@@ -139,19 +145,18 @@
 
 ---
 
-## Overall Evidence Profile
+## Evidence Profile Across Results
 
-**Weighted Evidence Quality:** MODERATE (⊕⊕⊕◯)
+> ⛔ **Do not average certainty across results.** GRADE defines no mean, weighted average, or
+> overall certainty for a body of results — a review with one HIGH and one VERY LOW result has
+> exactly that, not a MODERATE one. Averaging destroys the information the reader needs: which
+> specific claims are safe to act on. The check rejects any record expressing an aggregate.
 
-**Calculation:**
-```
-Weighted average across themes:
-- Theme A (HIGH, 7 papers): 4.0 × 7 = 28.0
-- Theme B (MODERATE, 5 papers): 3.0 × 5 = 15.0
-- Theme C (VERY LOW, 2 papers): 1.0 × 2 = 2.0
-
-Total: 45.0 / 14 papers = 3.21 ≈ MODERATE (⊕⊕⊕◯)
-```
+| Result | Certainty | Studies |
+|--------|-----------|---------|
+| A — Diagnostic accuracy | HIGH ⊕⊕⊕⊕ | 7 |
+| B — Implementation barriers | MODERATE ⊕⊕⊕◯ | 5 |
+| C — Long-term outcomes | VERY LOW ⊕◯◯◯ | 2 |
 
 **Interpretation:**
 - Strong evidence for **core claims** (diagnostic accuracy)
@@ -205,13 +210,18 @@ Total: 45.0 / 14 papers = 3.21 ≈ MODERATE (⊕⊕⊕◯)
 ## Study Design Quality Summary
 
 **By Design Type:**
-| Study Design | Count | % of Corpus | Typical GRADE Contribution |
-|--------------|-------|-------------|---------------------------|
-| RCT | 9 | 36% | ⊕⊕⊕⊕ (HIGH starting point) |
-| Cohort (prospective) | 7 | 28% | ⊕⊕⊕◯ (MODERATE starting point) |
-| Cohort (retrospective) | 3 | 12% | ⊕⊕◯◯ (LOW starting point) |
-| Cross-sectional | 4 | 16% | ⊕⊕◯◯ (LOW starting point) |
-| Case series | 2 | 8% | ⊕◯◯◯ (VERY LOW starting point) |
+
+> This is a descriptive census of the corpus, not a certainty assessment. A design's
+> starting level applies to a *body* of that design within one result — it is not a
+> rating these papers carry individually or contribute in proportion.
+
+| Study Design | Count | % of Corpus | Starting level if a body is predominantly this design |
+|--------------|-------|-------------|------------------------------------------------------|
+| RCT | 9 | 36% | HIGH |
+| Cohort (prospective) | 7 | 28% | LOW |
+| Cohort (retrospective) | 3 | 12% | LOW |
+| Cross-sectional | 4 | 16% | LOW |
+| Case series | 2 | 8% | VERY LOW |
 
 **Bias Risk Distribution:**
 | Risk Level | Count | % of Corpus |
@@ -336,15 +346,26 @@ For each theme in synthesis:
 def calculate_grade(theme):
   papers = theme["papers"]
 
-  # Step 1: Determine starting evidence level
+  # Step 1: Determine starting evidence level from the PREDOMINANT design.
+  #
+  # GRADE rates a BODY of evidence, so the starting level is anchored to what the
+  # body mostly consists of — NOT to the presence of a single strong study. The old
+  # `any(d == "RCT")` rule started a body of eight cross-sectional studies at HIGH
+  # because one randomized trial was present, which overstates certainty by two
+  # levels before a single downgrade is considered.
+  #
+  # Judgement may legitimately depart from the predominant design (e.g. a small but
+  # decisive randomized subset). That is allowed, but it MUST be recorded as
+  # `starting_level_justification` — the check flags an undeclared deviation.
   study_designs = [paper_inventory[p]["study_design"] for p in papers]
+  predominant = most_common(study_designs)   # ties resolve to the WEAKER design
 
-  IF any(d == "RCT" for d in study_designs):
+  IF predominant == "RCT":
     starting_grade = 4  # HIGH (⊕⊕⊕⊕)
-  ELIF any(d.startswith("Cohort") for d in study_designs):
+  ELIF predominant.startswith("Cohort") OR predominant in ("Case-control", "Cross-sectional"):
     starting_grade = 2  # LOW (⊕⊕◯◯)
   ELSE:
-    starting_grade = 1  # VERY LOW (⊕◯◯◯)
+    starting_grade = 1  # VERY LOW (⊕◯◯◯) — case series, expert opinion
 
   # Step 2: Assess 5 downgrade criteria
   #   (risk of bias, inconsistency, indirectness, imprecision, publication bias)
@@ -485,11 +506,11 @@ For each theme:
      - Downgrade decision tree
      - Certainty statement
 
-Overall assessment:
-  1. Weighted average of theme grades
-  2. Evidence gaps identified (LOW/VERY LOW themes)
+Across results (NOT an aggregate certainty — GRADE defines none):
+  1. Table listing each result with its own certainty, side by side
+  2. Evidence gaps identified (results at LOW/VERY LOW certainty)
   3. Recommendations by stakeholder type
-  4. Study quality summary tables
+  4. Study quality summary tables (descriptive census, not a rating)
 ```
 
 ---
@@ -570,17 +591,23 @@ After Phase 2 (Extraction & Synthesis) and appraise-risk-of-bias (RoB appraisal)
 
 ## Key Principles
 
-1. **Evidence Hierarchy** - Study design determines starting grade
-2. **Systematic Downgrading** - 5 GRADE criteria applied rigorously
-3. **Certainty Over Precision** - Acknowledge limitations explicitly
-4. **Stakeholder Tailoring** - Different recommendations for clinicians/policymakers/researchers
-5. **Gap Identification** - Low evidence themes = future research priorities
+1. **Evidence Hierarchy** - The *predominant* study design determines the starting grade
+2. **Systematic Downgrading** - 5 GRADE criteria applied rigorously, in whole steps only
+3. **Per-result, never aggregated** - Certainty belongs to one result's body of evidence. There
+   is no overall grade across results and no certainty rating for an individual paper
+4. **Certainty Over Precision** - Acknowledge limitations explicitly
+5. **Stakeholder Tailoring** - Different recommendations for clinicians/policymakers/researchers
+6. **Gap Identification** - Low certainty = future research priorities
 
 **Evidence-Based Practice, Validated** 🔬
 
 
 
 
-## References & Details
+## Related
 
-Full details, examples, and templates have been moved to [Details](references/DETAILS.md).
+- [`grade-framework.md`](./grade-framework.md) — the GRADE levels, domains and indicators
+- [`oxford-cebm.md`](./oxford-cebm.md) — the alternative Oxford CEBM levels
+- [`../SKILL.md`](../SKILL.md) — the skill itself
+- [`../../appraise-risk-of-bias/references/instruments.md`](../../appraise-risk-of-bias/references/instruments.md)
+  — the instruments producing the confirmed risk-of-bias ratings consumed above

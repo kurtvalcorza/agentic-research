@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "review_type": "systematic",
+  "synthesis_mode": "outcome",
+  "results": [
+    {
+      "id": "O1",
+      "label": "Diagnostic accuracy at 12 months",
+      "study_ids": [
+        "P1",
+        "P3",
+        "P5",
+        "P7"
+      ],
+      "design_mix": {
+        "rct": 4,
+        "nrsi": 0,
+        "observational": 0,
+        "case_series": 0
+      },
+      "starting_level": "high",
+      "domains": {
+        "risk_of_bias": {
+          "rating": 0,
+          "basis": "confirmed_rob",
+          "note": "3 of 4 low, 1 some concerns"
+        },
+        "inconsistency": {
+          "rating": -1,
+          "note": "direction consistent, magnitude varies widely"
+        },
+        "indirectness": {
+          "rating": 0,
+          "note": "populations match the protocol"
+        },
+        "imprecision": {
+          "rating": 0,
+          "note": "interval excludes the decision threshold"
+        },
+        "publication_bias": {
+          "rating": 0,
+          "note": "comprehensive search, no small-study pattern"
+        }
+      },
+      "final": "moderate",
+      "certainty_statement": "Moderately confident the true effect lies close to the estimate.",
+      "upgrades": {
+        "importance_of_findings": 1
+      },
+      "appraised_result": "diagnostic accuracy at 12 months"
+    }
+  ]
+}

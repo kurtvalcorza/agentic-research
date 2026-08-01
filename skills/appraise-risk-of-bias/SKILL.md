@@ -48,13 +48,49 @@ Like screening and extraction, RoB is ideally done by **two independent assessor
 Present the worksheet. The human confirms or overrides each domain + the overall. **Nothing proceeds to GRADE until this is done.** Record overrides (provenance).
 
 ### Step 6 — Emit the appraisal + hand to GRADE
-Write `appraisal/risk-of-bias.md`: a per-study table (study → instrument → domain ratings → overall → confirmed-by) + a traffic-light summary. Hand the confirmed overall ratings to `validate-evidence` as the "risk of bias" input to GRADE.
+Write `appraisal/risk-of-bias.md`: a per-study table (study → design → instrument → result assessed → overall → overall justification → confirmed-by; the per-domain ratings live in the traffic-light grid, not here) + a traffic-light summary. Hand the confirmed overall ratings to `validate-evidence` as the "risk of bias" input to GRADE.
 
-## Output
+## Output — the record is the source, the tables are generated
 
-- `appraisal/risk-of-bias.md` — per-study domain + overall ratings, with extracted evidence and the human confirmation status.
-- A RoB summary (traffic-light table) for the manuscript.
-- Confirmed overall ratings → `validate-evidence` (GRADE risk-of-bias domain).
+Write `appraisal/risk-of-bias.json` (schema in `scripts/rob_appraisal.py`) and **generate** the
+manuscript tables from it. Do not hand-maintain a Markdown table alongside the record: two copies
+of the same appraisal will eventually disagree, and the disagreement will be invisible.
+
+```bash
+python scripts/rob_appraisal.py appraisal/risk-of-bias.json --strict
+```
+
+**Exit codes**: `0` clean (or violations found without `--strict`) · `1` method violation under
+`--strict` · `2` malformed input, in which case **no artifact is emitted**.
+
+Generated: the per-appraisal table, the traffic-light summary, and the `H_rob` count of
+**appraisals** awaiting confirmation. Appraisals, not studies: identity is `(study, result)`, so a
+study contributing to two outcomes carries two appraisals, each confirmed separately. The
+confirmed overall ratings then feed `validate-evidence` via its `--rob`
+argument — a file path, never an import, so this skill stays copyable on its own.
+
+### What the check enforces
+
+| | Rule |
+|:--|:--|
+| 1 | The instrument matches the design (`rct`→RoB 2, `nrsi`→ROBINS-I, `observational`→NOS, `dta`→QUADAS-2) |
+| 2 | Every domain that instrument defines is present — a **missing** domain is a violation, a **misspelled** one is malformed input |
+| 3 | Every value is in that instrument's vocabulary; Newcastle-Ottawa stars are within each block's maximum |
+| 4 | `overall` is not more favourable than the worst domain, unless `overall_justification` is recorded |
+| 5 | Newcastle-Ottawa `overall` matches the band its star total implies — the bands are conventional, so a justification may override |
+| 6 | ROBINS-I: an overall of `low` while a domain reports `no_information` is flagged — absence of evidence is not evidence of low risk |
+| 7 | `confirmed_by` and `confirmed_at` are present and non-blank; the count of appraisals lacking them is `H_rob` |
+
+### ⚠️ What this check CANNOT verify
+
+**It establishes that a confirmation record is present — a name and a date in the file. It cannot
+establish that a human made the judgment, or who that person was.** No identity mechanism exists
+here, and a clean result must never be read as one.
+
+Nor can it tell whether a domain judgment is *right*. That is precisely why this step is
+human-gated rather than automated: appraisal is where LLM accuracy is weakest (~0.62 against ~0.95
+for extraction). The check enforces that the appraisal is complete and internally consistent; the
+human supplies the judgment it cannot.
 
 ## Boundaries
 

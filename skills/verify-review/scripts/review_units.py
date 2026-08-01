@@ -8,6 +8,7 @@ suite (screen-literature/kappa.py, prisma-flow/prisma_flow.py).
 
 INPUT (a JSON file, or stdin):
 {
+  "schema_version": "1.0",             # required; rejects pre-redefinition records
   "review_type": "systematic",          # systematic|scoping|rapid|umbrella|narrative
   "cycle": 3,                            # current cycle number (0 = baseline)
   "units": {                             # auto-reducible unit COUNTS (in-scope only)
@@ -50,6 +51,10 @@ Fail-closed details:
   - With `--manifest`, an UNLOGGED denominator drop (content removed without
     `exclusions_logged`) HOLDS a would-be VERIFIED as BLOCKED_ON_HUMAN for
     adjudication (anti-gaming, §5).
+  - Each manifest record carries the `schema_version` its counts were computed
+    under; records written before that field existed are stamped `"unversioned"`
+    rather than assumed current, so a history spanning a unit redefinition cannot
+    be read as one continuous series.
 
 OUTPUT: a JSON verdict on stdout. Exit code 0 only when VERIFIED; non-zero
 otherwise (so it can gate a pipeline like `prisma_flow.py --strict`).
@@ -61,6 +66,12 @@ import math
 import sys
 
 # --- configuration (single source of truth for weights / thresholds) --------
+SCHEMA_VERSION = "1.0"
+# Stamped on manifest records written before this field existed. It says the
+# definitions those counts were computed under are UNKNOWN — which is the whole
+# point; adopting them into SCHEMA_VERSION would assert something unverifiable.
+LEGACY_SCHEMA = "unversioned"
+
 # Q1: fabricated/unverifiable citations dominate routing and the climb gradient.
 DEFAULT_WEIGHTS = {
     "U_cite_external": 3,
@@ -68,7 +79,16 @@ DEFAULT_WEIGHTS = {
     "U_screen": 1,
     "U_extract": 1,
     "U_prisma": 1,
+    # U_grade: results failing grade_profile.py --strict. Previously this had no
+    # operational definition ("themes not yet graded"), so it could not fail for
+    # the right reason; it is now DEFINED AS the count that check reports.
     "U_grade": 1,
+    # U_rob_trace: studies cited by the certainty record as confirmed-appraisal
+    # backing that do not resolve at the named (study, result) target. A matching
+    # but unconfirmed appraisal is excluded here and belongs only to H_rob.
+    "U_rob_trace": 1,
+    # U_checklist: PRISMA rows neither located nor justified (prisma_checklist.py).
+    "U_checklist": 1,
     "U_consistency": 1,
 }
 CONSISTENCY_GATE = 75      # validate-consistency pass threshold
@@ -76,12 +96,32 @@ PLATEAU_K = 3              # consecutive flat-or-worse cycles -> PLATEAU
 SOFT_ADVISORY_CYCLE = 10   # advisory only; does NOT stop the loop
 CEILING = 25               # hard backstop
 
+# H_rob is DEFINED AS the count rob_appraisal.py reports: APPRAISALS lacking
+# confirmed_by/confirmed_at, not studies. Identity is (study, result), so one study
+# appraised for two results and confirmed for neither contributes 2 — a human signs
+# off on a judgment about one result, not on a study wholesale, and the gate counts
+# the sign-offs still owed. Describing it as studies would invite an assembler to
+# deduplicate the producer's count and understate the human workload.
+#
+# NOTE what this module cannot do: it computes a verdict from the counts it is
+# GIVEN. It does not run the checks or verify that a count came from a real run, so
+# a hand-written units.json of all zeros reaches VERIFIED. That is true of every
+# unit — this is a verdict calculator, not an orchestrator. Closing the gap means
+# running the checks here and deriving the counts; tracked as its own change.
+#
+# Human gates are never auto-zeroed by any number of cycles.
 GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
 
 # Citation integrity + consistency are universal for EVERY review type (spec
 # §3.3): the floor the loop guarantees for any review. A VERIFIED verdict must
 # have these present and zero, so an empty/partial units map fails closed.
 UNIVERSAL_FLOOR = ("U_cite_external", "U_cite_internal", "U_consistency")
+RECORD_KEYS = {
+    "schema_version", "review_type", "cycle", "units", "units_in_scope",
+    "consistency", "gates", "history", "denominators", "exclusions_logged",
+    "outcome",
+}
+CONSISTENCY_KEYS = {"score", "critical_breaks"}
 
 
 class InputError(ValueError):
@@ -143,6 +183,7 @@ def derive_consistency_unit(consistency):
         return None
     if not isinstance(consistency, dict):
         raise InputError("consistency: expected an object")
+    _reject_unknown_keys(consistency, CONSISTENCY_KEYS, "consistency")
     score = consistency.get("score")
     if score is None:
         return None       # measured requires a score; absent → fails closed
@@ -159,7 +200,70 @@ def _as_object(x, ctx):
     return x
 
 
+def _validate_schema_version(data):
+    """Reject legacy records before interpreting redefined unit semantics."""
+    version = data.get("schema_version")
+    if version != SCHEMA_VERSION:
+        raise InputError(
+            f"schema_version: expected {SCHEMA_VERSION!r}, got {version!r}; "
+            "unversioned or older records predate the current U_grade/U_rob_trace definitions")
+
+
+def _reject_unknown_keys(value, allowed, ctx):
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise InputError(
+            f"{ctx}: unknown field(s) {', '.join(repr(k) for k in unknown)}; "
+            f"expected only {sorted(allowed)}")
+
+
+def _validated_scope(data):
+    """Return (declared, declared_present) with every entry checked.
+
+    Shared by compute() and dry_run_preview() because they MUST agree. They did
+    not: this validation lived inside compute(), and --dry-run reached the scope
+    set through its own `isinstance(declared, list) else []` coercion, which
+    validated nothing. Five shapes diverged — `[{}]` and `["U_bogus", 1]` raised
+    an uncaught TypeError (traceback, exit 1) while `[1]`, `["U_bogus"]` and a
+    bare string all exited 0, the last of them silently DISCARDING the declared
+    scope and previewing an empty one. A preview that reports a different scope
+    from the run it previews is worse than no preview, and a silent drop is the
+    exact overclaim this whole check exists to refuse.
+
+    Callers that only need the names can ignore the second element.
+    """
+    raw_scope = data.get("units_in_scope")
+    if raw_scope is None:
+        return [], False
+    if not isinstance(raw_scope, list):
+        raise InputError("units_in_scope: expected an array of unit names")
+    for u in raw_scope:
+        # isinstance before membership: an unhashable entry (a dict, a list)
+        # raises TypeError on `in` and on set(), which would surface as a
+        # traceback and exit 1 instead of the documented exit 2.
+        if not isinstance(u, str):
+            raise InputError(f"units_in_scope: entries must be unit-name strings (got {u!r})")
+        if u not in DEFAULT_WEIGHTS:
+            raise InputError(f"units_in_scope: unknown unit {u!r}; expected one of {sorted(DEFAULT_WEIGHTS)}")
+    return raw_scope, True
+
+
+def _validate_record_schema(data):
+    """Apply the closed input schema before interpreting any optional defaults."""
+    if not isinstance(data, dict):
+        raise InputError("record: expected an object")
+    _reject_unknown_keys(data, RECORD_KEYS, "record")
+    _validate_schema_version(data)
+    consistency = data.get("consistency")
+    if consistency is not None:
+        if not isinstance(consistency, dict):
+            raise InputError("consistency: expected an object")
+        _reject_unknown_keys(consistency, CONSISTENCY_KEYS, "consistency")
+
+
 def compute(data, weights):
+    _validate_record_schema(data)
+    ignored_inputs: list[str] = []
     raw_units = _as_object(data.get("units"), "units")
     for key in raw_units:
         if key not in DEFAULT_WEIGHTS:
@@ -173,6 +277,33 @@ def compute(data, weights):
     cu = derive_consistency_unit(data.get("consistency"))
     if cu is not None:
         units["U_consistency"] = cu
+    # Report the drop whenever the key was supplied — NOT only when derivation
+    # failed. Hanging this off `elif` meant the worst case stayed silent: supply a
+    # `consistency` object AND "U_consistency": 999 and the record reached VERIFIED
+    # with ignored_inputs empty, hiding a direct contradiction. Derivation winning
+    # is correct; concealing that it won is not.
+    if "U_consistency" in raw_units:
+        # The caller DID supply it, under a key that is deliberately ignored. Saying
+        # only "missing" reads as "you forgot it" and sends them to add the very key
+        # that is being dropped. Name the ignore and the remedy instead: a silent
+        # drop is not fail-closed just because the verdict happens to be correct.
+        supplied = raw_units["U_consistency"]
+        if cu is None:
+            ignored_inputs.append(
+                f"units.U_consistency={supplied!r} was supplied but is ignored, and no "
+                f"usable `consistency` object was given — this unit is derived only "
+                f"from a `consistency` object with a numeric score, so that a "
+                f"hand-written zero cannot satisfy the universal floor without one. "
+                f"Supply {{\"consistency\": {{\"score\": N, \"critical_breaks\": N}}}} "
+                f"instead.")
+        else:
+            # Both supplied. Derivation wins, which is correct — but the two disagree
+            # and the caller is entitled to know which one the verdict rests on.
+            ignored_inputs.append(
+                f"units.U_consistency={supplied!r} was supplied and is ignored: the "
+                f"value derived from the `consistency` object ({cu}) is authoritative. "
+                f"Remove the direct key so the record cannot state two different "
+                f"things.")
 
     # weighted total (the routing/progress scalar)
     weighted_total = 0.0
@@ -189,18 +320,7 @@ def compute(data, weights):
     # required unit that is absent is "not yet checked", not zero, so an input
     # that omits an in-scope check (e.g. a systematic review with no U_prisma)
     # cannot reach a done verdict.
-    raw_scope = data.get("units_in_scope")
-    if raw_scope is None:
-        declared, declared_present = [], False
-    elif isinstance(raw_scope, list):
-        declared, declared_present = raw_scope, True
-    else:
-        raise InputError("units_in_scope: expected an array of unit names")
-    for u in declared:
-        if not isinstance(u, str):
-            raise InputError(f"units_in_scope: entries must be unit-name strings (got {u!r})")
-        if u not in DEFAULT_WEIGHTS:
-            raise InputError(f"units_in_scope: unknown unit {u!r}; expected one of {sorted(DEFAULT_WEIGHTS)}")
+    declared, declared_present = _validated_scope(data)
     required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
     missing_units = [u for u in required if u not in units]
 
@@ -230,7 +350,7 @@ def compute(data, weights):
             dominant = None
 
     return (weighted_total, auto_units_zero, gates_remaining, dominant,
-            units, contributions, missing_units)
+            units, contributions, missing_units, ignored_inputs)
 
 
 def detect_plateau(history, current_total):
@@ -256,7 +376,7 @@ def detect_plateau(history, current_total):
 
 def verdict(data, weights, ceiling):
     (weighted_total, auto_zero, gates_remaining, dominant, units,
-     contributions, missing_units) = compute(data, weights)
+     contributions, missing_units, ignored_inputs) = compute(data, weights)
     cycle = _as_int_count(data.get("cycle", 0), "cycle")
 
     raw_history = data.get("history")
@@ -290,6 +410,10 @@ def verdict(data, weights, ceiling):
         "auto_units_zero": auto_zero,
         "gates_remaining": gates_remaining,
         "missing_units": missing_units,
+        # Input the check received and deliberately did not use. Empty in the normal
+        # case; non-empty means a caller's value was dropped, and they are entitled
+        # to know that rather than inferring it from a confusing `missing_units`.
+        "ignored_inputs": ignored_inputs,
         # No dominant-unit routing while a required check is missing: the client
         # must clear `missing_units` first, not keep repairing a reported unit.
         "dominant_unit": dominant if (state == "CONTINUE" and not missing_units) else None,
@@ -349,6 +473,26 @@ def append_to_manifest(path, data, result):
     Creates the manifest (and the array) if absent; preserves any other keys.
     Records per-cycle denominators and a floor-guard status so an anti-gaming
     content-removal is detectable across cycles, not just by convention.
+
+    Every appended record carries the `schema_version` its numbers were computed
+    under. Validating only the transient input left the written history unlabelled,
+    so a manifest spanning the U_grade/U_rob_trace redefinition held old and new
+    `by_unit` values that look identical and mean different things.
+
+    WHAT THE FIELD DOES AND DOES NOT DO. It labels the record for a reader of the
+    audit trail — a human, or an agent resuming a run. Nothing in this module
+    consumes it, and that is deliberate rather than unfinished: the only
+    cross-cycle comparison made here is the floor guard's, which reads
+    `denominators`, and the redefinition did not touch those. A legacy record
+    stays a valid floor-guard baseline on purpose — skipping it would let a
+    denominator drop across the version boundary go unflagged and weaken the
+    anti-gaming guard to gain nothing. The plateau series is `history` from the
+    caller's units.json, which this module cannot version or verify at all.
+
+    Records already present without a version are stamped LEGACY_SCHEMA rather than
+    assumed current: an explicit "we do not know which definitions this predates"
+    is the honest migration, and silently adopting them into the current version
+    would be the overclaim this field exists to prevent.
     """
     try:
         with open(path, encoding="utf-8") as f:
@@ -361,6 +505,12 @@ def append_to_manifest(path, data, result):
     history = manifest.setdefault("verification_units", [])
     if not isinstance(history, list):
         raise ValueError("manifest.verification_units exists but is not an array")
+
+    # Migrate before appending, so the file never holds a versioned record beside an
+    # ambiguous one that merely looks contemporary.
+    for rec in history:
+        if isinstance(rec, dict) and "schema_version" not in rec:
+            rec["schema_version"] = LEGACY_SCHEMA
 
     # denominator values are validated numeric so a crafted non-numeric value
     # cannot silently blind the cross-cycle floor-guard comparison.
@@ -394,6 +544,10 @@ def append_to_manifest(path, data, result):
 
     gates_in = _as_object(data.get("gates"), "gates")
     record = {
+        # The version the counts in this record were computed under. Without it, a
+        # by_unit value from before the U_grade/U_rob_trace redefinition is
+        # indistinguishable from one after it.
+        "schema_version": SCHEMA_VERSION,
         "cycle": result["cycle"],
         "state": result["state"],
         "weighted_total": result["weighted_total"],
@@ -415,11 +569,11 @@ def append_to_manifest(path, data, result):
 
 def dry_run_preview(data, ceiling):
     """Preview what the loop will do without running or writing anything."""
+    _validate_record_schema(data)
     review_type = data.get("review_type", "unspecified")
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]
-    declared = data.get("units_in_scope")
-    declared = declared if isinstance(declared, list) else []
+    declared, _ = _validated_scope(data)
     in_scope = sorted((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
                       | set(declared) | ({"U_consistency"} if data.get("consistency") else set()))
     return {
@@ -455,13 +609,33 @@ def main():
     # Read + parse + evaluate all fail closed: a missing/unreadable file,
     # non-JSON, or malformed field types produce an {"error": ...} verdict with a
     # non-zero exit, never a traceback or a spurious VERIFIED.
+    # The read gets its own handler, wrapping ONLY the read. Catching
+    # UnicodeDecodeError across the whole block relabelled an undecodable MANIFEST
+    # as "cannot decode input" — the same mislabel, pointed at the other file.
     try:
         if args.input:
             with open(args.input, encoding="utf-8") as f:
                 raw = f.read()
         else:
             raw = sys.stdin.read()
+    except (OSError, UnicodeDecodeError) as e:
+        print(json.dumps({"error": f"cannot read {args.input or 'stdin'}: {e}"}),
+              file=sys.stderr)
+        return 2
+
+    # Parsing the input is the INPUT's business, so it gets its own handler too.
+    # Leaving json.loads inside the block below meant a truncated units.json was
+    # reported as "manifest error" — naming a file the caller may never have passed.
+    # That is the mislabel this was twice supposed to remove, surviving each time in
+    # whatever the narrowing left behind.
+    try:
         data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"error": f"{args.input or 'stdin'} is not valid JSON: {e}"}),
+              file=sys.stderr)
+        return 2
+
+    try:
         if not isinstance(data, dict):
             raise InputError("input must be a JSON object")
 
@@ -479,6 +653,10 @@ def main():
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 2
     except (ValueError, OSError) as e:
+        # The input's read and its JSON parse both have their own handlers above, so
+        # what remains here is the manifest's own read, parse and write. An
+        # undecodable or malformed manifest is a ValueError and lands here, labelled
+        # as what it is.
         print(json.dumps({"error": f"manifest error: {e}"}), file=sys.stderr)
         return 2
 

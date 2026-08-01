@@ -1,0 +1,114 @@
+{
+  "schema_version": "1.0",
+  "variant": "prisma_2020",
+  "items": [
+    {
+      "number": "1",
+      "location": "Title, p.1"
+    },
+    {
+      "number": "2",
+      "location": "Abstract, p.1"
+    },
+    {
+      "number": "3",
+      "location": "Introduction, p.1"
+    },
+    {
+      "number": "4",
+      "location": "Introduction, p.1"
+    },
+    {
+      "number": "5",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "6",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "7",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "8",
+      "location": "Methods, p.2"
+    },
+    {
+      "number": "9",
+      "location": "Methods, p.3"
+    },
+    {
+      "number": "11",
+      "location": "Methods, p.3"
+    },
+    {
+      "number": "12",
+      "location": "Methods, p.4"
+    },
+    {
+      "number": "14",
+      "location": "Methods, p.5"
+    },
+    {
+      "number": "15",
+      "location": "Methods, p.6"
+    },
+    {
+      "number": "17",
+      "location": "Results, p.6"
+    },
+    {
+      "number": "18",
+      "location": "Results, p.7"
+    },
+    {
+      "number": "19",
+      "location": "Results, p.7"
+    },
+    {
+      "number": "21",
+      "location": "Results, p.8"
+    },
+    {
+      "number": "22",
+      "location": "Results, p.8"
+    },
+    {
+      "number": "25",
+      "location": "Other information, p.10"
+    },
+    {
+      "number": "26",
+      "location": "Other information, p.11"
+    },
+    {
+      "number": "27",
+      "location": "Other information, p.11"
+    },
+    {
+      "number": "10a",
+      "location": "Methods, p.3"
+    },
+    {
+      "number": "13a",
+      "location": "Methods, p.4"
+    },
+    {
+      "number": "16a",
+      "location": "Results, p.6"
+    },
+    {
+      "number": "20a",
+      "location": "Results, p.7"
+    },
+    {
+      "number": "23a",
+      "location": "Discussion, p.9"
+    },
+    {
+      "number": "24a",
+      "location": "Other information, p.10"
+    }
+  ]
+}

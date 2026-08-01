@@ -50,7 +50,30 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_extract` | 1 | `extract-synthesis` | extraction fields flagged unreconciled |
 | `U_prisma` | 1 | `prisma-flow` | arms failing reconciliation (`prisma_flow.py --strict`) |
 | `U_consistency` | 1 | `validate-consistency` | `critical_breaks + max(0, 75 − score)` (graded) |
-| `U_grade` | 1 | `validate-evidence` | themes/outcomes not yet GRADE-graded |
+| `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level. **Read the `U_grade: N` line the check prints; do not count diagnostics.** One result can raise four, and counting messages books four units of work for one broken result |
+| `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve at the named `(study, result)` target (`grade_profile.py --rob`); matching but unconfirmed appraisals are excluded and counted only by `H_rob` |
+| `U_checklist` | 1 | `prisma-flow` | PRISMA rows neither located nor justified (`prisma_checklist.py --strict`), over all **42** addressable rows |
+
+> **`U_grade` was redefined.** It previously counted "themes/outcomes not yet GRADE-graded", which
+> had no operational definition and so could never fail for the right reason. It is now **defined
+> as** the count `grade_profile.py --strict` reports. `H_rob` likewise changed source — from a
+> hand-entered assertion to the count `rob_appraisal.py` reports — while keeping its key and
+> meaning.
+
+### ⚠️ What the backend CANNOT verify
+
+`review_units.py` computes a verdict **from the counts it is given**. It does not run the checks,
+locate their artifacts, or confirm that a reported count came from a real run. A hand-written
+`units.json` declaring every unit `0` will reach `VERIFIED`.
+
+This is true of every unit, not just the new ones — `U_prisma` and `U_screen` have always worked
+this way, because the backend is a verdict calculator rather than an orchestrator. "Defined as the
+count the check reports" describes **where the number is supposed to come from in the pipeline**,
+not a guarantee the backend can enforce.
+
+So the enforcement is real at the point the check runs, and an assertion at the point the verdict
+is computed. Closing that gap means having the loop run the checks itself and derive the counts —
+tracked in the repository's issues, not silently assumed here.
 
 The **predicate uses raw counts** (every unit must reach 0); the **weights only shape routing and the climb gradient**. Weights/thresholds live in one config block in `scripts/review_units.py`.
 
@@ -58,7 +81,7 @@ The **predicate uses raw counts** (every unit must reach 0); the **weights only 
 
 | Gate | From | Counts |
 |:-----|:-----|:-------|
-| `H_rob` | `appraise-risk-of-bias` | studies without a **human-confirmed** rating |
+| `H_rob` | `appraise-risk-of-bias` | **appraisals** without a human-confirmed rating — identity is `(study, result)`, so a study appraised for two results and confirmed for neither contributes 2. Never deduplicate the producer's count to studies: the gate counts sign-offs still owed |
 | `H_screen_adj` | `screen-literature` | conflicts requiring human adjudication |
 | `H_cite_manual` | `verify-sources` | citations only resolvable as `UNVERIFIED (manual)` |
 | `H_numeric` | `extract-synthesis` | numeric results (effect sizes / sample sizes / CIs) awaiting **human numeric verification** |
@@ -67,14 +90,22 @@ The **predicate uses raw counts** (every unit must reach 0); the **weights only 
 
 The loop runs on **both** registrable/systematic reviews and the lighter narrative path — but in-scope units are **derived from the review type**, because a unit only exists when its upstream artifact does. Omitted units are **absent**, not "zero to achieve."
 
-| Unit | systematic / scoping / rapid / umbrella | narrative / exploratory |
-|:-----|:--:|:--:|
-| `U_cite_external`, `U_cite_internal`, `U_consistency` | ✅ | ✅ (universal floor) |
-| `U_extract` | ✅ | ✅ if an extraction matrix exists |
-| `U_grade` | ✅ | only if evidence grading was performed |
-| `U_prisma` | ✅ | ⬜ no PRISMA flow |
-| `U_screen` | ✅ dual-reviewer | ⬜ no dual-screening κ |
-| Human gates | all | `H_cite_manual` only |
+| Unit | systematic | umbrella | rapid | scoping | narrative |
+|:-----|:--:|:--:|:--:|:--:|:--:|
+| `U_cite_external`, `U_cite_internal`, `U_consistency` | ✅ | ✅ | ✅ | ✅ | ✅ (universal floor) |
+| `U_extract` | ✅ | ✅ | ✅ | ✅ | ✅ if an extraction matrix exists |
+| `U_grade` | ✅ | ✅ | ✅ | ⬜ no certainty grading | only if grading was performed |
+| `U_rob_trace` | ✅ | ✅ | ⬜ heuristic basis permitted | ⬜ | ⬜ |
+| `U_checklist` | ✅ | ✅ | ✅ | ⬜ ScR variant not implemented | ⬜ |
+| `U_prisma` | ✅ | ✅ | ✅ | ✅ | ⬜ no PRISMA flow |
+| `U_screen` | ✅ dual-reviewer | ✅ | ⬜ single screening permitted | ✅ | ⬜ no dual-screening κ |
+| `H_rob` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
+| Other human gates | all | all | `H_cite_manual` | `H_cite_manual` | `H_cite_manual` only |
+
+`U_rob_trace` and `H_rob` are out of scope for **rapid** reviews because the heuristic risk-of-bias
+basis is permitted there when the streamlined method is disclosed — a rapid review still grades
+certainty, so `U_grade` applies. `U_checklist` is out of scope for **scoping** reviews because the
+PRISMA-ScR variant is deliberately unimplemented (see `prisma-flow`); it is absent, not zero.
 
 **Citation integrity and consistency are universal** — every review, however light, must end with real, faithfully-represented citations. The in-scope set is resolved once at classification and frozen for the run. These three floor units (`U_cite_external`, `U_cite_internal`, `U_consistency`) must be **present** in `units.json` for a `VERIFIED` verdict: `review_units.py` **fails closed** — an empty or citation-less units map lists them under `missing_units` and can never report `VERIFIED`, so a malformed or partial input cannot gate a review complete.
 
@@ -107,6 +138,7 @@ Each cycle:
    - `CEILING` (cycle 25) → stop; this almost always means a methodology problem.
    - `CONTINUE` → route to the repair skill for the `dominant_unit`, run it, fold its report into the manifest, append the cycle to the units history.
    - Non-empty `missing_units` → a universal-floor check has no value this cycle: **run those checks first** (or carry forward their last-known value) before routing — a missing floor unit blocks `VERIFIED`/`BLOCKED_ON_HUMAN`, so clear it before the loop can terminate cleanly.
+   - Non-empty `ignored_inputs` → you supplied something the check deliberately did not use, and the remedy is in the message. The one case today: `U_consistency` written into `units` is dropped, because it is derived only from a `consistency` object with a real score — otherwise a hand-written zero would satisfy the floor without one. Read this alongside `missing_units`, which will name the same unit; the two together mean "supplied, but not in a form that counts", not "forgotten".
 3. At **cycle 10**, emit the **soft advisory** (a high pass-count usually signals an upstream methodology issue, not a loop that needs more cycles) — then continue.
 
 **Routing (dominant unit → repair skill):**
@@ -119,12 +151,18 @@ Each cycle:
 | `U_consistency` | `validate-consistency` auto-repair suggestions |
 | `U_screen` | `screen-literature` re-screen of the disagreement subset |
 | `U_extract` | `extract-synthesis` re-reconcile the flagged extraction fields |
-| `U_grade` | `validate-evidence` for the ungraded themes |
+| `U_grade` | `validate-evidence` → fix the results `grade_profile.py --strict` reports: a missing domain, an illegal upgrade, arithmetic that does not reconcile, or a starting level inconsistent with the predominant design |
+| `U_rob_trace` | `appraise-risk-of-bias` → create the missing appraisal or correct the study/result identifiers the certainty record cites. **Matching but unconfirmed appraisals are excluded from this unit and counted only by the human gate (`H_rob`) — hand off, do not loop.** |
+| `U_checklist` | `prisma-flow` → address the reported rows in the manuscript, or record an explicit `not_applicable` justification for each. Remember completeness is over all **42** rows, not the 27 numbered items |
+
+**Every unit in `DEFAULT_WEIGHTS` must appear in this table.** The backend can nominate any
+registered unit as `dominant_unit`, and Step 4's `CONTINUE → route to the repair skill` has nothing
+to do for a unit with no route — the loop would stall on exactly the failure it just detected.
 
 One repair per cycle, highest-leverage first — no blind "fix everything" passes; each cycle stays auditable.
 
 ### Step 5 — Human handoff (on `BLOCKED_ON_HUMAN`)
-Emit a crisp "here's what needs you" report: the studies awaiting RoB confirmation, the conflicts awaiting adjudication, the citations only resolvable manually — each with the **provisional machine judgment** so the human can confirm or override quickly. Do **not** loop through these and do **not** synthesize a confirmation.
+Emit a crisp "here's what needs you" report: the appraisals awaiting RoB confirmation, the conflicts awaiting adjudication, the citations only resolvable manually — each with the **provisional machine judgment** so the human can confirm or override quickly. Do **not** loop through these and do **not** synthesize a confirmation.
 
 ## The anti-gaming floor-guard (non-negotiable)
 
@@ -140,7 +178,22 @@ A loop optimizing a scalar will "cheat" — drop a hard-to-verify citation, excl
 
 Reuse the orchestrator's existing `manifest.json` / `execution-log.json` — do **not** create a parallel state file.
 
-- Append each cycle to `verification_units: [{cycle, state, weighted_total, by_unit, gates, denominators, floor_guard, outcome}]` in the manifest — **written by the backend, not by hand**: pass `--manifest <path>` and `review_units.py` appends the computed record (creating the file/array if absent). This history **is** the audit trail.
+- Append each cycle to `verification_units: [{schema_version, cycle, state, weighted_total, by_unit, gates, denominators, floor_guard, outcome}]` in the manifest — **written by the backend, not by hand**: pass `--manifest <path>` and `review_units.py` appends the computed record (creating the file/array if absent). This history **is** the audit trail.
+
+  `schema_version` is on every record because the units have been redefined once already: a
+  `by_unit.U_grade` written before that redefinition and one written after look identical and mean
+  different things, so a history without it cannot be read as one series. Records written before
+  the field existed are stamped `"unversioned"` on the next append — an explicit "the definitions
+  these counts were computed under are unknown", rather than adopting them into the current
+  version, which would assert exactly what cannot be checked.
+
+  **The field labels the record; the backend does not act on it.** Its reader is you, or a
+  resuming agent, comparing cycles in the audit trail. The one cross-cycle comparison the backend
+  makes is the floor guard's, and that reads `denominators`, which the redefinition did not touch —
+  so a legacy record remains a valid baseline deliberately, since skipping it would let a
+  denominator drop across the version boundary go unflagged. The plateau series the loop routes on
+  is `history` in your input `units.json`, a bare array of prior totals the backend can neither
+  version nor verify: comparing totals across a redefinition stays your responsibility.
 
   ```
   python scripts/review_units.py units.json --manifest manifest.json

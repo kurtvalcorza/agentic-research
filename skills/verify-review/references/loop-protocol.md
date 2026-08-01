@@ -13,6 +13,7 @@ Assembled each cycle from the in-scope checks' outputs and passed to
 
 ```json
 {
+  "schema_version": "1.0",
   "review_type": "systematic",
   "cycle": 3,
   "units_in_scope": ["U_screen", "U_extract", "U_prisma", "U_grade"],
@@ -148,25 +149,46 @@ python scripts/review_units.py units.json --manifest manifest.json
 
 The agent's per-cycle annotation rides in on the input `units.json` as
 `"outcome": "progressed: …"`; cycle 0 defaults to `"baseline"`. The written
-record is `{cycle, state, weighted_total, by_unit, gates, denominators,
-floor_guard, outcome}` (note `by_unit` is the **weighted** contribution per unit,
-so a count of 3 on the ×3-weighted `U_cite_external` records as `9.0`;
-`denominators`/`floor_guard` carry the anti-gaming trail from §6):
+record is `{schema_version, cycle, state, weighted_total, by_unit, gates,
+denominators, floor_guard, outcome}` (note `by_unit` is the **weighted**
+contribution per unit, so a count of 3 on the ×3-weighted `U_cite_external`
+records as `9.0`; `denominators`/`floor_guard` carry the anti-gaming trail
+from §6):
 
 ```json
 "verification_units": [
-  { "cycle": 0, "state": "CONTINUE", "weighted_total": 14.0,
+  { "schema_version": "1.0", "cycle": 0, "state": "CONTINUE", "weighted_total": 14.0,
     "by_unit": {"U_cite_external": 9.0, "U_consistency": 4.0, "U_prisma": 1.0},
     "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},
     "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "baseline" },
-  { "cycle": 1, "state": "CONTINUE", "weighted_total": 11.0,
+  { "schema_version": "1.0", "cycle": 1, "state": "CONTINUE", "weighted_total": 11.0,
     "by_unit": {"U_cite_external": 6.0, "U_consistency": 4.0, "U_prisma": 1.0},
     "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},
     "denominators": {"citations": 40, "studies": 22}, "floor_guard": "ok",
     "outcome": "progressed: verify-sources cleared 1 fabricated citation" }
 ]
 ```
+
+**`schema_version` labels the record, and nothing in this script reads it.** The
+units have been redefined once (`U_grade`, `U_rob_trace`), so a `by_unit` value
+written before that change and one written after look identical and mean
+different things. The field exists so a *reader of the audit trail* — a human, a
+resuming agent — can tell which definitions a record's counts were computed
+under. It is not consumed here: the only cross-cycle comparison this script makes
+is the floor guard's, and that reads `denominators`, which the redefinition did
+not touch. A legacy record is therefore still a valid floor-guard baseline, and
+deliberately so — skipping it would let a denominator drop across the version
+boundary go unflagged, weakening the anti-gaming guard to gain nothing.
+
+A record written before the field existed is stamped `"schema_version":
+"unversioned"` on the next append. That is a label, not an adoption: the
+definitions those counts were computed under are unknown, and writing `"1.0"`
+onto them would assert exactly what cannot be checked. The plateau series the
+loop actually routes on is `history` in the **input** `units.json` — a bare array
+of prior weighted totals supplied by the caller, which this script cannot version
+or verify. Comparing totals across a redefinition remains the caller's
+responsibility.
 
 `outcome` ∈ {`baseline`, `progressed: …`, `no-op: …`, `failed: …`,
 `blocked: …`}. A `no-op` is recorded (not silently dropped) so the plateau
