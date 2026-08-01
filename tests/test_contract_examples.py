@@ -72,7 +72,13 @@ CHECKS = {
         # The flow check had no contract at all, so its schema lived only in a
         # docstring and NOTHING executed the example — the one check exempt from
         # the guard this module exists to be. It changed twice in this feature.
-        "stdout_has": ["```mermaid", "✅ Counts reconcile end to end"],
+        # "stages attempted", not "end to end": six of the eight stages can be
+        # entered without every number in the comparison having been supplied, so
+        # the artifact no longer claims more than it verified. The caveat is
+        # asserted here too, because it has to travel with the artifact rather
+        # than living only in SKILL.md.
+        "stdout_has": ["```mermaid", "✅ Counts reconcile — 5 of 8 stages attempted",
+                       "not independently confirmed"],
     },
     "prisma-checklist.md": {
         "script": "skills/prisma-flow/scripts/prisma_checklist.py",

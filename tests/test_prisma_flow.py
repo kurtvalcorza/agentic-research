@@ -598,9 +598,21 @@ class TestTheTickMustBeEarned(_RunRecord):
         code, out, err = self.run_record(counts_template1(), "--strict")
         self.assertEqual(code, 0, msg=out + err)
         self.assertIn("✅", out)
-        self.assertRegex(out, r"\d+ of 8 stages checked")
+        self.assertRegex(out, r"\d+ of 8 stages attempted")
         for stage in ("identification", "screening", "retrieval", "eligibility", "merge"):
             self.assertIn(stage, out)
+
+    def test_the_artifact_carries_its_own_caveat(self):
+        """The caveat has to travel with the artifact, not sit only in SKILL.md.
+
+        prisma-flow.md is what gets published and read; six of the eight stages
+        can be entered without every number in the comparison having been
+        supplied, and a reader of the artifact alone would otherwise take the
+        stage list as a list of independent confirmations.
+        """
+        _, out, _ = self.run_record(counts_template1())
+        self.assertIn("not independently confirmed", out)
+        self.assertNotIn("stages checked", out)
 
     def test_the_count_comes_from_the_gates_themselves(self):
         """Not a second copy of the presence rules, which would be free to drift.

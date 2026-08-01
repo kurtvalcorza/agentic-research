@@ -969,12 +969,26 @@ if consistency_score < 75:
 # Runs at the reporting/validation phase. Assembles a REAL PRISMA 2020 flow
 # diagram (Mermaid) from the ACTUAL counts produced by this run — replacing any
 # hollow/hand-made PRISMA artifact.
+# Identification and duplicates come from the acquisition front end when it ran.
+# BRANCH BEFORE READING IT: on a bring-your-own-corpus run there is no
+# acquisition_result to dereference, and prisma-flow rejects a record carrying no
+# identification count at all (exit 2). The corpus IS the identification source,
+# so declare it as one — a real count, not an invented one. It goes in the
+# databases/registers arm because that is the only arm with a title/abstract
+# screening stage, and the label carries the meaning the arm does not.
+if acquisition_ran:
+  identification_counts = acquisition_result["identification_counts"]
+  duplicates_removed = acquisition_result["duplicates_removed"]
+  search_log = f"{corpus_root}/search-log.md"
+else:
+  identification_counts = {"pre-collected corpus": corpus_size}
+  duplicates_removed = 0        # a fact about the run: no de-duplication was performed
+  search_log = None
+
 prisma = prisma_flow(
-  # Identification (per source) from acquire-corpus (if the acquisition front-end ran)
-  identification_counts=acquisition_result["identification_counts"],
-  search_log=f"{corpus_root}/search-log.md",
-  # Duplicates removed from dedupe-records
-  duplicates_removed=acquisition_result["duplicates_removed"],
+  identification_counts=identification_counts,
+  search_log=search_log,
+  duplicates_removed=duplicates_removed,
   # Screening / eligibility / included from screen-literature + phase-1 screening report
   screening_report=f"{project_context.output_root}/phase1-screening-report_project.md",
   output_path=f"{project_context.output_root}/prisma-flow.md"
@@ -989,12 +1003,9 @@ if prisma["gate"] == "FAIL":
   )
   return {"status": "halted", "phase": "reporting", "gate": "prisma-flow"}
 
-# NOTE (bring-your-own corpus): when the acquisition front-end was NOT used,
-# there are no upstream identification/duplicates counts. Declare the corpus as
-# the identification source — "identified_databases": {"pre-collected corpus": N},
-# with "duplicates_removed": 0 when no de-duplication was performed. prisma-flow
-# rejects a record with no identification count (exit 2); it has no
-# screening-only mode.
+# NOTE: prisma-flow has no screening-only mode, despite what earlier revisions of
+# this guide implied. The bring-your-own-corpus path is the branch above, not a
+# separate mode.
 ```
 
 ---

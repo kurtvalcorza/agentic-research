@@ -41,6 +41,11 @@ Template 1 — databases and registers only. Reconciles end to end, exits 0 unde
 Arithmetic: `500 identified − 96 removed = 404 screened − 328 excluded = 76 sought − 4 not
 retrieved = 72 assessed − 34 excluded = 38 included`. ✅
 
+That record reports `✅ Counts reconcile — 5 of 8 stages attempted: identification, screening,
+retrieval, eligibility, merge`, followed by the caveat that attempted is not independently
+confirmed (rule 3b). The artifact carries that sentence itself rather than deferring to the skill
+documentation, because `prisma-flow.md` is what gets published and read.
+
 ## The two arms
 
 PRISMA 2020 ships two flow templates and the check renders whichever the counts describe. Adding

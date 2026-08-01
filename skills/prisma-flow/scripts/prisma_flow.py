@@ -512,8 +512,18 @@ def main() -> int:
               "supplied, so no arithmetic was checked. This diagram reports the "
               "counts given; it does not attest to them.")
     else:
-        print(f"✅ Counts reconcile end to end ({len(checked)} of 8 stages checked: "
-              f"{', '.join(checked)}).")
+        # "attempted", not "checked". A stage reading more than two counts gates
+        # on the two its name mentions and treats any further operand as zero
+        # when it was absent, so six of the eight can be entered without every
+        # number in the comparison having been supplied. That caveat belongs
+        # HERE rather than only in SKILL.md: this file is the published artifact,
+        # and a reader of prisma-flow.md never sees the skill documentation.
+        print(f"✅ Counts reconcile — {len(checked)} of 8 stages attempted: "
+              f"{', '.join(checked)}.")
+        print("\n> *Attempted*, not independently confirmed: a stage reading more "
+              "than two counts treats any further operand as zero when it was not "
+              "supplied. See `prisma-flow/SKILL.md`, \"What the flow check CANNOT "
+              "verify\".")
     # An unreconciled record is incomplete, not contradictory — the same
     # distinction the presence gates draw — so --strict still fails only on a
     # real contradiction. What changed is that silence no longer reads as a tick.
