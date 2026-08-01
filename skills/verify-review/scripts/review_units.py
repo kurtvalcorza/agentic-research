@@ -782,14 +782,6 @@ def compute(data, weights, runner=None):
     # always contributed every H_* key regardless of scope, and filtering the
     # derived value while keeping the reported one would let scope hide the very
     # count Principle V says a loop may never auto-zero.
-    if declared_present:
-        for key in sorted(set(derived_units) - set(declared)):
-            ignored_inputs.append(
-                f"{DERIVED_BY[key]} derived {key}={derived_units.pop(key)}, which is "
-                f"OUT OF SCOPE for this review — units_in_scope is frozen at "
-                f"classification and a check does not widen it. Drop the check entry, "
-                f"or add the unit to scope if it genuinely applies.")
-
     for key in sorted(derived_units):
         value = float(derived_units[key])
         if key in units and units[key] != value:
@@ -800,6 +792,24 @@ def compute(data, weights, runner=None):
                 f"the point of declaring the check. Remove the direct key so the "
                 f"record cannot state two different things.")
         units[key] = value
+
+    # ONE scope filter, over the merged map, so a derived count and a reported one
+    # are treated alike. Filtering only the derived side left the asymmetry Codex
+    # found: a rapid review carrying a stale `units.U_rob_trace: 1` had the
+    # authoritative derived value discarded and the stale reported one kept, so
+    # `auto_units_zero` stayed false and the review could never verify — blocked by
+    # a unit its own frozen scope excludes. The universal floor is always allowed:
+    # it is required whether or not it appears in the declared list.
+    if declared_present:
+        allowed = set(declared) | set(UNIVERSAL_FLOOR)
+        for key in sorted(set(units) - allowed):
+            source = (f"{DERIVED_BY[key]} derived" if key in derived_units
+                      else "the record reports")
+            ignored_inputs.append(
+                f"{source} {key}={units.pop(key):g}, which is OUT OF SCOPE for this "
+                f"review — units_in_scope is frozen at classification and neither a "
+                f"check nor a stale entry widens it. Remove it, or add the unit to "
+                f"scope if it genuinely applies.")
 
     # weighted total (the routing/progress scalar)
     weighted_total = 0.0
@@ -1002,6 +1012,36 @@ def floor_guard_status(prev_denoms, curr_denoms, exclusions_logged):
         return "ok"
     tag = "logged-exclusion" if exclusions_logged else "UNLOGGED (no-op per §5)"
     return f"{tag}: " + ", ".join(drops)
+
+
+def preflight_manifest(path):
+    """Open and shape-check an EXISTING manifest before any check runs.
+
+    `append_to_manifest` validates the file it is about to extend, but it runs
+    after the verdict — so `--manifest` pointed at malformed JSON spent every
+    declared check, each with a 120-second timeout, on a command guaranteed to
+    reject the file and record nothing. An unusable output target should cost
+    nothing to discover.
+
+    Deliberately does not keep what it read: append_to_manifest re-reads under its
+    own error handling, and one extra read of a small JSON file is a better trade
+    than two code paths that could disagree about what the manifest contains.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            manifest = json.load(f)
+    except FileNotFoundError:
+        return                      # a manifest that does not exist yet is created
+    # Everything else propagates UNWRAPPED, to main()'s `except (ValueError, OSError)`
+    # which labels it "manifest error: …". Wrapping it as "cannot read <path>" put
+    # the INPUT read handler's wording on a manifest failure — the exact mislabel an
+    # earlier round removed, and `test_review_units_still_names_the_manifest_when_it
+    # _is_the_manifest` catches it coming back. UnicodeDecodeError and
+    # JSONDecodeError are both ValueErrors, so both land there.
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest root is not a JSON object")
+    if not isinstance(manifest.get("verification_units", []), list):
+        raise ValueError("manifest.verification_units exists but is not an array")
 
 
 def append_to_manifest(path, data, result):
@@ -1245,6 +1285,11 @@ def main():
         if args.dry_run:
             print(json.dumps(dry_run_preview(data, args.ceiling, runner), indent=2))
             return 0
+
+        # Before the checks, not after: an unusable manifest must not cost four
+        # subprocess runs to discover.
+        if args.manifest:
+            preflight_manifest(args.manifest)
 
         result = verdict(data, DEFAULT_WEIGHTS, args.ceiling, runner)
 

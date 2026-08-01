@@ -103,9 +103,10 @@ name is still a key into a fixed table, and no part of the record reaches the ar
 
 ### Precedence, and the two new verdict fields
 
-**The frozen scope binds derived counts too.** A unit a check derives that is *not* in
-`units_in_scope` does not enter the verdict — scope is resolved once at classification and a check
-does not widen it. A rapid review may hand `rob_record` to the certainty check to validate a
+**The frozen scope binds every count, derived or reported.** A unit that is *not* in
+`units_in_scope` does not enter the verdict — scope is resolved once at classification and neither a
+check nor a stale entry in `units` widens it. The universal floor is always allowed, since it is
+required whether or not it appears in the declared list. A rapid review may hand `rob_record` to the certainty check to validate a
 voluntarily-used `confirmed_rob` basis, and `U_rob_trace` would otherwise block a review the table
 above explicitly freezes that unit out of. The drop is named in `ignored_inputs`, never silent.
 

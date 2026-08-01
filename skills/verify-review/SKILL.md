@@ -95,9 +95,10 @@ diagnostics, but books them to no unit and no gate — so without the appraisal 
 same file, they are counted by nothing. Two entries naming different appraisals is malformed input
 (exit 2).
 
-**A derived unit outside `units_in_scope` does not enter the verdict.** Scope is frozen at
-classification and a check does not widen it; the drop is named in `ignored_inputs`. Gates are the
-exception and are never scope-filtered — a pending signature is outstanding work regardless.
+**A unit outside `units_in_scope` does not enter the verdict**, whether a check derived it or the
+record reported it. Scope is frozen at classification and neither widens it; the drop is named in
+`ignored_inputs`, and the universal floor is always kept. Gates are the exception and are never
+scope-filtered — a pending signature is outstanding work regardless.
 
 **`H_rob` is required whenever `U_rob_trace` is in scope.** A gate cannot be named in
 `units_in_scope`, so it reads its scope from the unit it moves with — the two are in scope for

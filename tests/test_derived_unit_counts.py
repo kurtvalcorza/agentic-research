@@ -625,6 +625,31 @@ class TestTheFrozenScopeBindsDerivedCountsToo(unittest.TestCase):
         self.assertTrue(any("U_rob_trace" in m and "OUT OF SCOPE" in m
                             for m in verdict(d)["ignored_inputs"]))
 
+    def test_a_reported_out_of_scope_unit_is_dropped_too(self):
+        """Codex round 3. Filtering only the DERIVED side was an asymmetry, and it
+        blocked in the wrong direction: a rapid review carrying a stale
+        `units.U_rob_trace: 1` had the authoritative derived value discarded and the
+        stale reported one kept, so `auto_units_zero` stayed false and the review
+        could never verify — held by a unit its own frozen scope excludes.
+        """
+        d = record(units={"U_rob_trace": 1}, checks=clean_checks())
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        r = verdict(d)
+        self.assertNotIn("U_rob_trace", r["units_evaluated"])
+        self.assertTrue(r["auto_units_zero"])
+        self.assertEqual(r["state"], "VERIFIED")
+
+    def test_the_universal_floor_survives_the_scope_filter(self):
+        """The floor is required whether or not it appears in the declared list, so
+        filtering on `declared` alone would drop the units that must never be
+        droppable — and a citation-less record would then verify."""
+        d = record(checks=clean_checks())
+        d["units_in_scope"] = ["U_prisma", "U_grade", "U_rob_trace", "U_checklist"]
+        r = verdict(d)
+        for unit in ru.UNIVERSAL_FLOOR:
+            self.assertIn(unit, r["units_evaluated"])
+        self.assertEqual(r["state"], "VERIFIED")
+
     def test_a_derived_gate_is_NOT_scope_filtered(self):
         """The deliberate asymmetry. A pending signature is outstanding work
         whatever the scope says, and the record's own `gates` object has always
@@ -1036,6 +1061,57 @@ class TestTheCommandLine(unittest.TestCase):
             REPO / "skills/verify-review/scripts/review_units.py").resolve()
         self.assertEqual(ru.default_skills_root(here), REPO)
         self.assertTrue((ru.default_skills_root(here) / "skills").is_dir())
+
+    def test_an_unusable_manifest_costs_no_check_runs(self):
+        """Codex round 3. `append_to_manifest` validates the file it extends, but it
+        runs AFTER the verdict — so `--manifest` pointed at malformed JSON spent
+        every declared check, each with a 120-second timeout, on a command
+        guaranteed to reject the file and record nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = pathlib.Path(tmp) / "manifest.json"
+            bad.write_text("{ not json at all", encoding="utf-8")
+            units = pathlib.Path(tmp) / "units.json"
+            units.write_text(json.dumps(record(checks=clean_checks())), encoding="utf-8")
+            with mock.patch.object(subprocess, "run",
+                                   side_effect=AssertionError("a check was executed")):
+                code, out, err = self.run_main(str(units), "--records-root", str(FIXTURES),
+                                               "--manifest", str(bad))
+        self.assertEqual(code, 2)
+        self.assertIn("manifest error", json.loads(err)["error"])
+
+    def test_and_the_manifest_failure_is_still_labelled_as_the_manifest(self):
+        """The preflight must not relabel it.
+
+        An earlier round fixed a mislabel where an unreadable MANIFEST was reported
+        with the INPUT read handler's wording. Adding a preflight that wrapped the
+        error as "cannot read <path>" put that wording straight back — caught by
+        `test_review_units_still_names_the_manifest_when_it_is_the_manifest`, and
+        pinned here from the other side so the two cannot drift apart.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = pathlib.Path(tmp) / "manifest.json"
+            bad.write_bytes(b"\xff\xfe not utf-8")
+            units = pathlib.Path(tmp) / "units.json"
+            units.write_text(json.dumps(record(checks=clean_checks())), encoding="utf-8")
+            code, out, err = self.run_main(str(units), "--records-root", str(FIXTURES),
+                                           "--manifest", str(bad))
+        self.assertEqual(code, 2)
+        message = json.loads(err)["error"]
+        self.assertIn("manifest error", message)
+        self.assertNotIn("cannot read", message)
+
+    def test_a_usable_manifest_is_still_written(self):
+        """The preflight must not become a new way to fail."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "manifest.json"
+            units = pathlib.Path(tmp) / "units.json"
+            units.write_text(json.dumps(record(checks=clean_checks())), encoding="utf-8")
+            code, out, err = self.run_main(str(units), "--records-root", str(FIXTURES),
+                                           "--manifest", str(path))
+            self.assertEqual(code, 0, msg=err)
+            written = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(len(written["verification_units"]), 1)
+        self.assertEqual(written["verification_units"][0]["state"], "VERIFIED")
 
     def test_a_failed_check_exits_two_with_a_message_not_a_traceback(self):
         """The gate fails closed the same way every other malformed input does."""
