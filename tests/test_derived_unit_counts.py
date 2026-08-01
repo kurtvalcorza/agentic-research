@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -1289,6 +1290,83 @@ class TestTheCommandLine(unittest.TestCase):
             target = pathlib.Path(tmp) / "manifest.json"
             self.assertFalse(target.exists())
             ru.preflight_manifest(str(target))      # must not raise
+
+    def test_a_read_only_manifest_costs_no_check_runs(self):
+        """Codex round 4 (post-reset). Readable is not writable.
+
+        The preflight opened the manifest `"r"` and checked only its SHAPE, so a
+        file that is perfectly valid JSON and perfectly unwritable passed — then
+        every declared check ran, at CHECK_TIMEOUT seconds apiece, before
+        append_to_manifest reopened it for writing and failed. Same cost class as
+        the malformed and missing-parent cases this function already rejected.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "manifest.json"
+            target.write_text(json.dumps({"verification_units": []}), encoding="utf-8")
+            os.chmod(target, 0o444)
+            try:
+                self._skip_unless_unwritable(target)
+                units = pathlib.Path(tmp) / "units.json"
+                units.write_text(json.dumps(record(checks=clean_checks())), encoding="utf-8")
+                with mock.patch.object(subprocess, "run",
+                                       side_effect=AssertionError("a check was executed")):
+                    code, out, err = self.run_main(str(units), "--records-root", str(FIXTURES),
+                                                   "--manifest", str(target))
+            finally:
+                os.chmod(target, 0o644)
+        self.assertEqual(code, 2)
+        message = json.loads(err)["error"]
+        self.assertIn("manifest error", message)
+        self.assertNotIn("cannot read", message)   # the input handler's wording
+
+    def test_an_unwritable_manifest_PARENT_costs_no_check_runs(self):
+        """The other half. The parent exists, so the missing-parent branch does not
+        fire — but it will not accept the file the run is going to create."""
+        with tempfile.TemporaryDirectory() as tmp:
+            outdir = pathlib.Path(tmp) / "out"
+            outdir.mkdir()
+            units = pathlib.Path(tmp) / "units.json"
+            units.write_text(json.dumps(record(checks=clean_checks())), encoding="utf-8")
+            os.chmod(outdir, 0o555)
+            try:
+                self._skip_unless_uncreatable(outdir)
+                target = outdir / "manifest.json"
+                with mock.patch.object(subprocess, "run",
+                                       side_effect=AssertionError("a check was executed")):
+                    code, out, err = self.run_main(str(units), "--records-root", str(FIXTURES),
+                                                   "--manifest", str(target))
+            finally:
+                os.chmod(outdir, 0o755)
+        self.assertEqual(code, 2)
+        message = json.loads(err)["error"]
+        self.assertIn("manifest error", message)
+        self.assertNotIn("cannot read", message)
+
+    def _skip_unless_unwritable(self, path):
+        """Skip rather than assert when the platform did not honour the chmod.
+
+        Running as root, and some filesystems, ignore the read-only bit entirely.
+        A test that cannot create the condition it is testing must say so — the
+        alternative is a green assertion that proves nothing, which is the failure
+        mode `test_every_listed_doc_is_actually_covered` exists to prevent one file
+        over.
+        """
+        try:
+            with open(path, "r+", encoding="utf-8"):
+                pass
+        except OSError:
+            return
+        self.skipTest(f"this platform still permits writing to a 0o444 file ({path})")
+
+    def _skip_unless_uncreatable(self, directory):
+        try:
+            probe = pathlib.Path(directory) / ".probe"
+            with open(probe, "w", encoding="utf-8"):
+                pass
+        except OSError:
+            return
+        probe.unlink()
+        self.skipTest(f"this platform still permits creating files in a 0o555 dir ({directory})")
 
     def test_a_usable_manifest_is_still_written(self):
         """The preflight must not become a new way to fail."""

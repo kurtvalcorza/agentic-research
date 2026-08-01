@@ -93,6 +93,7 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # --- configuration (single source of truth for weights / thresholds) --------
@@ -1093,9 +1094,24 @@ def preflight_manifest(path):
     Deliberately does not keep what it read: append_to_manifest re-reads under its
     own error handling, and one extra read of a small JSON file is a better trade
     than two code paths that could disagree about what the manifest contains.
+
+    READABLE IS NOT WRITABLE, and this is a write target. The first version opened
+    the file for reading only and checked the parent's existence but never its
+    permissions, so a manifest that is valid JSON but read-only — or a creatable
+    path under a directory that forbids writes — passed preflight, spent every
+    declared check at CHECK_TIMEOUT seconds apiece, and failed when
+    append_to_manifest reopened it for writing. Identical cost to the shape and
+    missing-parent cases already handled here, different cause. Both are now proved
+    by attempting the write access rather than inferring it: `os.access` was the
+    obvious alternative and is the wrong one, because it reports the answer from
+    the permission bits and gets Windows ACLs and root wrong in the fail-OPEN
+    direction, which is the direction this module is not allowed to be wrong in.
     """
     try:
-        with open(path, encoding="utf-8") as f:
+        # "r+" reads the file AND proves it can be written, in one syscall, without
+        # modifying a byte. Absent is still FileNotFoundError, so the branch below
+        # is unchanged.
+        with open(path, "r+", encoding="utf-8") as f:
             manifest = json.load(f)
     except FileNotFoundError:
         # A manifest that does not exist yet is created — but only if its PARENT
@@ -1107,6 +1123,15 @@ def preflight_manifest(path):
         if parent and not parent.is_dir():
             raise ValueError(
                 f"cannot write {path}: {parent} is not a directory") from None
+        # The directory exists — now prove it accepts a new file. Probed with a
+        # uniquely-named temporary that is removed on close, NOT by creating and
+        # deleting `path` itself: append_to_manifest treats a missing manifest as a
+        # fresh one but an EMPTY existing file as malformed JSON, so a probe that
+        # touched the real path would turn an aborted run into a poisoned output
+        # target. PermissionError and the rest propagate unwrapped, like every other
+        # failure here.
+        with tempfile.NamedTemporaryFile(dir=parent, prefix=".preflight-"):
+            pass
         return
     # Everything else propagates UNWRAPPED, to main()'s `except (ValueError, OSError)`
     # which labels it "manifest error: …". Wrapping it as "cannot read <path>" put
