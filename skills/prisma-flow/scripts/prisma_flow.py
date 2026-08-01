@@ -350,8 +350,16 @@ def reconcile(c: dict, checked: list | None = None) -> list[str]:
                         f"{o_assessed - o_ex_ft}, but studies_included_other = {inc_other}")
 
     # --- Merge: total included = databases arm + other arm ---
+    # The merge edge obeys the same both-counts-supplied rule as every other one.
+    # It used to fire on the grand total alone, comparing it against arm totals
+    # that default to zero rather than being presence-gated — so a record naming
+    # only `studies_included_total: 0` reported "1 of 8 stages checked: merge"
+    # having compared 0 + 0 against 0. That is the defaulting-to-zero pattern the
+    # rest of this check exists to refuse, and instrumenting it only gave it a
+    # "checked" label it had not earned.
     total = c.get("studies_included_total")
-    if gate("merge", total is not None):
+    arms = have("studies_included_databases") or have("studies_included_other")
+    if gate("merge", total is not None and arms):
         total = _int(total, "studies_included_total")
         if (inc_db + inc_other) != total:
             errs.append(f"merge: studies_included_databases {inc_db} + studies_included_other {inc_other} = "

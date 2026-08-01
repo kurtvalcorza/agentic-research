@@ -412,17 +412,42 @@ class TestARecordMustNameBothEndsOfTheFlow(_RunRecord):
         self.assertIn("flowchart", out)
         self.assertNotIn("do NOT reconcile", out)
 
-    def test_the_grand_total_is_checked_against_the_arms(self):
-        """The asymmetry the docs now warn about, pinned so it cannot drift
-        unnoticed: studies_included_total is compared against arm totals that
-        default to zero, so supplying it alone is a contradiction, not a gap."""
-        code, out, _ = self.run_record({
+    def test_the_grand_total_alone_checks_nothing(self):
+        """The merge edge obeys the same both-counts-supplied rule as the rest.
+
+        It used to fire on the grand total alone, comparing it against arm totals
+        defaulting to zero — reporting a contradiction for `total: 5` and, worse,
+        a satisfied check for `total: 0`, where 0 + 0 == 0 was recorded as a
+        stage checked. Neither was a comparison of two supplied numbers.
+        """
+        code, out, err = self.run_record({
             "schema_version": "1.0",
             "identified_other": {"citation searching": 5},
             "studies_included_total": 5,
         }, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("Nothing was reconciled", out)
+        self.assertNotIn("✅", out)
+
+    def test_a_zero_grand_total_no_longer_reconciles_vacuously(self):
+        """The case both reviewers converged on: 0 + 0 == 0 read as a stage
+        checked, so the record earned a tick for a comparison of two defaults."""
+        code, out, err = self.run_record({
+            "schema_version": "1.0",
+            "identified_databases": {"OpenAlex": 1},
+            "studies_included_total": 0,
+        }, "--strict")
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertNotIn("stages checked: merge", out)
+        self.assertIn("Nothing was reconciled", out)
+
+    def test_the_merge_edge_still_fires_when_an_arm_is_supplied(self):
+        """The guard must not cost the check. With an arm total present, the
+        grand total is compared as before."""
+        code, out, _ = self.run_record(
+            counts_template1(studies_included_total=40), "--strict")
         self.assertEqual(code, 1)
-        self.assertIn("studies_included_total = 5", out)
+        self.assertIn("studies_included_total = 40", out)
 
     def test_a_zero_count_still_counts_as_supplied(self):
         """A review that identified nothing is a real, reportable outcome. The gate

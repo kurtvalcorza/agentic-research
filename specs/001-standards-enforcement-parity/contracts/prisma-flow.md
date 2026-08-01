@@ -59,7 +59,7 @@ reports enter at the report level, never pooled into title/abstract screening.
 | 3b | An edge is reconciled when **both** its counts are present; a count recorded as `0` is checked, not skipped. Omitting a count skips its edge — that is an incomplete record, not a contradictory one. Rule 8 bounds this: omitting *every* identification or *every* inclusion count is malformed input, not an incomplete record | — |
 | 4 | Databases/registers arm: `identified − removed = screened`, `screened − excluded(t/a) = sought`, `sought − not_retrieved = assessed`, `assessed − excluded(full-text) = included` | exit 1 — reports both sides and the difference |
 | 5 | Other-methods arm, when present: `identified = sought`, `sought − not_retrieved = assessed`, `assessed − excluded = included` | exit 1 |
-| 6 | `studies_included_databases + studies_included_other = studies_included_total` | exit 1 |
+| 6 | `studies_included_databases + studies_included_other = studies_included_total`, checked when the grand total **and at least one arm total** are supplied. The grand total alone compares against arm totals defaulting to zero, which is the defaulting this check refuses everywhere else | exit 1 |
 | 7 | The five breakdown keys — `identified_databases`, `identified_registers`, `identified_other`, `reports_excluded`, `other_reports_excluded` — map a source or reason to its own count and must be objects. A bare number is malformed input, not a total | exit 2 |
 | 8 | At least one identification key (`identified_databases`, `identified_registers`, `identified_other`) **and** at least one inclusion key (`studies_included_databases`, `studies_included_other`, `studies_included_total`) must be supplied. Supplied means carrying a count: `null` and `{}` are not | exit 2 |
 | 9 | The reconciliation line reports how many of the eight stages were checked. A record passing rule 8 that still checks no stage says so, and does not print ✅ | — |
@@ -99,6 +99,14 @@ All are behavioural changes to code that was already working, made because
 
 Existing records need `"schema_version": "1.0"` added, any stray keys removed, and at least one
 identification and one inclusion count present.
+
+**Bring-your-own-corpus runs.** When the acquisition front-end was not used there is no database
+search to report, and rule 8 still applies. Declare the corpus itself as the identification
+source — `"identified_other": {"pre-collected corpus": N}` — which is a real count rather than an
+invented one, and omit `duplicates_removed` rather than recording `0`: an omitted count skips its
+edge, a zero asserts that none were removed. `synthesize-research` and `orchestrate-research`
+carry the same instruction. There is no screening-only mode, and two skill documents previously
+implied one.
 
 ## What this cannot check
 
