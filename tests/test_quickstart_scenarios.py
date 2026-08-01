@@ -28,6 +28,7 @@ import io
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from unittest import mock
@@ -130,8 +131,20 @@ class Unrunnable(AssertionError):
     """
 
 
-def run_command(line: str) -> tuple[int, str, str]:
-    """Run one documented invocation in-process, from the repository root."""
+def run_command(line: str, *extra: str) -> tuple[int, str, str]:
+    """Run one documented invocation in-process, from the repository root.
+
+    ``line`` is a command as the guide writes it, and is split on whitespace —
+    which is why a caller-supplied absolute path must be passed through ``extra``
+    instead of concatenated into it. Nineteen tests errored on any checkout whose
+    path contains a space: `C:\\Users\\Kurt Valcorza\\...` was torn into two
+    arguments, argparse rejected the extra positional and exited 2, and the
+    SystemExit surfaced as an error. CI paths have no spaces, so the suite was
+    green there and unrunnable on the machine it was written on.
+
+    ``extra`` is appended to argv verbatim, already split, so a path containing
+    any character stays one argument.
+    """
     body = line.split("#", 1)[0].strip()
     for meta in SHELL_METACHARS:
         if meta in body:
@@ -156,6 +169,7 @@ def run_command(line: str) -> tuple[int, str, str]:
     for raw in raw_args:
         # Paths in the guide are repo-root-relative, as its prerequisites state.
         args.append(str(REPO / raw) if raw.startswith("tests/") else raw)
+    args.extend(extra)
     mod = load(script)
     out, err = io.StringIO(), io.StringIO()
     argv = [SCRIPT_ARGV0[script], *args]
@@ -229,8 +243,38 @@ class TestQuickstartCommandsAreExecutable(unittest.TestCase):
             with self.subTest(form=form):
                 self.assertTrue(INVOCATION.search(form))
                 # Reaches the script rather than being rejected as unrunnable.
-                code, _, _ = run_command(form + " " + str(fixture("checklist.valid.json")))
+                code, _, _ = run_command(form, str(fixture("checklist.valid.json")))
                 self.assertIn(code, (0, 1, 2))
+
+    def test_an_argument_containing_a_space_stays_one_argument(self):
+        """The runner must not split a caller-supplied path on whitespace.
+
+        It did. `line` is split to mirror how a reader would type the command,
+        and absolute paths used to be concatenated into it, so any checkout whose
+        path contains a space — `C:\\Users\\Kurt Valcorza\\...` — was torn into two
+        arguments and every affected test errored with argparse's SystemExit(2).
+        Nineteen tests here, on the machine this suite was written on.
+
+        CI runs under /home/runner/..., which has no space, so nothing caught it.
+        This test makes the space rather than hoping for one, so it fails on any
+        platform if the splitting returns.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            spaced = pathlib.Path(tmp) / "a directory with spaces"
+            spaced.mkdir()
+            target = spaced / "checklist.valid.json"
+            target.write_text(fixture("checklist.valid.json").read_text(encoding="utf-8"),
+                              encoding="utf-8")
+            self.assertIn(" ", str(target), "the fixture path must contain a space")
+
+            code, _, err = run_command(
+                "python skills/prisma-flow/scripts/prisma_checklist.py", str(target))
+
+        # A valid checklist exits 0. Splitting the path yields an unexpected extra
+        # positional, which argparse reports as usage + exit 2 — so 2-with-usage is
+        # precisely the regression, and distinguishable from a script's own exit 2.
+        self.assertNotIn("usage:", err)
+        self.assertEqual(code, 0, msg=f"path was split, or the run failed:\n{err}")
 
 
 class TestScenarioThreeTable(unittest.TestCase):
@@ -274,7 +318,7 @@ class TestScenarioThreeTable(unittest.TestCase):
             with self.subTest(fixture=name):
                 code, out, err = run_command(
                     f"python skills/validate-evidence/scripts/grade_profile.py "
-                    f"tests/fixtures/{name} --rob {rob} --strict")
+                    f"tests/fixtures/{name} --strict", "--rob", rob)
                 self.assertEqual(code, expected, msg=f"{name}\n{out}\n{err}")
 
     # The defect each row NAMES, as a substring of the message that row's fixture
@@ -308,7 +352,7 @@ class TestScenarioThreeTable(unittest.TestCase):
                               f"add the defect it names to ROW_EVIDENCE")
                 _, out, err = run_command(
                     f"python skills/validate-evidence/scripts/grade_profile.py "
-                    f"tests/fixtures/{name} --rob {rob} --strict")
+                    f"tests/fixtures/{name} --strict", "--rob", rob)
                 where = err if expected == 2 else out
                 self.assertIn(self.ROW_EVIDENCE[name], where,
                               msg=f"{name}\n{out}\n{err}")
@@ -322,8 +366,8 @@ class TestScenarioThreeTable(unittest.TestCase):
         """
         rob = str(fixture("risk-of-bias.valid.json"))
         _, out, err = run_command(
-            f"python skills/validate-evidence/scripts/grade_profile.py "
-            f"tests/fixtures/grade-profile.typo-domain.json --rob {rob} --strict")
+            "python skills/validate-evidence/scripts/grade_profile.py "
+            "tests/fixtures/grade-profile.typo-domain.json --strict", "--rob", rob)
         self.assertIn("unrecognised key", err)
         # The misspelling itself, not merely the shape of the message: an unrelated
         # record with any unknown key satisfies "unrecognised key" at the same exit
@@ -341,7 +385,7 @@ class TestScenarioThreeTable(unittest.TestCase):
             with self.subTest(fixture=name):
                 _, out, _ = run_command(
                     f"python skills/validate-evidence/scripts/grade_profile.py "
-                    f"tests/fixtures/{name} --rob {rob} --strict")
+                    f"tests/fixtures/{name} --strict", "--rob", rob)
                 self.assertNotIn("no appraisal record was supplied", out)
 
 
