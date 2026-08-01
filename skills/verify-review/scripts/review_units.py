@@ -657,6 +657,47 @@ def _validated_history(data):
     return [_as_count(h, f"history[{i}]") for i, h in enumerate(raw)]
 
 
+def validate_cheap(data):
+    """Every rejection the record can earn before a single check is executed.
+
+    Shared by compute() and dry_run_preview() for the reason `effective_scope`
+    is shared: they were validating different amounts. `--dry-run` checked the
+    schema and the `checks` block but never the unit keys or counts, so a record
+    with `units.U_cite_external: "bad"` previewed cleanly at exit 0 and then exited
+    2 on the real run. A preflight that accepts what the run rejects is worse than
+    no preflight — it is the one output a caller uses to decide the record is fine.
+
+    Raises InputError; returns nothing. compute() re-derives the values it needs
+    afterwards, which costs a second pass over a handful of small dicts and buys
+    one place where "what makes a record malformed" is decided.
+    """
+    _validate_record_schema(data)
+    raw_units = _as_object(data.get("units"), "units")
+    for key, count in raw_units.items():
+        if key not in DEFAULT_WEIGHTS:
+            raise InputError(
+                f"units: unknown unit {key!r}; expected one of {sorted(DEFAULT_WEIGHTS)}")
+        if key != "U_consistency":
+            _as_nonneg_count(count, f"units.{key}")
+    derive_consistency_unit(data.get("consistency"))
+    declared, declared_present = _validated_scope(data)
+    if declared_present and not isinstance(data.get("gates"), dict):
+        raise InputError("gates: required as an object (even {}) when units_in_scope is declared")
+    raw_gates = _as_object(data.get("gates"), "gates")
+    unknown = [k for k in raw_gates if k not in GATE_KEYS]
+    if unknown:
+        raise InputError(f"gates: unknown gate key(s) {unknown}; expected {list(GATE_KEYS)}")
+    for k in GATE_KEYS:
+        _as_int_count(raw_gates.get(k, 0), f"gates.{k}")
+    for key, value in _as_object(data.get("denominators"), "denominators").items():
+        _as_int_count(value, f"denominators.{key}")
+    excl = data.get("exclusions_logged")
+    if excl is not None and not isinstance(excl, bool):
+        raise InputError("exclusions_logged: expected a boolean")
+    _as_int_count(data.get("cycle", 0), "cycle")
+    _validated_history(data)
+
+
 def effective_scope(data):
     """The units a verdict on this record may evaluate. ONE resolution, shared.
 
@@ -697,7 +738,7 @@ def _validate_record_schema(data):
 
 
 def compute(data, weights, runner=None):
-    _validate_record_schema(data)
+    validate_cheap(data)
     ignored_inputs: list[str] = []
 
     # Validate the `checks` block before anything is executed — unknown names,
@@ -1188,7 +1229,9 @@ def append_to_manifest(path, data, result):
 
 def dry_run_preview(data, ceiling, runner=None):
     """Preview what the loop will do without running or writing anything."""
-    _validate_record_schema(data)
+    # The SAME validation the run performs. Anything less and the preflight accepts
+    # records the run rejects, which is the failure a preflight exists to prevent.
+    validate_cheap(data)
     review_type = data.get("review_type", "unspecified")
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]

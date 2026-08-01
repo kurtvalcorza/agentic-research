@@ -1122,6 +1122,39 @@ class TestThePreviewDescribesTheRunItPreviews(unittest.TestCase):
         self.assertFalse(bounded)
         self.assertIsNone(allowed)
 
+    def test_the_preview_rejects_every_record_the_run_rejects(self):
+        """Codex round 3, and the fourth face of one class.
+
+        The previous three were about SCOPE — which units each side considered.
+        This one is about VALIDATION: `--dry-run` checked the schema and the
+        `checks` block but never the unit keys or counts, so a record with
+        `units.U_cite_external: "bad"` previewed cleanly at exit 0 and exited 2 on
+        the real run. A preflight that accepts what the run rejects is worse than
+        no preflight — it is the output a caller uses to decide the record is fine.
+
+        Both now call `validate_cheap()`. The cases below are the field families
+        that were unchecked, not one example of one of them.
+        """
+        malformed = {
+            "bad unit value": {"units": {"U_cite_external": "bad"}},
+            "unknown unit key": {"units": {"U_vibes": 0}},
+            "fractional gate": {"gates": {"H_rob": 0.5}},
+            "negative cycle": {"cycle": -1},
+            "non-numeric history": {"history": ["five"]},
+            "fractional denominator": {"denominators": {"studies": 1.5}},
+            "non-boolean exclusions": {"exclusions_logged": "yes"},
+        }
+        for label, overrides in malformed.items():
+            with self.subTest(malformed=label):
+                d = {"schema_version": ru.SCHEMA_VERSION,
+                     "units": {"U_cite_external": 0, "U_cite_internal": 0},
+                     "consistency": {"score": 90, "critical_breaks": 0}}
+                d.update(overrides)
+                with self.assertRaises(ru.InputError, msg=f"{label}: run accepted it"):
+                    verdict(d)
+                with self.assertRaises(ru.InputError, msg=f"{label}: PREVIEW accepted it"):
+                    self.preview(d)
+
     def test_the_preview_still_runs_nothing(self):
         with mock.patch.object(subprocess, "run",
                                side_effect=AssertionError("a check was executed")):

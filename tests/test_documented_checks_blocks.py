@@ -32,37 +32,80 @@ from _load import load  # noqa: E402
 ru = load("skills/verify-review/scripts/review_units.py")
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
-# Docs that print a `checks` block a reader is meant to copy.
+# Docs that print a `checks` block a reader is meant to copy. EVERY entry must
+# contribute at least one block — see test_every_listed_doc_is_actually_covered.
 DOCS = [
     "skills/verify-review/references/loop-protocol.md",
     "skills/verify-review/SKILL.md",
     "specs/001-standards-enforcement-parity/contracts/review-units.md",
+    # A Python kwarg literal in a ```python fence, not JSON. The first version of
+    # this guard silently skipped it, and its content is the same identity rule
+    # that broke loop-protocol.md — so the file most likely to drift was the one
+    # least covered.
+    "skills/orchestrate-research/references/detailed-guide.md",
 ]
 
-FENCE = re.compile(r"^```(?:json)?\n(.*?)^```", re.S | re.M)
+
+def fenced_blocks(text):
+    """Yield (language, body) for each fenced block, tracking state line by line.
+
+    A regex could not do this correctly. The first version's pattern matched a
+    CLOSING fence as an opening one, so it consumed the prose between one block's
+    close and the next block's open — and `review-units.md`'s bare-fenced fragment
+    fell into that gap and was never checked at all. The guard listed three files
+    and validated two.
+    """
+    lang, buf, inside = None, [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            if inside:
+                yield lang, "\n".join(buf)
+                lang, buf, inside = None, [], False
+            else:
+                lang, buf, inside = line[3:].strip(), [], True
+            continue
+        if inside:
+            buf.append(line)
+
+
+def _checks_from(body):
+    """The `checks` mapping in a block, however it is written there."""
+    if '"checks"' in body:
+        for candidate in (body, "{" + body.rstrip().rstrip(",") + "}"):
+            try:
+                got = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(got, dict) and isinstance(got.get("checks"), dict):
+                return got["checks"]
+    # A Python kwarg: `checks={ ... },` — take the balanced brace span, then make
+    # it JSON. The literal is JSON-shaped but carries two things JSON rejects and
+    # a reader's eye skips: trailing `# …` comments, and a trailing comma before
+    # the closing brace. Both are stripped rather than tolerated, so a block that
+    # is genuinely malformed still returns None and fails the coverage test loudly.
+    start = body.find("checks={")
+    if start == -1:
+        return None
+    span, depth = body[start + len("checks="):], 0
+    for i, ch in enumerate(span):
+        depth += (ch == "{") - (ch == "}")
+        if depth == 0:
+            literal = "\n".join(re.sub(r"\s+#.*$", "", ln) for ln in span[:i + 1].splitlines())
+            literal = re.sub(r",(\s*[}\]])", r"\1", literal)
+            try:
+                return json.loads(literal)
+            except json.JSONDecodeError:
+                return None
+    return None
 
 
 def checks_blocks():
-    """Yield (doc, index, checks-dict) for every fenced block naming `checks`.
-
-    Accepts a bare fence as well as a `json` one: `review-units.md` prints its
-    block bare on purpose, so `test_contract_examples.py` does not try to execute
-    a fragment as a whole record.
-    """
+    """Yield (doc, index, checks-dict) for every documented `checks` block."""
     for doc in DOCS:
         text = (REPO / doc).read_text(encoding="utf-8")
-        for i, block in enumerate(FENCE.findall(text)):
-            if '"checks"' not in block:
-                continue
-            try:                        # a whole record
-                parsed = json.loads(block)
-                checks = parsed.get("checks")
-            except json.JSONDecodeError:  # a fragment: `"checks": {…}`
-                try:
-                    checks = json.loads("{" + block.rstrip().rstrip(",") + "}")["checks"]
-                except (json.JSONDecodeError, KeyError):
-                    continue
-            if isinstance(checks, dict):
+        for i, (_lang, body) in enumerate(fenced_blocks(text)):
+            checks = _checks_from(body)
+            if checks:
                 yield doc, i, checks
 
 
@@ -85,11 +128,18 @@ class _NoFilesystem(ru.CheckRunner):
 
 
 class TestDocumentedChecksBlocksAreAccepted(unittest.TestCase):
-    def test_at_least_one_block_is_found(self):
-        """A regex that silently matches nothing would make every test below pass
-        for the worst possible reason."""
-        found = list(checks_blocks())
-        self.assertGreaterEqual(len(found), 2, f"only found: {[(d, i) for d, i, _ in found]}")
+    def test_every_listed_doc_is_actually_covered(self):
+        """Per-FILE coverage, not a minimum count.
+
+        The first version asserted `>= 2` blocks and found exactly 2 — passing
+        while silently skipping `review-units.md` entirely. A guard against
+        vacuous tests calibrated to a magic number is itself a vacuous test: it
+        has to assert coverage of the enumerated set, or the set is decoration.
+        """
+        covered = {doc for doc, _, _ in checks_blocks()}
+        for doc in DOCS:
+            with self.subTest(doc=doc):
+                self.assertIn(doc, covered, "listed in DOCS but no `checks` block was extracted")
 
     def test_every_documented_block_validates(self):
         """The headline: a reader copying any of these gets a block the backend
