@@ -83,16 +83,37 @@ SCHEMA_VERSIONS = {"1.0"}
 # set. A misspelled count key therefore dropped silently out of the record while
 # the remaining arithmetic reconciled and the diagram printed an authoritative ✅,
 # which is the precise fail-open the unknown-key rule exists to prevent.
-RECORD_KEYS = {
-    "schema_version",
+#
+# Closing the key set was not enough on its own: it said WHICH keys may appear
+# and never what may appear UNDER them. The five breakdown keys below are read
+# with `.items()`, so a truthy non-mapping — `identified_databases: 500`, the
+# obvious thing to write — reached `.items()` unguarded and died with an
+# AttributeError traceback at exit 1, where the contract promises a structured
+# error at exit 2. Fifteen shapes did that. The scalar keys were never affected,
+# because _int() already rejects every wrong type.
+BREAKDOWN_KEYS = {
     "identified_databases", "identified_registers", "identified_other",
+    "reports_excluded", "other_reports_excluded",
+}
+
+COUNT_KEYS = {
     "duplicates_removed", "removed_other_reasons",
     "records_screened", "records_excluded_title_abstract",
     "reports_sought", "reports_not_retrieved", "reports_assessed",
-    "reports_excluded", "studies_included_databases",
+    "studies_included_databases",
     "other_reports_sought", "other_reports_not_retrieved", "other_reports_assessed",
-    "other_reports_excluded", "studies_included_other", "studies_included_total",
+    "studies_included_other", "studies_included_total",
 }
+
+RECORD_KEYS = {"schema_version"} | BREAKDOWN_KEYS | COUNT_KEYS
+
+# A flow diagram describes a path from records identified to studies included.
+# A record naming neither end of it is not an under-specified diagram, it is not
+# a diagram at all — and the arithmetic could not say so, because zero edges
+# checked reconciles as readily as zero edges broken.
+IDENTIFICATION_KEYS = {"identified_databases", "identified_registers", "identified_other"}
+INCLUSION_KEYS = {"studies_included_databases", "studies_included_other",
+                  "studies_included_total"}
 
 
 class CountError(ValueError):
@@ -118,6 +139,36 @@ def validate_record(c) -> None:
             f"record: unrecognised key(s) {', '.join(repr(k) for k in unknown)}. "
             f"A misspelled count is not an absent one: read past, it drops out of "
             f"the record while the remaining arithmetic still reconciles")
+
+    # Value SHAPE, not just key membership. Without this, a breakdown key given a
+    # plain number reached `.items()` and raised AttributeError — a traceback at
+    # exit 1 where the contract promises a structured error at exit 2. Checked
+    # here, where CountError already means "exit 2, no artifact", rather than
+    # scattered through the readers.
+    for key in sorted(BREAKDOWN_KEYS & set(c)):
+        value = c[key]
+        if value is None:          # explicit null reads as absent, as elsewhere
+            continue
+        if not isinstance(value, dict):
+            raise CountError(
+                f"{key}: expected an object mapping each source to its count "
+                f"(e.g. {{\"PubMed\": 320}}), got {type(value).__name__} {value!r}. "
+                f"A single total cannot be attributed, and this key is the "
+                f"attribution")
+
+    # A record naming neither end of the flow cannot be reconciled, only
+    # rubber-stamped: with nothing supplied, no edge is checked, and "no edge was
+    # checked" printed as "counts reconcile end to end" over a diagram whose every
+    # node read n=0. Absent counts must be reported as missing, never defaulted to
+    # zero (constitution, fail closed).
+    for label, required in (("identification", IDENTIFICATION_KEYS),
+                            ("inclusion", INCLUSION_KEYS)):
+        if not required & set(c):
+            raise CountError(
+                f"record: no {label} count supplied. A PRISMA flow runs from "
+                f"records identified to studies included, so it needs at least one "
+                f"of {', '.join(sorted(required))}. Every count defaulting to zero "
+                f"reconciles trivially, which certifies nothing")
 
 
 def _int(v, name: str) -> int:
@@ -150,6 +201,14 @@ def _int(v, name: str) -> int:
 
 
 def _sum(d, name: str) -> int:
+    # validate_record() has already rejected a non-mapping here, so this is a
+    # backstop rather than the gate: `or {}` covers None and other falsy values
+    # but silently passes a truthy non-mapping straight to .items(). Any future
+    # caller reaching _sum without going through validate_record first gets the
+    # documented CountError instead of an AttributeError traceback.
+    if d is not None and not isinstance(d, dict):
+        raise CountError(f"{name}: expected an object of source counts, "
+                         f"got {type(d).__name__} {d!r}")
     return sum(_int(v, f"{name}.{k}") for k, v in (d or {}).items())
 
 

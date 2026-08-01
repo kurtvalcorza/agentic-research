@@ -302,14 +302,8 @@ class TestSharedCliContractConformance(unittest.TestCase):
         self.assertEqual(consumed - pf.RECORD_KEYS, set())
 
 
-class TestAnExplicitZeroIsChecked(unittest.TestCase):
-    """An edge is checked when both its counts were SUPPLIED, not when both are truthy.
-
-    Truthiness could not tell an omitted count from one recorded as `0`, so a record
-    stating 500 identified, 96 removed and `records_screened: 0` disabled three edges
-    at once and reconciled clean under --strict. The closed schema was added to stop a
-    MISSPELLED key producing exactly that; a correctly spelled zero did it too.
-    """
+class _RunRecord(unittest.TestCase):
+    """Run the CLI over a record and return (exit code, stdout, stderr)."""
 
     def run_record(self, rec, *args):
         out, err = io.StringIO(), io.StringIO()
@@ -321,6 +315,16 @@ class TestAnExplicitZeroIsChecked(unittest.TestCase):
                 redirect_stdout(out), redirect_stderr(err):
             code = pf.main()
         return code, out.getvalue(), err.getvalue()
+
+
+class TestAnExplicitZeroIsChecked(_RunRecord):
+    """An edge is checked when both its counts were SUPPLIED, not when both are truthy.
+
+    Truthiness could not tell an omitted count from one recorded as `0`, so a record
+    stating 500 identified, 96 removed and `records_screened: 0` disabled three edges
+    at once and reconciled clean under --strict. The closed schema was added to stop a
+    MISSPELLED key producing exactly that; a correctly spelled zero did it too.
+    """
 
     def test_an_explicit_zero_does_not_disable_its_edges(self):
         code, out, _ = self.run_record(counts_template1(records_screened=0), "--strict")
@@ -344,3 +348,109 @@ class TestAnExplicitZeroIsChecked(unittest.TestCase):
         code, out, _ = self.run_record(rec, "--strict")
         self.assertEqual(code, 1)
         self.assertIn("studies_included_databases = 0", out)
+
+
+class TestARecordMustNameBothEndsOfTheFlow(_RunRecord):
+    """A record supplying no counts produced a diagram that certified itself.
+
+    Every node read `n=0` and the reconciliation line said "counts reconcile end
+    to end", exit 0, unchanged by --strict. Nothing was wrong with the arithmetic:
+    with nothing supplied, no edge is checked, and the check could not distinguish
+    "no edge was checked" from "no edge was broken". Zero is what absent counts
+    defaulted to, which the constitution forbids in as many words — report missing
+    rather than defaulting to zero.
+
+    The flow runs from records identified to studies included, so a record naming
+    neither end is not an under-specified diagram; it is not a diagram.
+    """
+
+    def test_a_record_with_no_counts_is_rejected(self):
+        code, out, err = self.run_record({"schema_version": "1.0"})
+        self.assertEqual(code, 2, msg=out + err)
+        self.assertIn("no identification count supplied", err)
+        self.assertNotIn("reconcile end to end", out)
+        self.assertNotIn("flowchart", out, msg="no artifact may be emitted")
+
+    def test_strict_does_not_rescue_it(self):
+        """--strict was the strongest gate on offer and it returned 0 as well."""
+        code, out, err = self.run_record({"schema_version": "1.0"}, "--strict")
+        self.assertEqual(code, 2, msg=out + err)
+
+    def test_identification_without_inclusion_is_rejected(self):
+        rec = counts_template1()
+        for k in ("studies_included_databases", "studies_included_total"):
+            del rec[k]
+        code, _, err = self.run_record(rec)
+        self.assertEqual(code, 2)
+        self.assertIn("no inclusion count supplied", err)
+
+    def test_inclusion_without_identification_is_rejected(self):
+        rec = counts_template1()
+        for k in ("identified_databases", "identified_registers"):
+            del rec[k]
+        code, _, err = self.run_record(rec)
+        self.assertEqual(code, 2)
+        self.assertIn("no identification count supplied", err)
+
+    def test_any_one_key_from_each_end_suffices(self):
+        """The gate asks for a named beginning and end, not a complete record.
+        A partially reported flow is still reportable — that is what the
+        supplied-versus-truthy edge logic exists to handle."""
+        code, out, err = self.run_record({
+            "schema_version": "1.0",
+            "identified_other": {"citation searching": 5},
+            "studies_included_total": 5,
+        })
+        self.assertEqual(code, 0, msg=out + err)
+        self.assertIn("flowchart", out)
+
+    def test_a_zero_count_still_counts_as_supplied(self):
+        """A review that identified nothing is a real, reportable outcome. The gate
+        is about presence, never magnitude — the whole point of the distinction."""
+        code, out, err = self.run_record({
+            "schema_version": "1.0",
+            "identified_databases": {"OpenAlex": 0},
+            "studies_included_total": 0,
+        })
+        self.assertEqual(code, 0, msg=out + err)
+
+
+class TestBreakdownKeysMustBeObjects(_RunRecord):
+    """Closing the key set said which keys may appear, never what may appear under
+    them. The five breakdown keys are read with `.items()`, so a truthy non-mapping
+    reached it unguarded and died with an AttributeError traceback at exit 1 —
+    where the contract promises a structured error at exit 2, and where exit 1
+    additionally means "method violation, artifact emitted". Fifteen shapes did
+    this. The scalar count keys were never affected: _int() already rejected every
+    wrong type.
+    """
+
+    WRONG = {"int": 500, "str": "500", "list": [1], "bool": True}
+
+    def test_every_breakdown_key_rejects_every_non_object(self):
+        for key in sorted(pf.BREAKDOWN_KEYS):
+            for label, value in self.WRONG.items():
+                with self.subTest(key=key, given=label):
+                    code, out, err = self.run_record(counts_template2(**{key: value}))
+                    self.assertEqual(code, 2, msg=f"{out}\n{err}")
+                    self.assertIn(key, err)
+                    self.assertNotIn("Traceback", err)
+
+    def test_the_message_says_what_was_expected(self):
+        code, _, err = self.run_record(counts_template1(identified_databases=500))
+        self.assertEqual(code, 2)
+        self.assertIn("expected an object mapping each source to its count", err)
+
+    def test_null_still_reads_as_absent(self):
+        """Explicit null has always meant "not supplied" here, and still does."""
+        code, out, err = self.run_record(counts_template2(other_reports_excluded=None))
+        self.assertNotEqual(code, 2, msg=out + err)
+
+    def test_sum_refuses_a_non_mapping_on_its_own(self):
+        """validate_record is the gate; this is the backstop. A future caller
+        reaching _sum directly must still get CountError, not AttributeError."""
+        with self.assertRaises(pf.CountError):
+            pf._sum(500, "identified_databases")
+        with self.assertRaises(pf.CountError):
+            pf._sum("500", "identified_databases")
+        self.assertEqual(pf._sum(None, "identified_databases"), 0)

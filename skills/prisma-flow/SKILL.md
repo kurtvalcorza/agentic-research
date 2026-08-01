@@ -65,6 +65,22 @@ check reports the fifteen gaps rather than passing.
 > reconciled and the diagram printed ✅. Both rules are shared with every other check
 > (`contracts/cli-contract.md`); the full schema is in `contracts/prisma-flow.md`.
 
+> **The record must also name both ends of the flow, and each breakdown key must be an
+> object.** A record supplying no counts used to produce a full diagram with every node at
+> `n=0` and the line "counts reconcile end to end", exit 0 even under `--strict` — because
+> with nothing supplied no edge is checked, and the check could not tell "no edge was
+> checked" from "no edge was broken". It now requires at least one of
+> `identified_databases` / `identified_registers` / `identified_other` **and** at least one
+> of `studies_included_databases` / `studies_included_other` / `studies_included_total`,
+> and rejects the record otherwise (exit 2, no artifact). Presence is what is required, not
+> magnitude: a review that identified nothing and included nothing is a real outcome and
+> still passes, as long as it says so.
+>
+> Separately, the five breakdown keys — the three `identified_*` and the two
+> `*reports_excluded` — map each source or reason to its own count, so they must be
+> objects. Given a bare number they used to raise `AttributeError` and exit 1; they now
+> report the expected shape and exit 2.
+
 Each row needs either a `location` in the manuscript or an explicit `not_applicable`
 justification — an empty value addresses nothing. Unaddressed rows are listed **above** the table
 with a count, because in forty-two rows a gap shown only as a blank cell is a gap nobody sees.
@@ -96,6 +112,12 @@ perfectly and is still wrong.
 The counts must come from the stages that own them and **must never be adjusted to make the check
 pass**. Editing a count to satisfy the arithmetic converts a detectable error into an undetectable
 one, which is strictly worse than the failing check you started with.
+
+**That the record is complete.** Requiring an identification and an inclusion count establishes
+that the flow has two named ends; it does not establish that everything between them was
+reported. A record supplying only those two passes, and reconciles, because an edge is checked
+only when both of its counts were supplied — a partially reported flow is incomplete, not
+contradictory, and the check says nothing either way about the stages left out.
 
 ## Boundaries
 
