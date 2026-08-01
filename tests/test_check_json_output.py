@@ -51,6 +51,17 @@ CHECKS = {
                       set(), {"H_rob"}),
 }
 
+# check -> a record that check rejects as MALFORMED (exit 2), one per script.
+# Separate from CHECKS above because the clean argv carries flags a malformed run
+# has no use for, and because each script needs a defect IT rejects — a record one
+# check finds unreadable is a perfectly good record to another.
+MALFORMED = {
+    "prisma_flow": "counts.unknown-key.json",              # a misspelled count key
+    "prisma_checklist": "checklist.unknown-number.json",   # not an addressable row
+    "grade_profile": "grade-profile.no-version.json",      # no schema_version
+    "rob_appraisal": "risk-of-bias.no-version.json",       # no schema_version
+}
+
 
 def run_script(rel: str, *args: str):
     """Run a check as a real subprocess and return (exit code, stdout, stderr)."""
@@ -123,13 +134,28 @@ class TestEveryCheckSpeaksTheEnvelope(unittest.TestCase):
     def test_malformed_input_emits_no_envelope(self):
         """Exit 2 means the record was never evaluated. An envelope of zeros there
         is the shape a consumer trusts, carrying counts nothing produced — the
-        single worst output this contract could permit."""
-        code, out, err = run_script("skills/prisma-flow/scripts/prisma_checklist.py",
-                                    str(fixture("checklist.unknown-number.json")),
-                                    "--strict", "--json")
-        self.assertEqual(code, 2)
-        self.assertEqual(out.strip(), "")
-        self.assertTrue(err.strip())
+        single worst output this contract could permit.
+
+        ALL FOUR, not one. Both reviewers on PR #19 made the same point: this is
+        the highest-priority claim the contract makes, and each script implements
+        it independently — its own `try`/`except` returning 2 before `--json` is
+        ever consulted. Pinning one instance left the other three free to regress
+        into emitting an envelope of zeros for a record nothing could read, which
+        is precisely the failure this assertion exists to prevent.
+        """
+        for name, (rel, _, _, _) in CHECKS.items():
+            with self.subTest(check=name):
+                code, out, err = run_script(rel, str(fixture(MALFORMED[name])),
+                                            "--strict", "--json")
+                self.assertEqual(code, 2, msg=f"{name}: {err}")
+                self.assertEqual(out.strip(), "", msg=f"{name} emitted an envelope")
+                self.assertTrue(err.strip(), msg=f"{name} exited 2 silently")
+
+    def test_every_check_has_a_malformed_record_to_be_tested_against(self):
+        """The table above is hand-written, and a check missing from it would make
+        the loop skip that script without failing. `prisma_flow` had no malformed
+        fixture at all, which is why it was the one never covered."""
+        self.assertEqual(set(MALFORMED), set(CHECKS))
 
 
 class TestTheFlowCheckCountsWhatItCouldNotReach(unittest.TestCase):
