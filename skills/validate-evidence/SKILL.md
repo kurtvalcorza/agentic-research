@@ -95,6 +95,14 @@ python scripts/grade_profile.py grade-profile.json --rob ../appraise-risk-of-bia
 `--strict` · `2` malformed input, in which case **no artifact is emitted** — a record that cannot
 be read must not produce a document that looks authoritative.
 
+**`--json`** replaces the artifact with the machine-readable counts envelope that `verify-review`
+consumes to DERIVE its unit counts rather than trust the ones its own record asserts. This check is
+the only one producing **two** units — `U_grade` (results that fail) and `U_rob_trace` (appraisal
+references that do not resolve) — and they overlap on purpose, so neither may be derived from the
+other. `U_rob_trace` is emitted **only with `--rob`**: without an appraisal record nothing was
+traced, and reporting `0` would claim every reference resolved. The flag does not change the exit
+code. Full shape in `specs/001-standards-enforcement-parity/contracts/cli-contract.md`.
+
 `--rob` supplies the appraisal record. It is **required** whenever a result declares
 `basis: confirmed_rob`: claiming confirmed appraisal without supplying it is a violation, not a
 pass. It is a file path, never an import, so this skill stays copyable on its own.

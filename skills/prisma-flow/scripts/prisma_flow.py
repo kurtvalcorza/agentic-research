@@ -60,6 +60,20 @@ omitted stage simply goes unchecked:
 USAGE
   python prisma_flow.py counts.json            # mermaid + reconciliation
   echo '{...}' | python prisma_flow.py --strict   # exit 1 if reconciliation fails
+  python prisma_flow.py counts.json --strict --json   # machine-readable counts only
+
+MACHINE-READABLE OUTPUT (--json)
+  Replaces the artifact with the envelope contracts/cli-contract.md defines, so a
+  consumer reads the counts instead of parsing prose:
+
+    {"check": "prisma_flow", "schema_version": "1.0", "issues": 2,
+     "units": {"U_prisma": 3}, "gates": {}, "unattributed": 0, "detail": {...}}
+
+  U_prisma counts the stages whose arithmetic FAILED plus the ones no arithmetic
+  could reach. Counting only the failures would report a record that reconciled
+  nothing as zero outstanding — the fail-open issue #9 closed inside the artifact,
+  reintroduced in the number a consumer actually reads. `detail` is advisory and
+  no consumer may depend on it.
 
 EXIT CODES
   0 reconciles (or non-strict);  1 does not reconcile under --strict;
@@ -90,6 +104,11 @@ import argparse, json, math, sys
 
 
 SCHEMA_VERSIONS = {"1.0"}
+
+# Version of the --json ENVELOPE, not of the input record. A consumer validates it
+# before reading any count, so a script whose output shape changes is rejected
+# rather than silently mis-read as the shape the consumer expects.
+JSON_ENVELOPE_VERSION = "1.0"
 
 # The closed record schema. contracts/cli-contract.md binds ALL FOUR checks —
 # "a check that deviates is non-conforming regardless of whether its own rules are
@@ -586,6 +605,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Assemble + reconcile a PRISMA 2020 flow diagram from real counts.")
     ap.add_argument("infile", nargs="?")
     ap.add_argument("--strict", action="store_true", help="exit 1 if the counts do not reconcile")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the machine-readable counts envelope instead of the artifact")
     args = ap.parse_args()
 
     try:
@@ -629,9 +650,6 @@ def main() -> int:
         sys.stderr.write(f"prisma_flow: {e}\n")
         return 2
 
-    print("# PRISMA 2020 Flow Diagram\n")
-    print(diagram)
-    print("\n## Reconciliation\n")
     # Coverage is computed once, for every branch. It used to be worked out only
     # inside the clean branch, so a record with one failing stage and another it
     # could not reach reported "4 of 5" and never said which one was missing —
@@ -639,6 +657,34 @@ def main() -> int:
     # would not have learned there was a second gap at all.
     applicable = applicable_stages(c)
     unreached = [s for s in applicable if s not in checked]
+
+    if args.json:
+        # U_prisma = stages that FAILED + stages nothing could reach. The second
+        # term is the load-bearing one: without it a record naming only two ends
+        # reconciles nothing, raises no error, and reports zero outstanding work —
+        # which is the fail-open the artifact stopped printing as ✅ in issue #9,
+        # moved into the number the verification loop reads instead.
+        json.dump({
+            "check": "prisma_flow",
+            "schema_version": JSON_ENVELOPE_VERSION,
+            "issues": len(errs),
+            "units": {"U_prisma": len(errs) + len(unreached)},
+            "gates": {},
+            # Every diagnostic this check raises belongs to U_prisma, so none is
+            # left for a consumer to account for separately.
+            "unattributed": 0,
+            # Advisory, for a human reading the raw output. No consumer may depend
+            # on it: the counts above are the contract.
+            "detail": {"checked_stages": list(checked),
+                       "unreached_stages": unreached,
+                       "failures": errs},
+        }, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 1 if (errs and args.strict) else 0
+
+    print("# PRISMA 2020 Flow Diagram\n")
+    print(diagram)
+    print("\n## Reconciliation\n")
 
     def report_unreached() -> None:
         if unreached:

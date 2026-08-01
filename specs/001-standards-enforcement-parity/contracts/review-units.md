@@ -67,6 +67,96 @@ new units inherit this without new machinery: a systematic review whose `units.j
 Inapplicable units are **absent**, not zero-to-achieve (FR-025). The existing distinction between
 "missing" and "out of scope" is what makes this correct, and it is not modified.
 
+## Derived counts — the `checks` block (issue #4)
+
+Optional top-level object. Each entry names **which check** and **which record**; the backend runs
+it with `--strict --json` (see [cli-contract.md](./cli-contract.md)) and takes the counts it
+reports.
+
+A fragment, deliberately not in a `json` fence: every fenced `json` block in this directory is
+executed by `tests/test_contract_examples.py` as a complete record, and a fragment dressed as one
+would fail for being incomplete rather than for being wrong.
+
+```
+"checks": {
+  "prisma_flow":      {"record": "counts.json"},
+  "prisma_checklist": {"record": "checklist.json"},
+  "rob_appraisal":    {"record": "appraisal.json"},
+  "grade_profile":    {"record": "certainty.json", "rob_record": "appraisal.json"}
+}
+```
+
+| Entry | Derives | Notes |
+|:--|:--|:--|
+| `prisma_flow` | `U_prisma` | |
+| `prisma_checklist` | `U_checklist` | |
+| `grade_profile` | `U_grade`, `U_rob_trace` | `U_rob_trace` **only** when `rob_record` is supplied |
+| `rob_appraisal` | `H_rob` | Produces no unit — the gate is not auto-reducible work |
+
+### Precedence, and the two new verdict fields
+
+A derived count **overrides** a reported one. A disagreement is named in `ignored_inputs`, on the
+same reasoning as the `U_consistency` row below: the verdict is correct either way, and a
+contradiction the check resolves quietly is still a contradiction. An *agreeing* value is not
+reported — nothing was dropped, and flagging it would make the field noise in the ordinary case.
+
+| Field | Contains | Effect |
+|:--|:--|:--|
+| `underived_units` | In-scope units a check could have derived, where no entry named its record | Verdict held at `CONTINUE` |
+| `unattributed_issues` | Work a check reported that no unit and no gate counts | Verdict held at `CONTINUE` |
+
+Both are tested **before** the done-states and ahead of the human gate. Neither is a repair stall
+and neither is a human's to clear — the agent adds the entry, or fixes the record the check
+rejected — so reaching `BLOCKED_ON_HUMAN` on either would park an unestablished verdict on a
+person.
+
+### Requiring it (FR-024's reasoning, applied one level up)
+
+**When `units_in_scope` is declared, a unit a check can derive may not be self-reported.** Without
+that rule the block is optional and anyone wanting the old behaviour simply omits it. It bites
+only where a check exists: `U_cite_external`, `U_cite_internal`, `U_screen` and `U_extract` have no
+runnable check and stay reported, which the skill documentation states rather than leaving a reader
+to infer from a shorter list. Declaring no scope stays lenient — the same choice `gates` already
+makes.
+
+This is a **breaking change** for a scope-declaring record: one that reached `VERIFIED` on
+hand-written zeros now reports `CONTINUE` and names the units it must derive.
+
+### Security
+
+`units.json` is untrusted input. The check name is a key into a fixed table in `review_units.py` —
+never a path, never a basename to be matched — and the argv is built there: `--strict --json` are
+fixed, `--rob` is added for the certainty check, and the only caller-supplied values are record
+paths, which a check opens for reading and never executes. An unknown name, an unknown entry key,
+or a `rob_record` on a check that does not take one is malformed input (exit 2).
+
+Record paths must resolve **inside** `--records-root`, which defaults to the directory holding
+`units.json`. Resolution is `realpath`-first, so a symlink or a `..` cannot walk out of it.
+
+Two more expressive designs were considered and rejected: a per-script flag allowlist (a second
+allowlist to maintain, for a need that does not exist), and free-form `args` behind a basename
+allowlist (which hands the argv of a script in the repository to whoever writes the record).
+
+`--records-root` and `--skills-root` come from the **argv**, which is the operator's. Someone who
+can pass flags to this script can already run anything on the machine, so constraining them would
+buy nothing.
+
+### Failure is never zero
+
+A declared check that does not produce a verdict is an error (exit 2, no verdict written): exit 2
+from the check, a crash, a timeout, output that is not valid JSON, an envelope version this backend
+does not know, a script identifying as a different check, or one reporting a different set of units
+from the one the entry planned. A malformed record is a record nothing evaluated, and booking it as
+zero outstanding work would make the most broken input in the system indistinguishable from the
+cleanest.
+
+### What it does not achieve
+
+Running the checks makes the counts derived rather than asserted. It does **not** make them
+unforgeable — a caller can still point `record` at a doctored file. The loop verifies that the
+checks were run and what they reported, not that the underlying review is true. That framing
+survives this change rather than being deleted by it.
+
 ## Reported-but-unused input
 
 `U_consistency` is derived **only** from a `consistency` object carrying a numeric score. A value
@@ -123,3 +213,11 @@ then reported missing; the check says so explicitly rather than dropping it sile
 
 Verdict: **CONTINUE** — seven units outstanding across three checks, and three appraisals awaiting
 human confirmation. `H_rob` is never auto-satisfied by further cycles (FR-026).
+
+The record declares scope and carries **no `checks` block**, so the verdict also reports
+`underived_units: ["U_checklist", "U_grade", "U_prisma", "U_rob_trace"]` — the record's counts for
+those four are asserted, not derived. That is deliberate here and not an oversight: this example is
+executed by `tests/test_contract_examples.py` from a scratch directory, and a `checks` block would
+have to name four artifact files a self-contained example cannot ship. **A real scope-declaring
+record must carry one**, and its absence is what holds this verdict at `CONTINUE` even once the
+seven units reach zero.

@@ -48,7 +48,7 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_cite_internal` | 1 | `validate-citations` | draft citations with no extraction-matrix match |
 | `U_screen` | 1 | `screen-literature` | unresolved dual-reviewer disagreements |
 | `U_extract` | 1 | `extract-synthesis` | extraction fields flagged unreconciled |
-| `U_prisma` | 1 | `prisma-flow` | arms failing reconciliation (`prisma_flow.py --strict`) |
+| `U_prisma` | 1 | `prisma-flow` | stages failing reconciliation **plus stages nothing could reach** (`prisma_flow.py --strict`). Both terms, because a record naming only two ends fails nothing for want of anything to check, and a unit counting only failures would report it as zero work |
 | `U_consistency` | 1 | `validate-consistency` | `critical_breaks + max(0, 75 − score)` (graded) |
 | `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level. **Read the `U_grade: N` line the check prints; do not count diagnostics.** One result can raise four, and counting messages books four units of work for one broken result |
 | `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve at the named `(study, result)` target (`grade_profile.py --rob`); matching but unconfirmed appraisals are excluded and counted only by `H_rob` |
@@ -60,20 +60,53 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 > hand-entered assertion to the count `rob_appraisal.py` reports — while keeping its key and
 > meaning.
 
+## Derived counts — the `checks` block
+
+Four of the units and one gate are **derived by running the check**, not read from `units.json`.
+Name the record each check runs against:
+
+```json
+"checks": {
+  "prisma_flow":      {"record": "artifacts/counts.json"},
+  "prisma_checklist": {"record": "artifacts/checklist.json"},
+  "rob_appraisal":    {"record": "artifacts/appraisal.json"},
+  "grade_profile":    {"record": "artifacts/certainty.json",
+                       "rob_record": "artifacts/appraisal.json"}
+}
+```
+
+| Entry | Derives |
+|:--|:--|
+| `prisma_flow` | `U_prisma` |
+| `prisma_checklist` | `U_checklist` |
+| `grade_profile` | `U_grade`, and `U_rob_trace` **only when `rob_record` is given** |
+| `rob_appraisal` | the `H_rob` gate |
+
+What the check reports overrides what the record asserts, and a disagreement is named in
+`ignored_inputs` rather than resolved in silence. **When `units_in_scope` is declared, a unit a
+check could have derived may not be self-reported**: it is listed under `underived_units` and the
+verdict is held at `CONTINUE`. A check that cannot produce a verdict — exit 2, a crash, a timeout —
+is an error, never a count of zero.
+
+The check name is a key into a fixed table, never a path. The command line is built by the
+backend (`--strict --json`, plus `--rob`); nothing in `units.json` reaches it, because whoever can
+write that file would otherwise control what runs. Record paths must resolve inside
+`--records-root`, which defaults to the directory holding `units.json`.
+
 ### ⚠️ What the backend CANNOT verify
 
-`review_units.py` computes a verdict **from the counts it is given**. It does not run the checks,
-locate their artifacts, or confirm that a reported count came from a real run. A hand-written
-`units.json` declaring every unit `0` will reach `VERIFIED`.
+Running the checks makes the counts **derived rather than asserted**. It does not make them
+unforgeable: a caller can still point `record` at a doctored file. What the loop verifies is that
+the checks were run and what they reported — **not that the underlying review is true.**
 
-This is true of every unit, not just the new ones — `U_prisma` and `U_screen` have always worked
-this way, because the backend is a verdict calculator rather than an orchestrator. "Defined as the
-count the check reports" describes **where the number is supposed to come from in the pipeline**,
-not a guarantee the backend can enforce.
+Four units have **no runnable check here at all** and stay self-reported: `U_cite_external`,
+`U_cite_internal`, `U_screen` and `U_extract`. `U_consistency` is derived, but from an object in
+`units.json` rather than from a run. For those five, "defined as the count the check reports"
+still describes where the number is supposed to come from in the pipeline, not something the
+backend enforces — and no scope declaration will catch a hand-written zero.
 
-So the enforcement is real at the point the check runs, and an assertion at the point the verdict
-is computed. Closing that gap means having the loop run the checks itself and derive the counts —
-tracked in the repository's issues, not silently assumed here.
+Do not read a clean verdict as "every count was derived". Read `underived_units` and the list
+above.
 
 The **predicate uses raw counts** (every unit must reach 0); the **weights only shape routing and the climb gradient**. Weights/thresholds live in one config block in `scripts/review_units.py`.
 
@@ -114,10 +147,12 @@ PRISMA-ScR variant is deliberately unimplemented (see `prisma-flow`); it is abse
 ### Step 1 — Classify & scope
 Determine the review type (from the manifest if `orchestrate-research` set it; otherwise classify from the draft + available artifacts). Resolve the in-scope unit set per the table above, and pass it to the backend as `units_in_scope` in each cycle's `units.json` — the backend then requires every in-scope unit (not just the universal floor) to be present and 0 before `VERIFIED`, so a run that silently omits an in-scope check (e.g. a systematic review missing `U_prisma`) is caught rather than passed.
 
+Declaring scope also commits you to the `checks` block: every in-scope unit a check can derive needs an entry naming its record, or the verdict is held at `CONTINUE` with the unit under `underived_units`. Assemble it in this step, alongside the scope it mirrors.
+
 ### Step 2 — Derive the predicate & confirm once
 State the success predicate, the units in scope, and **which human gates will fire**. Get one upfront confirmation. Catching a misclassification at cycle 0 is free; at cycle 15 it is not.
 
-> **`--dry-run`** — when invoked with `--dry-run`, stop here: print the derived review type, the success predicate, the units in scope, the human gates that will fire, and the ceiling (25) — then **execute nothing**. This is the cheap "what will this do before I spend compute?" preview; it runs no checks and writes no state. Drop the flag to run for real.
+> **`--dry-run`** — when invoked with `--dry-run`, stop here: print the derived review type, the success predicate, the units in scope, the human gates that will fire, the checks declared, the units they will derive, the ones that will be left underived, and the ceiling (25) — then **execute nothing**. This is the cheap "what will this do before I spend compute?" preview; it validates the `checks` block in full — unknown names, stray keys, records that do not resolve — but runs no checks and writes no state. Drop the flag to run for real.
 
 ### Step 3 — Baseline (cycle 0)
 Run each in-scope check once. Assemble a `units.json` (see `references/loop-protocol.md` for the schema) and compute the baseline scalar:
@@ -138,7 +173,9 @@ Each cycle:
    - `CEILING` (cycle 25) → stop; this almost always means a methodology problem.
    - `CONTINUE` → route to the repair skill for the `dominant_unit`, run it, fold its report into the manifest, append the cycle to the units history.
    - Non-empty `missing_units` → a universal-floor check has no value this cycle: **run those checks first** (or carry forward their last-known value) before routing — a missing floor unit blocks `VERIFIED`/`BLOCKED_ON_HUMAN`, so clear it before the loop can terminate cleanly.
-   - Non-empty `ignored_inputs` → you supplied something the check deliberately did not use, and the remedy is in the message. The one case today: `U_consistency` written into `units` is dropped, because it is derived only from a `consistency` object with a real score — otherwise a hand-written zero would satisfy the floor without one. Read this alongside `missing_units`, which will name the same unit; the two together mean "supplied, but not in a form that counts", not "forgotten".
+   - Non-empty `ignored_inputs` → you supplied something the check deliberately did not use, and the remedy is in the message. Two cases: `U_consistency` written into `units` is dropped, because it is derived only from a `consistency` object with a real score — otherwise a hand-written zero would satisfy the floor without one; and a unit or gate a declared check derived, where the record asserted a different number. For the first, read this alongside `missing_units`, which will name the same unit; the two together mean "supplied, but not in a form that counts", not "forgotten".
+   - Non-empty `underived_units` → a unit in scope that a check could have derived, and no `checks` entry named its record. **Add the entry**; the verdict is held until you do. This is the one item in the verdict that no amount of repair work will clear.
+   - Non-empty `unattributed_issues` → a check reported work that no unit and no gate counts, so it appears nowhere else. Today this is a risk-of-bias record failing its own instrument: fix the appraisal record. It is the agent's to clear, not a human's.
 3. At **cycle 10**, emit the **soft advisory** (a high pass-count usually signals an upstream methodology issue, not a loop that needs more cycles) — then continue.
 
 **Routing (dominant unit → repair skill):**

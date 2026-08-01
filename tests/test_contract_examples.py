@@ -102,6 +102,13 @@ CHECKS = {
         "json_is": {
             "missing_units": [],
             "ignored_inputs": [],
+            # The example declares scope and ships no `checks` block, because it is
+            # run from a scratch directory and cannot carry four artifact files.
+            # Pinned rather than left unsaid: the contract now tells the reader this
+            # verdict is held for a reason the seven outstanding units do not
+            # explain, and an unpinned field is how that sentence goes stale.
+            "underived_units": ["U_checklist", "U_grade", "U_prisma", "U_rob_trace"],
+            "unattributed_issues": [],
             "by_unit": {"U_cite_external": 0.0, "U_cite_internal": 0.0,
                         "U_consistency": 0.0, "U_screen": 0.0, "U_extract": 0.0,
                         "U_prisma": 0.0, "U_grade": 2.0, "U_rob_trace": 1.0,

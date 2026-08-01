@@ -29,11 +29,30 @@ Assembled each cycle from the in-scope checks' outputs and passed to
   "gates": { "H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0 },
   "history": [14, 11, 9],
   "denominators": { "citations": 40, "studies": 22, "themes": 8 },
-  "exclusions_logged": false
+  "exclusions_logged": false,
+  "checks": {
+    "prisma_flow": { "record": "artifacts/counts.json" },
+    "grade_profile": { "record": "artifacts/certainty.json",
+                       "rob_record": "artifacts/appraisal.json" }
+  }
 }
 ```
 
 Rules:
+- `checks` (optional) makes a count **derived** instead of asserted: the named
+  check is run with `--strict --json` and what it reports overrides what `units`
+  says. `prisma_flow` → `U_prisma`; `prisma_checklist` → `U_checklist`;
+  `grade_profile` → `U_grade`, and `U_rob_trace` only when `rob_record` is given;
+  `rob_appraisal` → the `H_rob` gate. **When `units_in_scope` is declared, every
+  in-scope unit a check can derive needs an entry** — otherwise it lands in
+  `underived_units` and the verdict is held. A disagreement between a derived and
+  a reported count is named in `ignored_inputs`; an agreeing one is not, because
+  nothing was dropped.
+  The check name is a key into a fixed table, never a path, and the argv is built
+  by the backend — nothing here reaches it. Record paths must resolve inside
+  `--records-root` (default: the directory holding `units.json`). A check that
+  exits 2, crashes, times out, or emits an envelope the backend cannot validate is
+  an **error**, never a count of zero.
 - **Only include in-scope units**, but the **universal floor** (`U_cite_external`,
   `U_cite_internal`, `U_consistency`) must always be present — a `VERIFIED` verdict
   is impossible while any floor unit is missing (`missing_units` lists them). An
@@ -77,6 +96,8 @@ Rules:
   "auto_units_zero": false,
   "gates_remaining": 0,
   "missing_units": [],
+  "underived_units": [],
+  "unattributed_issues": [],
   "dominant_unit": "U_cite_external",
   "cycle": 2,
   "ceiling": 25,
@@ -99,6 +120,13 @@ Rules:
   run that omits a declared `U_prisma`, fails closed rather than passing.
   (`U_consistency` is derived **only** from the `consistency` object; a value
   placed directly in `units` is ignored, so it can't fake the floor.)
+- `underived_units` lists in-scope units a check could have derived where the
+  `checks` block named no record for it. The count is present — it is simply
+  self-reported, which on the scope-declaring path is not enough. **Non-empty ⇒
+  never `VERIFIED`**, and no amount of repair work clears it: add the entry.
+- `unattributed_issues` lists work a check reported that no unit and no gate
+  counts, so it appears nowhere else in the verdict. Today that is a risk-of-bias
+  record failing its own instrument. **Non-empty ⇒ never `VERIFIED`.**
 - `dominant_unit` is populated only when `state == CONTINUE`; it is the in-scope
   unit with the largest **weighted** contribution (ties broken by weight, then
   name). This is the routing target.
@@ -109,15 +137,26 @@ Rules:
 
 Evaluated top-down each cycle; first match wins:
 
-1. `auto_units_zero AND gates_remaining == 0` → **VERIFIED**
-2. `auto_units_zero AND gates_remaining > 0` → **BLOCKED_ON_HUMAN**
-3. plateau (`PLATEAU_K = 3` consecutive non-improving cycles) → **PLATEAU**
-4. `cycle ≥ ceiling (25)` → **CEILING**
-5. otherwise → **CONTINUE**
+1. `underived_units OR unattributed_issues` non-empty → **CONTINUE** (**CEILING**
+   at the ceiling)
+2. `auto_units_zero AND gates_remaining == 0` → **VERIFIED**
+3. `auto_units_zero AND gates_remaining > 0` → **BLOCKED_ON_HUMAN**
+4. `missing_units` non-empty → **CONTINUE** (**CEILING** at the ceiling)
+5. plateau (`PLATEAU_K = 3` consecutive non-improving cycles) → **PLATEAU**
+6. `cycle ≥ ceiling (25)` → **CEILING**
+7. otherwise → **CONTINUE**
 
 Note ordering: a run that reaches all-mechanical-zero **and** has open human
 gates is `BLOCKED_ON_HUMAN`, not `PLATEAU`, even if the scalar was flat while the
 human work waited — human-gate work is not a stall.
+
+Rule 1 sits above the human gate for the same kind of reason, pointing the other
+way. A count nothing established, or work no unit counts, is the **agent's** to
+resolve — declare the check, or fix the record the check rejected — and reaching
+`BLOCKED_ON_HUMAN` there would park an unestablished verdict on a person, waiting
+for a signature nobody asked for. Neither is a repair stall either, so neither may
+be reported as `PLATEAU`: the loop is not stuck, it has been handed an incomplete
+question.
 
 ## 4. Plateau definition
 

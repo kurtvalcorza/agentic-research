@@ -27,9 +27,32 @@ INPUT (a JSON file, or stdin):
   "gates": {"H_rob": 4, "H_screen_adj": 0, "H_cite_manual": 1, "H_numeric": 0},  # human-gate counts
   "history": [14, 11, 9],                # prior WEIGHTED totals, oldest first (optional)
   "denominators": {"citations": 40, "studies": 22, "themes": 8},  # optional, floor-guard
-  "exclusions_logged": false             # optional: a denominator drop is backed by a
+  "exclusions_logged": false,            # optional: a denominator drop is backed by a
                                          #   logged eligibility/exclusion reason (§5)
+  "checks": {                            # optional: DERIVE counts by running a check
+    "prisma_flow":      {"record": "flow.json"},
+    "prisma_checklist": {"record": "checklist.json"},
+    "rob_appraisal":    {"record": "appraisal.json"},
+    "grade_profile":    {"record": "certainty.json", "rob_record": "appraisal.json"}
+  }
 }
+
+DERIVED VS REPORTED COUNTS
+  Without `checks`, every number above is asserted by whoever wrote this file. With
+  it, the named checks are RUN and what they report overrides what the record says
+  — `U_prisma`, `U_checklist`, `U_grade`, `U_rob_trace` and the `H_rob` gate. When
+  `units_in_scope` is declared, a unit a check could have derived may not be
+  self-reported: it is listed under `underived_units` and the verdict is held.
+
+  The check name is a key into a fixed table, never a path, and the command line is
+  built here — `--strict --json`, plus `--rob` for the certainty check. Nothing in
+  this file reaches the argv, because anyone who can write it would otherwise
+  control what runs. Record paths must resolve inside --records-root.
+
+  This makes the counts DERIVED rather than asserted. It does not make them
+  unforgeable: a caller can still point `record` at a doctored file. What the loop
+  verifies is that the checks were run and what they reported — not that the
+  underlying review is true.
 
 Only pass the units that are IN SCOPE for the review type (see SKILL.md §
 "Units in scope"). Omitted units are treated as absent, not as zero-to-achieve.
@@ -51,6 +74,10 @@ Fail-closed details:
   - With `--manifest`, an UNLOGGED denominator drop (content removed without
     `exclusions_logged`) HOLDS a would-be VERIFIED as BLOCKED_ON_HUMAN for
     adjudication (anti-gaming, §5).
+  - A declared check that cannot produce a verdict — exit 2, a crash, a timeout, an
+    output this module cannot validate — is an error, never a count of zero. An
+    unreadable record is exactly the case where booking zero outstanding work would
+    be worst.
   - Each manifest record carries the `schema_version` its counts were computed
     under; records written before that field existed are stamped `"unversioned"`
     rather than assumed current, so a history spanning a unit redefinition cannot
@@ -63,7 +90,10 @@ otherwise (so it can gate a pipeline like `prisma_flow.py --strict`).
 import argparse
 import json
 import math
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 # --- configuration (single source of truth for weights / thresholds) --------
 SCHEMA_VERSION = "1.0"
@@ -103,11 +133,17 @@ CEILING = 25               # hard backstop
 # the sign-offs still owed. Describing it as studies would invite an assembler to
 # deduplicate the producer's count and understate the human workload.
 #
-# NOTE what this module cannot do: it computes a verdict from the counts it is
-# GIVEN. It does not run the checks or verify that a count came from a real run, so
-# a hand-written units.json of all zeros reaches VERIFIED. That is true of every
-# unit — this is a verdict calculator, not an orchestrator. Closing the gap means
-# running the checks here and deriving the counts; tracked as its own change.
+# NOTE what this module cannot do. It now RUNS the four checks named in a `checks`
+# block and takes their counts over the record's own, so a hand-written units.json
+# of all zeros no longer reaches VERIFIED on the scope-declaring path — that was
+# issue #4. Two limits survive the fix and are not shrinking:
+#
+#   * A caller can still point `record` at a doctored file. Running the check
+#     proves what the check said about the record it was given, not that the record
+#     describes the review that happened.
+#   * Four units have no runnable check here at all — U_cite_external,
+#     U_cite_internal, U_screen, U_extract — and stay self-reported. `U_consistency`
+#     is derived, but from an object in this same file rather than from a run.
 #
 # Human gates are never auto-zeroed by any number of cycles.
 GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
@@ -119,9 +155,80 @@ UNIVERSAL_FLOOR = ("U_cite_external", "U_cite_internal", "U_consistency")
 RECORD_KEYS = {
     "schema_version", "review_type", "cycle", "units", "units_in_scope",
     "consistency", "gates", "history", "denominators", "exclusions_logged",
-    "outcome",
+    "outcome", "checks",
 }
 CONSISTENCY_KEYS = {"score", "critical_breaks"}
+
+# --- derived counts ---------------------------------------------------------
+#
+# The four checks this module may RUN, so a count can be derived from a check
+# rather than asserted by whoever wrote units.json. Everything above computes a
+# verdict from numbers it is given; this table is what lets some of those numbers
+# come from somewhere.
+#
+# THE TABLE IS THE SECURITY BOUNDARY. `units.json` is untrusted — anyone able to
+# write it can point this module at a record — so nothing in it reaches the
+# command line. A `checks` entry names WHICH check (a key here, never a path, never
+# a basename to be matched) and WHAT RECORD to read. The argv is built here:
+# `--strict --json` are fixed, and the only caller-supplied values are record
+# paths, which the check opens for reading and never executes. Two more expressive
+# designs — a per-script flag allowlist, and free-form args behind a basename
+# allowlist — were considered and rejected on issue #4, because both hand argv
+# control back to whoever writes the record.
+#
+# The OPERATOR's argv is a different matter and is trusted: --skills-root and
+# --records-root exist for that reason. Someone who can pass flags to this script
+# can already run anything on the machine, so constraining them would buy nothing.
+#
+# `conditional_units` names a unit the check derives only when the entry supplies
+# a particular record: without `--rob` the certainty check traces nothing, and a
+# reported 0 would claim every reference resolved.
+CHECK_TABLE = {
+    "prisma_flow": {
+        "script": ("skills", "prisma-flow", "scripts", "prisma_flow.py"),
+        "units": ("U_prisma",),
+        "gates": (),
+        "optional_records": (),
+        "conditional_units": {},
+    },
+    "prisma_checklist": {
+        "script": ("skills", "prisma-flow", "scripts", "prisma_checklist.py"),
+        "units": ("U_checklist",),
+        "gates": (),
+        "optional_records": (),
+        "conditional_units": {},
+    },
+    "grade_profile": {
+        "script": ("skills", "validate-evidence", "scripts", "grade_profile.py"),
+        "units": ("U_grade", "U_rob_trace"),
+        "gates": (),
+        "optional_records": (("rob_record", "--rob"),),
+        "conditional_units": {"U_rob_trace": "rob_record"},
+    },
+    "rob_appraisal": {
+        "script": ("skills", "appraise-risk-of-bias", "scripts", "rob_appraisal.py"),
+        "units": (),
+        # A human gate, never an auto-reducible unit: no number of cycles clears it.
+        "gates": ("H_rob",),
+        "optional_records": (),
+        "conditional_units": {},
+    },
+}
+
+# unit -> the check that produces it. A unit in scope with no entry for its check
+# is UNDERIVED: present in the record, but self-reported, which is the gap this
+# whole block exists to close.
+DERIVED_BY = {u: name for name, spec in CHECK_TABLE.items() for u in spec["units"]}
+
+# Version of the checks' --json ENVELOPE, not of any record. Validated before a
+# single count is read, so a script whose output shape changes is rejected rather
+# than mis-read as the shape expected here.
+CHECKS_ENVELOPE_VERSION = "1.0"
+
+# A check reads one JSON record and prints counts; anything approaching this is
+# hung, not slow. A hang would otherwise stall the loop indefinitely with no
+# verdict at all.
+CHECK_TIMEOUT = 120.0
 
 
 class InputError(ValueError):
@@ -248,6 +355,188 @@ def _validated_scope(data):
     return raw_scope, True
 
 
+def _would_derive(name, entry):
+    """The units this entry will cause its check to report.
+
+    Computed from the entry alone, before anything runs, so `--dry-run` can name
+    them without executing a check. The same function then validates what the check
+    actually returned, which is what stops the preview and the run from drifting
+    apart: a check reporting fewer units than predicted is an error, not a quietly
+    smaller result. `_validated_scope` above exists because that exact drift
+    happened once already.
+    """
+    spec = CHECK_TABLE[name]
+    conditional = spec["conditional_units"]
+    derived = {u for u in spec["units"] if u not in conditional}
+    derived |= {u for u, key in conditional.items() if key in entry}
+    return derived
+
+
+class CheckRunner:
+    """Runs the four checks and reports what they SAID, not what units.json claims.
+
+    Built by main() from the argv. Its two roots are the trust boundary:
+
+      records_root  where a `record` path may point. Resolved with realpath, so a
+                    symlink or `..` cannot walk out of it. Defaults to the
+                    directory holding units.json — a review's artifacts sit beside
+                    it — and the record is opened for READING by the check.
+      skills_root   where the check scripts are found. Never influenced by
+                    units.json; the path within it comes from CHECK_TABLE.
+
+    A skill directory copied out on its own (constitution Principle III) has no
+    sibling skills, so a check will simply not be there. That is reported as an
+    unavailable check, not treated as a clean one.
+    """
+
+    def __init__(self, records_root, skills_root, timeout=CHECK_TIMEOUT):
+        self.records_root = Path(records_root)
+        self.skills_root = Path(skills_root)
+        self.timeout = timeout
+
+    def _contained_record(self, value, ctx):
+        if not isinstance(value, str) or not value.strip():
+            raise InputError(f"{ctx}: expected a non-empty path string")
+        root = Path(os.path.realpath(self.records_root))
+        resolved = Path(os.path.realpath(root / value))
+        try:
+            # realpath first, relative_to second: resolving the symlinks BEFORE the
+            # containment test is what makes the test mean anything. A link inside
+            # the root pointing anywhere on the filesystem passes a purely textual
+            # check. On Windows a path on another drive raises here too, which is
+            # the same rejection for the same reason.
+            resolved.relative_to(root)
+        except ValueError:
+            raise InputError(
+                f"{ctx}: {value!r} resolves to {str(resolved)!r}, outside the records "
+                f"root {str(root)!r}. Records are caller-supplied paths in an "
+                f"untrusted file, so they may not reach outside it; pass "
+                f"--records-root if the review's artifacts live elsewhere") from None
+        if not resolved.is_file():
+            raise InputError(f"{ctx}: no file at {value!r} (resolved to {str(resolved)!r})")
+        return str(resolved)
+
+    def argv_for(self, name, entry):
+        """Build the full command line. Nothing here comes from `entry` but paths."""
+        spec = CHECK_TABLE[name]
+        script = self.skills_root.joinpath(*spec["script"])
+        if not script.is_file():
+            raise InputError(
+                f"checks.{name}: the check is not available — no script at "
+                f"{str(script)!r}. A skill directory copied out on its own has no "
+                f"sibling skills; pass --skills-root, or drop the entry and accept "
+                f"that the unit stays self-reported")
+        argv = [sys.executable, str(script),
+                self._contained_record(entry["record"], f"checks.{name}.record"),
+                "--strict", "--json"]
+        for key, flag in spec["optional_records"]:
+            if key in entry:
+                argv += [flag, self._contained_record(entry[key], f"checks.{name}.{key}")]
+        return argv
+
+    def run(self, name, argv, expected_units):
+        """Execute one check and return (units, gates, unattributed count)."""
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace",
+                                  timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            raise InputError(
+                f"checks.{name}: no result after {self.timeout:g}s — the check is "
+                f"treated as unrun, not as zero outstanding") from None
+        except OSError as e:
+            raise InputError(f"checks.{name}: cannot run the check ({e})") from None
+
+        # 0 and 1 are the check's two REVIEW outcomes: clean, and violations under
+        # --strict. Everything else means the check did not evaluate the record —
+        # exit 2 is malformed input, and anything higher is a crash. Both must fail
+        # closed here, because the alternative is booking an unreadable record as
+        # zero outstanding work, which is the whole failure mode being closed.
+        if proc.returncode not in (0, 1):
+            detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+            raise InputError(
+                f"checks.{name}: exited {proc.returncode} without a verdict"
+                f"{' — ' + detail[0] if detail else ''}. Exit 2 is an unreadable "
+                f"record and needs a human; it is not a count of zero")
+        return _validated_envelope(name, proc.stdout, expected_units)
+
+
+def _validated_envelope(name, stdout, expected_units):
+    """Parse and check one check's --json output before any count is believed."""
+    spec = CHECK_TABLE[name]
+    try:
+        env = json.loads(stdout)
+    except json.JSONDecodeError as e:
+        raise InputError(f"checks.{name}: output is not valid JSON ({e})") from None
+    if not isinstance(env, dict):
+        raise InputError(f"checks.{name}: output is not a JSON object")
+    if env.get("check") != name:
+        raise InputError(
+            f"checks.{name}: the script identifies itself as {env.get('check')!r}")
+    if env.get("schema_version") != CHECKS_ENVELOPE_VERSION:
+        raise InputError(
+            f"checks.{name}: envelope schema_version {env.get('schema_version')!r}, "
+            f"expected {CHECKS_ENVELOPE_VERSION!r} — an output shape this module does "
+            f"not know is not read on the assumption it means what it used to")
+
+    units = _as_object(env.get("units"), f"checks.{name}.units")
+    gates = _as_object(env.get("gates"), f"checks.{name}.gates")
+    # Both directions. An EXTRA unit means the script is claiming a count outside
+    # its remit; a MISSING one means it reported less than this entry asked for, and
+    # accepting that silently would let a check quietly stop deriving a unit while
+    # the loop went on treating it as derived.
+    if set(units) != set(expected_units):
+        raise InputError(
+            f"checks.{name}: reported units {sorted(units)}, expected "
+            f"{sorted(expected_units)}")
+    extra_gates = sorted(set(gates) - set(spec["gates"]))
+    if extra_gates:
+        raise InputError(f"checks.{name}: reported gate(s) {extra_gates} it does not produce")
+
+    return ({u: _as_int_count(v, f"checks.{name}.units.{u}") for u, v in units.items()},
+            {g: _as_int_count(v, f"checks.{name}.gates.{g}") for g, v in gates.items()},
+            _as_int_count(env.get("unattributed", 0), f"checks.{name}.unattributed"))
+
+
+def _validated_checks(data, runner):
+    """Return {check name: (argv, units it will derive)}, fully validated.
+
+    Shared by compute() and dry_run_preview() for the reason `_validated_scope`
+    is: a preview that validates the block differently from the run it previews is
+    worse than no preview. Nothing is executed here, so --dry-run can call it and
+    keep its promise to run no checks.
+    """
+    raw = data.get("checks")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise InputError("checks: expected an object mapping a check name to "
+                         "{\"record\": path}")
+    if runner is None:
+        raise InputError(
+            "checks: a `checks` block was supplied but no runner is configured — "
+            "the counts would be read from the record instead of derived, which is "
+            "the opposite of what the block asks for")
+    out = {}
+    for name in sorted(raw):
+        if name not in CHECK_TABLE:
+            raise InputError(
+                f"checks: unknown check {name!r}; expected one of {sorted(CHECK_TABLE)}. "
+                f"The name is a key into a fixed table, not a path")
+        entry = raw[name]
+        if not isinstance(entry, dict):
+            raise InputError(f"checks.{name}: expected an object")
+        spec = CHECK_TABLE[name]
+        _reject_unknown_keys(entry, {"record"} | {k for k, _ in spec["optional_records"]},
+                             f"checks.{name}")
+        if "record" not in entry:
+            raise InputError(
+                f"checks.{name}: 'record' is required — it names the record the check "
+                f"runs against")
+        out[name] = (runner.argv_for(name, entry), _would_derive(name, entry))
+    return out
+
+
 def _validate_record_schema(data):
     """Apply the closed input schema before interpreting any optional defaults."""
     if not isinstance(data, dict):
@@ -261,9 +550,14 @@ def _validate_record_schema(data):
         _reject_unknown_keys(consistency, CONSISTENCY_KEYS, "consistency")
 
 
-def compute(data, weights):
+def compute(data, weights, runner=None):
     _validate_record_schema(data)
     ignored_inputs: list[str] = []
+
+    # Validate the `checks` block before anything is executed — unknown names,
+    # stray keys, records that will not resolve. Nothing here runs a check.
+    planned_checks = _validated_checks(data, runner)
+
     raw_units = _as_object(data.get("units"), "units")
     for key in raw_units:
         if key not in DEFAULT_WEIGHTS:
@@ -305,6 +599,39 @@ def compute(data, weights):
                 f"Remove the direct key so the record cannot state two different "
                 f"things.")
 
+    # Only now are the checks RUN — after every cheap validation the record can
+    # fail. Spawning four subprocesses and then rejecting the record for a
+    # misspelled unit key would do work on input already known to be malformed, and
+    # the ordering is the difference between validating a record and acting on it.
+    derived_units: dict = {}
+    derived_gates: dict = {}
+    unattributed_issues: list[str] = []
+    for name, (argv, expected) in planned_checks.items():
+        got_units, got_gates, unattributed = runner.run(name, argv, expected)
+        derived_units.update(got_units)
+        derived_gates.update(got_gates)
+        if unattributed:
+            unattributed_issues.append(
+                f"{name}: {unattributed} issue(s) belonging to no unit and no gate. "
+                f"They are real outstanding work that nothing in the unit model "
+                f"counts, so the verdict is held rather than reported clean")
+
+    # A derived count wins over a reported one, and says so when they disagree.
+    # Reporting an AGREEING value would be noise: nothing was dropped and no reader
+    # is misled by a record that happens to carry last cycle's number. A
+    # disagreement is the case that matters — the record asserts one thing, the
+    # check found another, and the verdict rests on the check.
+    for key in sorted(derived_units):
+        value = float(derived_units[key])
+        if key in units and units[key] != value:
+            ignored_inputs.append(
+                f"units.{key}={raw_units[key]!r} was supplied and is ignored: "
+                f"{DERIVED_BY[key]} reported {value:g} for it. A count a check "
+                f"produced is authoritative over one the record asserts — that is "
+                f"the point of declaring the check. Remove the direct key so the "
+                f"record cannot state two different things.")
+        units[key] = value
+
     # weighted total (the routing/progress scalar)
     weighted_total = 0.0
     contributions = {}
@@ -324,6 +651,18 @@ def compute(data, weights):
     required = list(UNIVERSAL_FLOOR) + [u for u in declared if u not in UNIVERSAL_FLOOR]
     missing_units = [u for u in required if u not in units]
 
+    # Declaring scope is the rigorous path, and on it a unit a check CAN derive may
+    # not be self-reported. Without this a systematic review omits the `checks`
+    # block, hand-writes "U_prisma": 0, and reaches VERIFIED having run nothing —
+    # the gap issue #4 was opened for. It bites only where a check exists: the
+    # citation, screening, extraction and consistency units have no runnable check
+    # in this table and stay reported, which the skill documentation states plainly
+    # rather than leaving the reader to infer from a shorter list.
+    underived_units = []
+    if declared_present:
+        underived_units = sorted({u for u in declared
+                                  if u in DERIVED_BY and u not in derived_units})
+
     # predicate uses RAW counts: every required unit present AND all == 0
     auto_units_zero = not missing_units and all(c == 0 for c in units.values())
 
@@ -337,7 +676,20 @@ def compute(data, weights):
     unknown = [k for k in raw_gates if k not in GATE_KEYS]
     if unknown:
         raise InputError(f"gates: unknown gate key(s) {unknown}; expected {list(GATE_KEYS)}")
-    gates_remaining = sum(_as_int_count(raw_gates.get(k, 0), f"gates.{k}") for k in GATE_KEYS)
+    gate_counts = {k: _as_int_count(raw_gates.get(k, 0), f"gates.{k}") for k in GATE_KEYS}
+    # Same precedence as the units above, for the same reason: the appraisal check
+    # counts the confirmations still owed, and a record asserting a different number
+    # does not get to overrule it. A human gate is the one count a loop has the most
+    # incentive to understate.
+    for key in sorted(derived_gates):
+        value = derived_gates[key]
+        if key in raw_gates and gate_counts[key] != value:
+            ignored_inputs.append(
+                f"gates.{key}={raw_gates[key]!r} was supplied and is ignored: "
+                f"rob_appraisal reported {value}. Remove the direct key so the "
+                f"record cannot state two different things.")
+        gate_counts[key] = value
+    gates_remaining = sum(gate_counts.values())
 
     # dominant in-scope unit (for routing), highest weighted contribution
     dominant = None
@@ -350,7 +702,8 @@ def compute(data, weights):
             dominant = None
 
     return (weighted_total, auto_units_zero, gates_remaining, dominant,
-            units, contributions, missing_units, ignored_inputs)
+            units, contributions, missing_units, ignored_inputs,
+            underived_units, unattributed_issues)
 
 
 def detect_plateau(history, current_total):
@@ -374,9 +727,10 @@ def detect_plateau(history, current_total):
     return non_improving >= PLATEAU_K
 
 
-def verdict(data, weights, ceiling):
+def verdict(data, weights, ceiling, runner=None):
     (weighted_total, auto_zero, gates_remaining, dominant, units,
-     contributions, missing_units, ignored_inputs) = compute(data, weights)
+     contributions, missing_units, ignored_inputs,
+     underived_units, unattributed_issues) = compute(data, weights, runner)
     cycle = _as_int_count(data.get("cycle", 0), "cycle")
 
     raw_history = data.get("history")
@@ -388,7 +742,17 @@ def verdict(data, weights, ceiling):
 
     advisory = cycle >= SOFT_ADVISORY_CYCLE
 
-    if auto_zero and gates_remaining == 0:
+    # Tested BEFORE the two done-states, and ahead of the human gate on purpose. A
+    # unit that could have been derived and was not, or a check reporting work no
+    # unit tracks, both mean the numbers this verdict rests on are not established.
+    # Neither is a repair stall and neither is a human's to clear: the agent adds
+    # the `checks` entry, or fixes the record the check rejected. Reaching
+    # BLOCKED_ON_HUMAN here would park an unestablished verdict on a person.
+    unestablished = bool(underived_units or unattributed_issues)
+
+    if unestablished:
+        state = "CEILING" if cycle >= ceiling else "CONTINUE"
+    elif auto_zero and gates_remaining == 0:
         state = "VERIFIED"
     elif auto_zero and gates_remaining > 0:
         state = "BLOCKED_ON_HUMAN"
@@ -410,13 +774,21 @@ def verdict(data, weights, ceiling):
         "auto_units_zero": auto_zero,
         "gates_remaining": gates_remaining,
         "missing_units": missing_units,
+        # In scope, and derivable by a check this record did not declare. The count
+        # is present but self-reported, which on the scope-declaring path is not
+        # enough — add a `checks` entry naming the record for each.
+        "underived_units": underived_units,
+        # Work a check reported that no unit and no gate counts, so it cannot appear
+        # anywhere else in this verdict. Named rather than dropped.
+        "unattributed_issues": unattributed_issues,
         # Input the check received and deliberately did not use. Empty in the normal
         # case; non-empty means a caller's value was dropped, and they are entitled
         # to know that rather than inferring it from a confusing `missing_units`.
         "ignored_inputs": ignored_inputs,
         # No dominant-unit routing while a required check is missing: the client
         # must clear `missing_units` first, not keep repairing a reported unit.
-        "dominant_unit": dominant if (state == "CONTINUE" and not missing_units) else None,
+        "dominant_unit": dominant if (state == "CONTINUE" and not missing_units
+                                      and not unestablished) else None,
         "cycle": cycle,
         "ceiling": ceiling,
         "soft_advisory": advisory,
@@ -567,15 +939,21 @@ def append_to_manifest(path, data, result):
     return record
 
 
-def dry_run_preview(data, ceiling):
+def dry_run_preview(data, ceiling, runner=None):
     """Preview what the loop will do without running or writing anything."""
     _validate_record_schema(data)
     review_type = data.get("review_type", "unspecified")
     gates = _as_object(data.get("gates"), "gates")
     gates_will_fire = [k for k in GATE_KEYS if _as_int_count(gates.get(k, 0), f"gates.{k}") > 0]
-    declared, _ = _validated_scope(data)
+    declared, declared_present = _validated_scope(data)
     in_scope = sorted((set(_as_object(data.get("units"), "units")) - {"U_consistency"})
                       | set(declared) | ({"U_consistency"} if data.get("consistency") else set()))
+    # The full block validation — unknown check names, unknown entry keys, records
+    # that do not resolve inside the root, scripts that are not there. It just does
+    # not EXECUTE anything, so the promise below still holds while the preview
+    # catches everything the run would.
+    planned = _validated_checks(data, runner)
+    will_derive = sorted({u for _, expected in planned.values() for u in expected})
     return {
         "dry_run": True,
         "review_type": review_type,
@@ -584,6 +962,13 @@ def dry_run_preview(data, ceiling):
         "universal_floor": list(UNIVERSAL_FLOOR),
         "units_in_scope": in_scope,
         "human_gates_that_will_fire": gates_will_fire,
+        "checks_declared": sorted(planned),
+        "units_that_will_be_derived": will_derive,
+        # What the run will hold the verdict on. Derived from the same validated
+        # block, so the preview cannot promise a check the run does not make.
+        "underived_units": (sorted({u for u in declared
+                                    if u in DERIVED_BY and u not in will_derive})
+                            if declared_present else []),
         "ceiling": ceiling,
         "note": "preview only — no checks run, no state written",
     }
@@ -601,6 +986,13 @@ def main():
     ap.add_argument("--manifest", metavar="PATH",
                     help="append this cycle's record to PATH's verification_units array "
                          "(creates the file/array if absent)")
+    ap.add_argument("--records-root", metavar="PATH",
+                    help="directory a `checks` record path may point inside "
+                         "(default: the directory holding the input, or the working "
+                         "directory when reading stdin)")
+    ap.add_argument("--skills-root", metavar="PATH",
+                    help="directory holding the skills/ tree the checks live in "
+                         "(default: this script's own repository)")
     args = ap.parse_args()
     if args.ceiling < 1:
         print(json.dumps({"error": "--max-cycles/--ceiling must be >= 1"}), file=sys.stderr)
@@ -635,15 +1027,26 @@ def main():
               file=sys.stderr)
         return 2
 
+    # Both roots come from the ARGV, never from the record: the operator running
+    # this script is trusted, the file it reads is not. The default records root is
+    # the directory holding units.json, because a review's artifacts sit beside it;
+    # the default skills root is this script's own repository, three levels up from
+    # skills/verify-review/scripts/.
+    runner = CheckRunner(
+        records_root=Path(args.records_root) if args.records_root
+        else (Path(args.input).resolve().parent if args.input else Path.cwd()),
+        skills_root=Path(args.skills_root) if args.skills_root
+        else Path(__file__).resolve().parents[3])
+
     try:
         if not isinstance(data, dict):
             raise InputError("input must be a JSON object")
 
         if args.dry_run:
-            print(json.dumps(dry_run_preview(data, args.ceiling), indent=2))
+            print(json.dumps(dry_run_preview(data, args.ceiling, runner), indent=2))
             return 0
 
-        result = verdict(data, DEFAULT_WEIGHTS, args.ceiling)
+        result = verdict(data, DEFAULT_WEIGHTS, args.ceiling, runner)
 
         if args.manifest:
             record = append_to_manifest(args.manifest, data, result)

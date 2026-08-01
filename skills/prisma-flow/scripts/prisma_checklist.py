@@ -36,6 +36,17 @@ INPUT — a JSON record (file arg or stdin):
 
 USAGE
   python prisma_checklist.py checklist.json --strict
+  python prisma_checklist.py checklist.json --strict --json   # counts, not the checklist
+
+MACHINE-READABLE OUTPUT (--json)
+  Replaces the artifact with the envelope contracts/cli-contract.md defines:
+
+    {"check": "prisma_checklist", "schema_version": "1.0", "issues": 4,
+     "units": {"U_checklist": 4}, "gates": {}, "unattributed": 0}
+
+  Every diagnostic this check raises is an unaddressed row, so U_checklist and
+  `issues` are the same number here — which is true of this check alone, not of
+  the envelope in general.
 
 EXIT CODES
   0 clean, or unaddressed rows found without --strict
@@ -49,6 +60,11 @@ import json
 import sys
 
 SCHEMA_VERSIONS = {"1.0"}
+
+# Version of the --json ENVELOPE, not of the input record. A consumer validates it
+# before reading any count, so a script whose output shape changes is rejected
+# rather than silently mis-read as the shape the consumer expects.
+JSON_ENVELOPE_VERSION = "1.0"
 
 # (section, number, topic) — 42 rows. Verified against BMJ 2021;372:n71 Table 1.
 # Lettered sub-items carry their parent's topic label, exactly as the source does;
@@ -284,6 +300,8 @@ def main() -> int:
     ap.add_argument("infile", nargs="?")
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if any row is unaddressed")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the machine-readable counts envelope instead of the checklist")
     args = ap.parse_args()
 
     try:
@@ -320,6 +338,22 @@ def main() -> int:
         return 2
 
     errs = check(table, entries)
+
+    if args.json:
+        # U_checklist is DEFINED as rows neither located nor justified, which is
+        # exactly what check() returns — so the count is emitted from the same list
+        # the artifact prints, never re-derived from the rendered prose.
+        json.dump({
+            "check": "prisma_checklist",
+            "schema_version": JSON_ENVELOPE_VERSION,
+            "issues": len(errs),
+            "units": {"U_checklist": len(errs)},
+            "gates": {},
+            "unattributed": 0,
+        }, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 1 if (errs and args.strict) else 0
+
     print(render(table, entries, errs, data.get("variant", ""), source))
     return 1 if (errs and args.strict) else 0
 

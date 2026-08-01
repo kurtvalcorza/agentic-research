@@ -34,6 +34,20 @@ INPUT — a JSON record (file arg or stdin):
 
 USAGE
   python rob_appraisal.py risk-of-bias.json --strict
+  python rob_appraisal.py risk-of-bias.json --strict --json   # counts, not the tables
+
+MACHINE-READABLE OUTPUT (--json)
+  Replaces the artifact with the envelope contracts/cli-contract.md defines:
+
+    {"check": "rob_appraisal", "schema_version": "1.0", "issues": 5,
+     "units": {}, "gates": {"H_rob": 3}, "unattributed": 2}
+
+  This check produces a human GATE, not an auto-reducible unit — `units` is empty
+  by design and `H_rob` is never cleared by further cycles. Its METHOD violations
+  belong to no unit at all, so they are reported as `unattributed`: a consumer that
+  ignored them would read an appraisal record its own instrument rejects as nothing
+  outstanding. The missing-confirmation diagnostics are excluded from that number
+  because `H_rob` already counts them one for one.
 
 EXIT CODES
   0 clean, or violations found without --strict
@@ -49,7 +63,12 @@ import sys
 
 SCHEMA_VERSIONS = {"1.0"}
 
-STUDY_KEYS = {"id", "design", "instrument", "result_assessed", "domains", "evidence",
+# Version of the --json ENVELOPE, not of the input record. A consumer validates it
+# before reading any count, so a script whose output shape changes is rejected
+# rather than silently mis-read as the shape the consumer expects.
+JSON_ENVELOPE_VERSION = "1.0"
+
+STUDY_KEYS ={"id", "design", "instrument", "result_assessed", "domains", "evidence",
               "overall", "overall_justification", "confirmed_by", "confirmed_at"}
 
 # design -> instrument. RoB 2 and ROBINS-I assess a specific RESULT, not a study as
@@ -518,6 +537,8 @@ def main() -> int:
     ap.add_argument("infile", nargs="?")
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if the record violates a rule")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the machine-readable counts envelope instead of the tables")
     args = ap.parse_args()
 
     try:
@@ -551,6 +572,30 @@ def main() -> int:
     except InputError as e:
         sys.stderr.write(f"rob_appraisal: {e}\n")
         return 2
+
+    if args.json:
+        # H_rob has always counted APPRAISALS awaiting confirmation, so the gate is
+        # emitted from check()'s own return rather than re-derived. `units` is empty
+        # because nothing this check reports is auto-reducible: a method violation
+        # of the appraisal record is real outstanding work that no unit tracks, so
+        # it goes to `unattributed` rather than being folded into a unit it does not
+        # belong to or dropped for want of one.
+        json.dump({
+            "check": "rob_appraisal",
+            "schema_version": JSON_ENVELOPE_VERSION,
+            "issues": len(errs),
+            "units": {},
+            "gates": {"H_rob": unconfirmed},
+            # len(errs) MINUS the confirmation diagnostics, which H_rob already
+            # counts one-for-one. Reporting the raw total booked every pending
+            # signature twice — once as the gate a human clears, once as
+            # unattributed work that holds the verdict open regardless of the
+            # human — so a record whose only fault was an unsigned appraisal could
+            # never reach the hand-off state that fault is supposed to produce.
+            "unattributed": len(errs) - unconfirmed,
+        }, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 1 if (errs and args.strict) else 0
 
     # Since identity is (study, result), len(studies) counts APPRAISALS, not studies.
     # Reporting it as a study count inflates the manuscript-facing figure whenever a
