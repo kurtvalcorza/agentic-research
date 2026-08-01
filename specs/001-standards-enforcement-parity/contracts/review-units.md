@@ -93,6 +93,14 @@ would fail for being incomplete rather than for being wrong.
 | `grade_profile` | `U_grade`, `U_rob_trace` | `U_rob_trace` **only** when `rob_record` is supplied |
 | `rob_appraisal` | `H_rob` | Produces no unit — the gate is not auto-reducible work |
 
+**Keyed by check, not by unit — a departure from the decision recorded on issue #4.** That comment
+specified `{"U_prisma": {"check": "prisma_flow", "record": …}}`. Two things make keying by check
+better, and neither was visible when the decision was written: the certainty check produces **two**
+units, so a unit-keyed block would name it twice and run it twice against the same record; and the
+sketch's `"U_rob"` is not a key that exists — `H_rob` is a gate and `U_rob_trace` a unit, and they
+are produced by different checks. Everything the decision was actually protecting is unchanged: the
+name is still a key into a fixed table, and no part of the record reaches the argv.
+
 ### Precedence, and the two new verdict fields
 
 A derived count **overrides** a reported one. A disagreement is named in `ignored_inputs`, on the
@@ -103,7 +111,17 @@ reported — nothing was dropped, and flagging it would make the field noise in 
 | Field | Contains | Effect |
 |:--|:--|:--|
 | `underived_units` | In-scope units a check could have derived, where no entry named its record | Verdict held at `CONTINUE` |
+| `underived_gates` | The same, for a human gate | Verdict held at `CONTINUE` |
 | `unattributed_issues` | Work a check reported that no unit and no gate counts | Verdict held at `CONTINUE` |
+
+**A gate reads its scope from the unit it moves with.** `H_rob` cannot appear in `units_in_scope` —
+that list is validated against the unit weights — so requiring only units left the gate
+self-reported on the rigorous path: a record could declare systematic scope, omit the
+`rob_appraisal` entry, and reach `VERIFIED` with a signature still pending. That is this issue's own
+failure mode surviving for the one count Principle V says a loop may never auto-zero. `H_rob` is
+therefore required whenever **`U_rob_trace`** is in scope: the two are in scope for exactly the same
+review types in every row of the table above, because both come from the appraisal record, and a
+review that must trace appraisals must also have them signed.
 
 Both are tested **before** the done-states and ahead of the human gate. Neither is a repair stall
 and neither is a human's to clear — the agent adds the entry, or fixes the record the check

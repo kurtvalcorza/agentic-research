@@ -388,6 +388,61 @@ class TestScopeDeclaredMeansChecksRequired(unittest.TestCase):
         self.assertEqual(r["underived_units"], ["U_rob_trace"])
         self.assertNotEqual(r["state"], "VERIFIED")
 
+    def test_the_human_gate_must_be_derived_too(self):
+        """Gate 0 finding, and the worst one this change could have shipped.
+
+        The requirement covered every unit and no gate. `H_rob` cannot appear in
+        `units_in_scope` — that list is validated against the unit weights — so a
+        record could declare systematic scope, omit the `rob_appraisal` entry, and
+        reach VERIFIED with a signature still pending: issue #4's own failure mode
+        surviving for the one count the constitution says a loop may never
+        auto-zero.
+        """
+        d = record(gates={"H_rob": 0}, checks=clean_checks())
+        del d["checks"]["rob_appraisal"]
+        d["checks"]["grade_profile"]["rob_record"] = "risk-of-bias.unconfirmed.json"
+        r = verdict(d)
+        self.assertEqual(r["underived_gates"], ["H_rob"])
+        self.assertNotEqual(r["state"], "VERIFIED")
+
+    def test_and_declaring_it_surfaces_the_pending_signature(self):
+        """The other half: with the entry, the gate the record understated is the
+        one the verdict reports."""
+        d = record(gates={"H_rob": 0}, checks=clean_checks(
+            rob_appraisal={"record": "risk-of-bias.unconfirmed.json"},
+            grade_profile={"record": "grade-profile.valid.json",
+                           "rob_record": "risk-of-bias.unconfirmed.json"}))
+        r = verdict(d)
+        self.assertEqual(r["underived_gates"], [])
+        self.assertEqual(r["gates_remaining"], 1)
+        self.assertEqual(r["state"], "BLOCKED_ON_HUMAN")
+
+    def test_a_gate_out_of_scope_is_not_required(self):
+        """`H_rob` reads its scope from `U_rob_trace`, so dropping that unit from
+        scope must drop the requirement with it.
+
+        A rapid review is the real case: it permits the heuristic risk-of-bias
+        basis, so both are out of scope, and a requirement that reached it anyway
+        would demand an appraisal the review type says it need not have.
+        """
+        d = record(checks=clean_checks())
+        del d["checks"]["rob_appraisal"]
+        d["units_in_scope"] = [u for u in SCOPE if u != "U_rob_trace"]
+        r = verdict(d)
+        self.assertEqual(r["underived_gates"], [])
+        self.assertEqual(r["state"], "VERIFIED")
+
+    def test_the_gate_proxy_is_wired_to_a_real_unit_and_a_real_check(self):
+        """The proxy is hand-written and could drift out of the property it needs:
+        a gate whose proxy unit no check derives would silently never be required."""
+        for gate, proxy in ru.GATE_SCOPE_PROXY.items():
+            with self.subTest(gate=gate):
+                self.assertIn(gate, ru.GATE_KEYS)
+                self.assertIn(gate, ru.DERIVED_BY_GATE)
+                self.assertIn(proxy, ru.DERIVED_BY)
+        # Every gate any check produces needs a proxy, or it is unrequirable.
+        self.assertEqual(set(ru.DERIVED_BY_GATE), set(ru.GATE_SCOPE_PROXY))
+
     def test_units_with_no_runnable_check_are_still_self_reported(self):
         """Stated rather than implied. Four units have no check in the table, so
         the requirement cannot reach them, and a reader must not infer from a
@@ -467,40 +522,73 @@ class TestAFailedCheckIsNeverZero(unittest.TestCase):
         with self.assertRaisesRegex(ru.InputError, "unrun"):
             verdict(record(checks=clean_checks()), timeout=0.0001)
 
+    def envelope_of(self, **over):
+        """A COMPLETE envelope with one field changed.
+
+        Same reasoning as tests/fixtures/README.md's one-defect-per-fixture rule:
+        hand-writing a partial envelope per test made two of them fail for the
+        missing `issues` field rather than for the thing they name, which a
+        `assertRaises` alone could not have told apart.
+        """
+        env = {"check": "prisma_flow", "schema_version": ru.CHECKS_ENVELOPE_VERSION,
+               "issues": 0, "units": {"U_prisma": 0}, "gates": {}, "unattributed": 0}
+        env.update(over)
+        return json.dumps(env)
+
     def test_unparseable_output_is_an_error(self):
-        env = ru._validated_envelope
         with self.assertRaisesRegex(ru.InputError, "not valid JSON"):
-            env("prisma_flow", "not json at all", {"U_prisma"})
+            ru._validated_envelope("prisma_flow", "not json at all", {"U_prisma"})
 
     def test_an_unknown_envelope_version_is_an_error(self):
         """A shape this module does not know is not read on the assumption it means
         what it used to."""
-        out = json.dumps({"check": "prisma_flow", "schema_version": "9.9",
-                          "units": {"U_prisma": 0}, "gates": {}, "unattributed": 0})
         with self.assertRaisesRegex(ru.InputError, "schema_version"):
-            ru._validated_envelope("prisma_flow", out, {"U_prisma"})
+            ru._validated_envelope("prisma_flow", self.envelope_of(schema_version="9.9"),
+                                   {"U_prisma"})
 
     def test_a_script_identifying_as_another_check_is_an_error(self):
-        out = json.dumps({"check": "grade_profile", "schema_version": "1.0",
-                          "units": {}, "gates": {}, "unattributed": 0})
         with self.assertRaisesRegex(ru.InputError, "identifies itself"):
-            ru._validated_envelope("prisma_flow", out, {"U_prisma"})
+            ru._validated_envelope("prisma_flow", self.envelope_of(check="grade_profile"),
+                                   {"U_prisma"})
 
     def test_a_check_reporting_fewer_units_than_planned_is_an_error(self):
         """The preview and the run agree because BOTH read `_would_derive`. A check
         quietly dropping a unit would break that agreement without either side
         noticing, so the mismatch is an error rather than a smaller result."""
-        out = json.dumps({"check": "grade_profile", "schema_version": "1.0",
-                          "units": {"U_grade": 0}, "gates": {}, "unattributed": 0})
+        out = self.envelope_of(check="grade_profile", units={"U_grade": 0})
         with self.assertRaisesRegex(ru.InputError, "expected"):
             ru._validated_envelope("grade_profile", out, {"U_grade", "U_rob_trace"})
 
     def test_a_check_claiming_a_unit_outside_its_remit_is_an_error(self):
-        out = json.dumps({"check": "prisma_flow", "schema_version": "1.0",
-                          "units": {"U_prisma": 0, "U_grade": 0}, "gates": {},
-                          "unattributed": 0})
+        out = self.envelope_of(units={"U_prisma": 0, "U_grade": 0})
         with self.assertRaisesRegex(ru.InputError, "expected"):
             ru._validated_envelope("prisma_flow", out, {"U_prisma"})
+
+    def test_a_missing_gate_is_an_error_just_as_a_missing_unit_is(self):
+        """Gates were checked in one direction only — extra rejected, absent
+        accepted. An envelope omitting `gates` therefore left the record's own
+        self-reported H_rob standing, which is the count that must never be taken
+        on trust."""
+        out = self.envelope_of(check="rob_appraisal", units={}, gates={})
+        with self.assertRaisesRegex(ru.InputError, "expected"):
+            ru._validated_envelope("rob_appraisal", out, set())
+
+    def test_a_required_field_may_not_be_absent(self):
+        """Absent is not zero. `unattributed` defaulting to 0 meant a check that
+        never mentioned it read as one reporting none."""
+        for field in ("issues", "units", "gates", "unattributed", "check",
+                      "schema_version"):
+            with self.subTest(missing=field):
+                env = json.loads(self.envelope_of())
+                del env[field]
+                with self.assertRaises(ru.InputError):
+                    ru._validated_envelope("prisma_flow", json.dumps(env), {"U_prisma"})
+
+    def test_an_unknown_envelope_field_is_rejected(self):
+        """The envelope is input like any other. Every other surface in the module
+        rejects unknown keys; this one silently accepted them."""
+        with self.assertRaisesRegex(ru.InputError, "bogus"):
+            ru._validated_envelope("prisma_flow", self.envelope_of(bogus=1), {"U_prisma"})
 
     def test_a_malformed_record_is_rejected_before_anything_runs(self):
         """Validation ordering. Spawning four subprocesses and then rejecting the
@@ -514,10 +602,9 @@ class TestAFailedCheckIsNeverZero(unittest.TestCase):
                 verdict(d)
 
     def test_a_negative_derived_count_is_an_error(self):
-        out = json.dumps({"check": "prisma_flow", "schema_version": "1.0",
-                          "units": {"U_prisma": -1}, "gates": {}, "unattributed": 0})
         with self.assertRaises(ru.InputError):
-            ru._validated_envelope("prisma_flow", out, {"U_prisma"})
+            ru._validated_envelope("prisma_flow", self.envelope_of(units={"U_prisma": -1}),
+                                   {"U_prisma"})
 
 
 class TestTheBlockCannotChooseWhatRuns(unittest.TestCase):

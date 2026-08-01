@@ -68,7 +68,7 @@ SCHEMA_VERSIONS = {"1.0"}
 # rather than silently mis-read as the shape the consumer expects.
 JSON_ENVELOPE_VERSION = "1.0"
 
-STUDY_KEYS ={"id", "design", "instrument", "result_assessed", "domains", "evidence",
+STUDY_KEYS = {"id", "design", "instrument", "result_assessed", "domains", "evidence",
               "overall", "overall_justification", "confirmed_by", "confirmed_at"}
 
 # design -> instrument. RoB 2 and ROBINS-I assess a specific RESULT, not a study as

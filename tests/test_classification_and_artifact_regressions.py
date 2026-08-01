@@ -984,9 +984,15 @@ class TestAHumanGateIsNotAutoReducibleWork(_Base):
                            "U_extract": 0},
                  "units_in_scope": ["U_screen", "U_extract", "U_grade", "U_rob_trace"],
                  "consistency": {"score": 90, "critical_breaks": 0},
-                 "gates": {"H_rob": 1, "H_screen_adj": 0, "H_cite_manual": 0,
+                 "gates": {"H_rob": 0, "H_screen_adj": 0, "H_cite_manual": 0,
                            "H_numeric": 0},
-                 "checks": {"grade_profile": {"record": certainty, "rob_record": rob}},
+                 # Both checks: declaring `U_rob_trace` in scope also commits the
+                 # record to deriving `H_rob`, since the two are in scope for
+                 # exactly the same review types and come from the same appraisal
+                 # record. So the gate below is DERIVED from that record too, not
+                 # asserted — which is what these tests were reaching for.
+                 "checks": {"grade_profile": {"record": certainty, "rob_record": rob},
+                            "rob_appraisal": {"record": rob}},
                  "history": [1, 1, 1]}
         return self.run_module(ru, "review_units.py", self.write(units, "units.json"),
                                "--records-root", self.dir.name)
@@ -1000,7 +1006,9 @@ class TestAHumanGateIsNotAutoReducibleWork(_Base):
         self.assertEqual(verdict["by_unit"]["U_grade"], 0)    # derived, not asserted
         self.assertEqual(verdict["state"], "BLOCKED_ON_HUMAN")
         self.assertTrue(verdict["auto_units_zero"])
+        # DERIVED from the appraisal record, not the 0 the record above asserts.
         self.assertEqual(verdict["gates_remaining"], 1)
+        self.assertTrue(any("H_rob" in m for m in verdict["ignored_inputs"]))
 
     def test_and_would_have_plateaued_on_the_old_count(self):
         """A record the check DOES fail, booking the unit of work an unconfirmed

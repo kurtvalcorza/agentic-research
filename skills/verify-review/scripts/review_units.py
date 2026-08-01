@@ -220,10 +220,34 @@ CHECK_TABLE = {
 # whole block exists to close.
 DERIVED_BY = {u: name for name, spec in CHECK_TABLE.items() for u in spec["units"]}
 
+# gate -> the in-scope UNIT it moves with. A gate cannot appear in
+# `units_in_scope` (that list is validated against DEFAULT_WEIGHTS), so there is
+# nothing to read a gate's scope off directly — and without this the requirement
+# below covered every unit and no gate at all. A record could declare systematic
+# scope, omit the `rob_appraisal` entry, and reach VERIFIED with a signature still
+# pending: issue #4's own failure mode surviving for the one count the
+# constitution says a loop may never auto-zero, and the count a loop has the most
+# incentive to understate.
+#
+# `H_rob` pairs with `U_rob_trace` because they are in scope for exactly the same
+# review types in every row of the contract's table — both come from the appraisal
+# record, and a review that must trace appraisals must also have them signed.
+GATE_SCOPE_PROXY = {"H_rob": "U_rob_trace"}
+
+# gate -> the check that produces it, the DERIVED_BY of the gate side.
+DERIVED_BY_GATE = {g: name for name, spec in CHECK_TABLE.items() for g in spec["gates"]}
+
 # Version of the checks' --json ENVELOPE, not of any record. Validated before a
 # single count is read, so a script whose output shape changes is rejected rather
 # than mis-read as the shape expected here.
 CHECKS_ENVELOPE_VERSION = "1.0"
+
+# The envelope's closed schema. `detail` is the only optional field — it is
+# advisory and nothing here reads it. Everything else must be PRESENT: absent is
+# not zero, and a check that did not say is not a check that reported none.
+ENVELOPE_KEYS = {"check", "schema_version", "issues", "units", "gates",
+                 "unattributed", "detail"}
+ENVELOPE_REQUIRED = ENVELOPE_KEYS - {"detail"}
 
 # A check reads one JSON record and prints counts; anything approaching this is
 # hung, not slow. A hang would otherwise stall the loop indefinitely with no
@@ -424,8 +448,11 @@ class CheckRunner:
             raise InputError(
                 f"checks.{name}: the check is not available — no script at "
                 f"{str(script)!r}. A skill directory copied out on its own has no "
-                f"sibling skills; pass --skills-root, or drop the entry and accept "
-                f"that the unit stays self-reported")
+                f"sibling skills; pass --skills-root pointing at the PARENT of a "
+                f"'skills' directory. Dropping the entry does not help while "
+                f"units_in_scope is declared — the unit then lands in "
+                f"underived_units and the verdict is held, so a standalone copy "
+                f"needs either the sibling skills or an undeclared scope")
         argv = [sys.executable, str(script),
                 self._contained_record(entry["record"], f"checks.{name}.record"),
                 "--strict", "--json"]
@@ -479,23 +506,36 @@ def _validated_envelope(name, stdout, expected_units):
             f"expected {CHECKS_ENVELOPE_VERSION!r} — an output shape this module does "
             f"not know is not read on the assumption it means what it used to")
 
+    # The envelope is input like any other, so it gets the closed-schema treatment
+    # every other input surface in this module gets. It did not: an unknown field
+    # sailed through while a misspelled one in units.json is rejected outright.
+    _reject_unknown_keys(env, ENVELOPE_KEYS, f"checks.{name}")
+    for key in ENVELOPE_REQUIRED:
+        if key not in env:
+            raise InputError(
+                f"checks.{name}: envelope is missing {key!r}. Absent is not zero — "
+                f"a check that did not say is not a check that reported none")
+
     units = _as_object(env.get("units"), f"checks.{name}.units")
     gates = _as_object(env.get("gates"), f"checks.{name}.gates")
-    # Both directions. An EXTRA unit means the script is claiming a count outside
-    # its remit; a MISSING one means it reported less than this entry asked for, and
-    # accepting that silently would let a check quietly stop deriving a unit while
-    # the loop went on treating it as derived.
+    # BOTH directions, for units and gates alike. An EXTRA entry means the script is
+    # claiming a count outside its remit; a MISSING one means it reported less than
+    # this entry asked for, and accepting that silently would let a check quietly
+    # stop deriving a count while the loop went on treating it as derived. That
+    # applied to gates too, and checking them one way round was how an envelope
+    # omitting `gates` entirely left a self-reported H_rob standing.
     if set(units) != set(expected_units):
         raise InputError(
             f"checks.{name}: reported units {sorted(units)}, expected "
             f"{sorted(expected_units)}")
-    extra_gates = sorted(set(gates) - set(spec["gates"]))
-    if extra_gates:
-        raise InputError(f"checks.{name}: reported gate(s) {extra_gates} it does not produce")
+    if set(gates) != set(spec["gates"]):
+        raise InputError(
+            f"checks.{name}: reported gates {sorted(gates)}, expected "
+            f"{sorted(spec['gates'])}")
 
     return ({u: _as_int_count(v, f"checks.{name}.units.{u}") for u, v in units.items()},
             {g: _as_int_count(v, f"checks.{name}.gates.{g}") for g, v in gates.items()},
-            _as_int_count(env.get("unattributed", 0), f"checks.{name}.unattributed"))
+            _as_int_count(env["unattributed"], f"checks.{name}.unattributed"))
 
 
 def _validated_checks(data, runner):
@@ -659,9 +699,15 @@ def compute(data, weights, runner=None):
     # in this table and stay reported, which the skill documentation states plainly
     # rather than leaving the reader to infer from a shorter list.
     underived_units = []
+    underived_gates = []
     if declared_present:
         underived_units = sorted({u for u in declared
                                   if u in DERIVED_BY and u not in derived_units})
+        # Gates get the same treatment through their scope proxy. Covering the
+        # units alone left `H_rob` self-reported on the rigorous path, which is
+        # the one place a self-reported zero costs the most.
+        underived_gates = sorted(g for g, proxy in GATE_SCOPE_PROXY.items()
+                                 if proxy in declared and g not in derived_gates)
 
     # predicate uses RAW counts: every required unit present AND all == 0
     auto_units_zero = not missing_units and all(c == 0 for c in units.values())
@@ -703,7 +749,7 @@ def compute(data, weights, runner=None):
 
     return (weighted_total, auto_units_zero, gates_remaining, dominant,
             units, contributions, missing_units, ignored_inputs,
-            underived_units, unattributed_issues)
+            underived_units, underived_gates, unattributed_issues)
 
 
 def detect_plateau(history, current_total):
@@ -730,7 +776,7 @@ def detect_plateau(history, current_total):
 def verdict(data, weights, ceiling, runner=None):
     (weighted_total, auto_zero, gates_remaining, dominant, units,
      contributions, missing_units, ignored_inputs,
-     underived_units, unattributed_issues) = compute(data, weights, runner)
+     underived_units, underived_gates, unattributed_issues) = compute(data, weights, runner)
     cycle = _as_int_count(data.get("cycle", 0), "cycle")
 
     raw_history = data.get("history")
@@ -748,7 +794,7 @@ def verdict(data, weights, ceiling, runner=None):
     # Neither is a repair stall and neither is a human's to clear: the agent adds
     # the `checks` entry, or fixes the record the check rejected. Reaching
     # BLOCKED_ON_HUMAN here would park an unestablished verdict on a person.
-    unestablished = bool(underived_units or unattributed_issues)
+    unestablished = bool(underived_units or underived_gates or unattributed_issues)
 
     if unestablished:
         state = "CEILING" if cycle >= ceiling else "CONTINUE"
@@ -778,6 +824,9 @@ def verdict(data, weights, ceiling, runner=None):
         # is present but self-reported, which on the scope-declaring path is not
         # enough — add a `checks` entry naming the record for each.
         "underived_units": underived_units,
+        # The same, for a human gate. Its scope is read from the unit it moves
+        # with, since a gate cannot be named in `units_in_scope`.
+        "underived_gates": underived_gates,
         # Work a check reported that no unit and no gate counts, so it cannot appear
         # anywhere else in this verdict. Named rather than dropped.
         "unattributed_issues": unattributed_issues,
@@ -969,6 +1018,10 @@ def dry_run_preview(data, ceiling, runner=None):
         "underived_units": (sorted({u for u in declared
                                     if u in DERIVED_BY and u not in will_derive})
                             if declared_present else []),
+        "underived_gates": (sorted(g for g, proxy in GATE_SCOPE_PROXY.items()
+                                   if proxy in declared
+                                   and DERIVED_BY_GATE[g] not in planned)
+                            if declared_present else []),
         "ceiling": ceiling,
         "note": "preview only — no checks run, no state written",
     }
@@ -1032,11 +1085,18 @@ def main():
     # the directory holding units.json, because a review's artifacts sit beside it;
     # the default skills root is this script's own repository, three levels up from
     # skills/verify-review/scripts/.
+    # `parents[3]` is skills/<name>/scripts/ walked back to the repository — but it
+    # is evaluated OUTSIDE the try below that turns an InputError into a structured
+    # verdict, so on a copy placed fewer than four levels deep it would raise
+    # IndexError: a traceback and exit 1, where the contract says exit 2. Fall back
+    # to the nearest ancestor instead and let the "check is not available" error
+    # report it in the documented shape.
+    here = Path(__file__).resolve()
+    default_skills_root = here.parents[3] if len(here.parents) > 3 else here.parent
     runner = CheckRunner(
         records_root=Path(args.records_root) if args.records_root
         else (Path(args.input).resolve().parent if args.input else Path.cwd()),
-        skills_root=Path(args.skills_root) if args.skills_root
-        else Path(__file__).resolve().parents[3])
+        skills_root=Path(args.skills_root) if args.skills_root else default_skills_root)
 
     try:
         if not isinstance(data, dict):

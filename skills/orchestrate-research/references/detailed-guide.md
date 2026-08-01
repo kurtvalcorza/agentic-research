@@ -1495,6 +1495,14 @@ consistency_score = validate_consistency(
 # that includes U_prisma (run prisma-flow) and U_grade (run validate-evidence) BEFORE
 # invoking the loop — not only the citation/consistency snapshots — or the loop stalls
 # on missing_units. Also pass the in-scope human gates (H_rob/…) each cycle.
+#
+# SEEDING A NUMBER IS NO LONGER ENOUGH (issue #4). When units_in_scope is declared,
+# a unit a check can DERIVE may not be self-reported: U_prisma, U_checklist, U_grade,
+# U_rob_trace and the H_rob gate must come from a `checks` block in units.json naming
+# the record each check runs against. Seed the counts as before AND pass the block —
+# a record carrying only the numbers reports underived_units and is held at CONTINUE
+# forever, which no amount of repair work clears. H_rob rides on U_rob_trace's scope,
+# so a scope containing U_rob_trace also needs the rob_appraisal entry.
 from skills.verify_review import verify_review
 
 verdict = verify_review(
@@ -1508,11 +1516,23 @@ verdict = verify_review(
     "prisma": prisma_result,          # required when U_prisma is in scope
     "grade": evidence_grading_result, # required when U_grade is in scope
   },
+  checks={                         # DERIVE those counts by re-running the checks
+    "prisma_flow":      {"record": "reporting/counts.json"},
+    "prisma_checklist": {"record": "reporting/checklist.json"},
+    "rob_appraisal":    {"record": "appraisal/risk-of-bias.json"},
+    "grade_profile":    {"record": "certainty/grade-profile.json",
+                         "rob_record": "appraisal/risk-of-bias.json"},
+  },
   output_path=f"{project_context.output_root}/verification/verify-review-report.md"
 )
 # verdict["state"] == "VERIFIED"          → review may be marked complete
 # verdict["state"] == "BLOCKED_ON_HUMAN"  → emit handoff checklist; complete only after human sign-off
 # verdict["state"] in ("PLATEAU","CEILING") → HALT; surface the stall (methodology issue upstream)
+# verdict["underived_units"] or ["underived_gates"] non-empty → a `checks` entry is
+#   MISSING, not a repair job. Add it; no cycle count clears this and the loop will
+#   otherwise report CONTINUE indefinitely with nothing to route to.
+# verdict["unattributed_issues"] non-empty → a check reported work no unit counts
+#   (today: an appraisal record failing its own instrument). Fix that record.
 ```
 
 ---

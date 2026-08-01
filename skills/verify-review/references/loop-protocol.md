@@ -44,10 +44,12 @@ Rules:
   says. `prisma_flow` → `U_prisma`; `prisma_checklist` → `U_checklist`;
   `grade_profile` → `U_grade`, and `U_rob_trace` only when `rob_record` is given;
   `rob_appraisal` → the `H_rob` gate. **When `units_in_scope` is declared, every
-  in-scope unit a check can derive needs an entry** — otherwise it lands in
-  `underived_units` and the verdict is held. A disagreement between a derived and
-  a reported count is named in `ignored_inputs`; an agreeing one is not, because
-  nothing was dropped.
+  in-scope unit a check can derive needs an entry**, or it lands in
+  `underived_units` and the verdict is held. So does **`H_rob` whenever
+  `U_rob_trace` is in scope** — a gate cannot be named in `units_in_scope`, so it
+  reads its scope from the unit it moves with, and it lands in `underived_gates`.
+  A disagreement between a derived and a reported count is named in
+  `ignored_inputs`; an agreeing one is not, because nothing was dropped.
   The check name is a key into a fixed table, never a path, and the argv is built
   by the backend — nothing here reaches it. Record paths must resolve inside
   `--records-root` (default: the directory holding `units.json`). A check that
@@ -97,6 +99,7 @@ Rules:
   "gates_remaining": 0,
   "missing_units": [],
   "underived_units": [],
+  "underived_gates": [],
   "unattributed_issues": [],
   "dominant_unit": "U_cite_external",
   "cycle": 2,
@@ -124,6 +127,9 @@ Rules:
   `checks` block named no record for it. The count is present — it is simply
   self-reported, which on the scope-declaring path is not enough. **Non-empty ⇒
   never `VERIFIED`**, and no amount of repair work clears it: add the entry.
+- `underived_gates` is the same for a human gate. A gate cannot appear in
+  `units_in_scope`, so it reads its scope from the unit it moves with: `H_rob` is
+  required whenever `U_rob_trace` is in scope. **Non-empty ⇒ never `VERIFIED`.**
 - `unattributed_issues` lists work a check reported that no unit and no gate
   counts, so it appears nowhere else in the verdict. Today that is a risk-of-bias
   record failing its own instrument. **Non-empty ⇒ never `VERIFIED`.**
@@ -137,8 +143,8 @@ Rules:
 
 Evaluated top-down each cycle; first match wins:
 
-1. `underived_units OR unattributed_issues` non-empty → **CONTINUE** (**CEILING**
-   at the ceiling)
+1. `underived_units OR underived_gates OR unattributed_issues` non-empty →
+   **CONTINUE** (**CEILING** at the ceiling)
 2. `auto_units_zero AND gates_remaining == 0` → **VERIFIED**
 3. `auto_units_zero AND gates_remaining > 0` → **BLOCKED_ON_HUMAN**
 4. `missing_units` non-empty → **CONTINUE** (**CEILING** at the ceiling)

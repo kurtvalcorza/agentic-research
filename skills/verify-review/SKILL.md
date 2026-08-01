@@ -83,10 +83,18 @@ Name the record each check runs against:
 | `rob_appraisal` | the `H_rob` gate |
 
 What the check reports overrides what the record asserts, and a disagreement is named in
-`ignored_inputs` rather than resolved in silence. **When `units_in_scope` is declared, a unit a
-check could have derived may not be self-reported**: it is listed under `underived_units` and the
-verdict is held at `CONTINUE`. A check that cannot produce a verdict — exit 2, a crash, a timeout —
-is an error, never a count of zero.
+`ignored_inputs` rather than resolved in silence.
+
+**When `units_in_scope` is declared, a unit a check could have derived may not be self-reported**:
+it is listed under `underived_units` and the verdict is held at `CONTINUE`. A check that cannot
+produce a verdict — exit 2, a crash, a timeout — is an error, never a count of zero.
+
+**`H_rob` is required whenever `U_rob_trace` is in scope.** A gate cannot be named in
+`units_in_scope`, so it reads its scope from the unit it moves with — the two are in scope for
+exactly the same review types, and both come from the appraisal record. Omitting the
+`rob_appraisal` entry lists `H_rob` under `underived_gates` and holds the verdict. Without that
+rule a systematic review reached `VERIFIED` with a signature still pending, which is this feature's
+own failure mode surviving for the one count no loop may ever auto-zero.
 
 The check name is a key into a fixed table, never a path. The command line is built by the
 backend (`--strict --json`, plus `--rob`); nothing in `units.json` reaches it, because whoever can
@@ -107,6 +115,13 @@ backend enforces — and no scope declaration will catch a hand-written zero.
 
 Do not read a clean verdict as "every count was derived". Read `underived_units` and the list
 above.
+
+**A skill directory copied out on its own cannot derive anything.** Principle III keeps every skill
+runnable in isolation, and this one honours it by never importing a sibling — but the checks it runs
+are sibling *scripts*, and a lone copy has none of them. Point `--skills-root` at the parent of a
+directory named `skills` if the tree exists elsewhere. Otherwise a standalone copy has one honest
+option: **do not declare `units_in_scope`.** With scope declared and no checks reachable, every
+derivable unit is held under `underived_units` and no cycle count will ever clear it.
 
 The **predicate uses raw counts** (every unit must reach 0); the **weights only shape routing and the climb gradient**. Weights/thresholds live in one config block in `scripts/review_units.py`.
 
@@ -174,7 +189,7 @@ Each cycle:
    - `CONTINUE` → route to the repair skill for the `dominant_unit`, run it, fold its report into the manifest, append the cycle to the units history.
    - Non-empty `missing_units` → a universal-floor check has no value this cycle: **run those checks first** (or carry forward their last-known value) before routing — a missing floor unit blocks `VERIFIED`/`BLOCKED_ON_HUMAN`, so clear it before the loop can terminate cleanly.
    - Non-empty `ignored_inputs` → you supplied something the check deliberately did not use, and the remedy is in the message. Two cases: `U_consistency` written into `units` is dropped, because it is derived only from a `consistency` object with a real score — otherwise a hand-written zero would satisfy the floor without one; and a unit or gate a declared check derived, where the record asserted a different number. For the first, read this alongside `missing_units`, which will name the same unit; the two together mean "supplied, but not in a form that counts", not "forgotten".
-   - Non-empty `underived_units` → a unit in scope that a check could have derived, and no `checks` entry named its record. **Add the entry**; the verdict is held until you do. This is the one item in the verdict that no amount of repair work will clear.
+   - Non-empty `underived_units` or `underived_gates` → a unit or gate in scope that a check could have derived, and no `checks` entry named its record. **Add the entry**; the verdict is held until you do. These are the items in the verdict that no amount of repair work will clear.
    - Non-empty `unattributed_issues` → a check reported work that no unit and no gate counts, so it appears nowhere else. Today this is a risk-of-bias record failing its own instrument: fix the appraisal record. It is the agent's to clear, not a human's.
 3. At **cycle 10**, emit the **soft advisory** (a high pass-count usually signals an upstream methodology issue, not a loop that needs more cycles) — then continue.
 

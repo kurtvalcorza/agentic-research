@@ -106,15 +106,15 @@ class TestVerifiedRequiresEverything(unittest.TestCase):
         self.assertEqual(derived_verdict(systematic())["state"], "VERIFIED")
 
     def test_outstanding_grade_unit_continues(self):
-        r = verdict(systematic({"U_grade": 2}))
+        r = derived_verdict(systematic({"U_grade": 2}))
         self.assertEqual(r["state"], "CONTINUE")
         self.assertFalse(r["auto_units_zero"])
 
     def test_outstanding_rob_trace_continues(self):
-        self.assertEqual(verdict(systematic({"U_rob_trace": 1}))["state"], "CONTINUE")
+        self.assertEqual(derived_verdict(systematic({"U_rob_trace": 1}))["state"], "CONTINUE")
 
     def test_outstanding_checklist_continues(self):
-        self.assertEqual(verdict(systematic({"U_checklist": 15}))["state"], "CONTINUE")
+        self.assertEqual(derived_verdict(systematic({"U_checklist": 15}))["state"], "CONTINUE")
 
     def test_missing_in_scope_unit_blocks_verification(self):
         """The headline fail-closed property: an applicable check that was never
@@ -127,13 +127,17 @@ class TestVerifiedRequiresEverything(unittest.TestCase):
 
     def test_missing_unit_is_not_mislabelled_plateau(self):
         d = systematic(history=[5, 5, 5, 5])
-        del d["units"]["U_grade"]
-        self.assertEqual(verdict(d)["state"], "CONTINUE")
+        del d["units"]["U_screen"]          # no check produces it, so it can go missing
+        r = derived_verdict(d)
+        self.assertEqual(r["missing_units"], ["U_screen"])
+        self.assertEqual(r["state"], "CONTINUE")
 
     def test_no_routing_while_a_unit_is_missing(self):
         d = systematic({"U_cite_external": 4})
-        del d["units"]["U_grade"]
-        self.assertIsNone(verdict(d)["dominant_unit"])
+        del d["units"]["U_screen"]
+        r = derived_verdict(d)
+        self.assertEqual(r["missing_units"], ["U_screen"])
+        self.assertIsNone(r["dominant_unit"])
 
 
 class TestScopeResolution(unittest.TestCase):
