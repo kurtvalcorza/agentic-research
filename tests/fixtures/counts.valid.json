@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "identified_databases": {"OpenAlex": 412, "CrossRef": 88},
+  "identified_registers": {"PROSPERO": 0},
+  "duplicates_removed": 96,
+  "removed_other_reasons": 0,
+  "records_screened": 404,
+  "records_excluded_title_abstract": 328,
+  "reports_sought": 76,
+  "reports_not_retrieved": 4,
+  "reports_assessed": 72,
+  "reports_excluded": {"wrong population": 18, "not empirical": 9, "wrong outcome": 7},
+  "studies_included_databases": 38,
+  "studies_included_total": 38
+}

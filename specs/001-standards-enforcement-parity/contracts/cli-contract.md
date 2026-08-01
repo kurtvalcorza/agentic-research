@@ -6,7 +6,7 @@ that deviates is non-conforming regardless of whether its own rules are correct.
 ## Invocation
 
 ```
-python <check>.py <record.json> [--strict] [check-specific options]
+python <check>.py <record.json> [--strict] [--json] [check-specific options]
 echo '{...}' | python <check>.py [--strict]
 ```
 
@@ -50,6 +50,48 @@ or
 
 Malformed-input diagnostics go to standard error prefixed with the check name, and no artifact is
 emitted — a record that cannot be read must not produce a document that looks authoritative.
+
+## Machine-readable output — `--json`
+
+Binding on all four, like `--strict`. It **replaces** the artifact: standard output carries one
+JSON object and nothing else, so a consumer parses the whole stream rather than a prefix of it.
+
+Deliberately not in a `json` fence: `tests/test_contract_examples.py` executes every fenced `json`
+block in this directory as an input RECORD, and this is a sample of OUTPUT — it could only fail
+there for being the wrong kind of thing.
+
+```
+{"check": "grade_profile", "schema_version": "1.0", "issues": 5,
+ "units": {"U_grade": 2, "U_rob_trace": 1}, "gates": {}, "unattributed": 1,
+ "detail": {"failing_results": ["O1", "O4"]}}
+```
+
+| Field | Meaning |
+|:--|:--|
+| `check` | The check's own name. A consumer verifies it, so a script identifying as another one is rejected rather than believed |
+| `schema_version` | Version of this **envelope**, not of the input record |
+| `issues` | Diagnostics raised — the `N` in `⚠️ **N issue(s)**`. A human number, not a unit count |
+| `units` | The unit counts this check DEFINES, by their `review_units.py` names |
+| `gates` | The human-gate counts it defines |
+| `unattributed` | Issues belonging to no unit and no gate. A consumer that dropped these would read work it cannot count as no work at all |
+| `detail` | Optional, advisory. No consumer may depend on it — the counts above are the contract |
+
+Three rules make the number trustworthy rather than merely present:
+
+- **A count is emitted, never re-derived.** `U_grade` is failing results and one result can raise
+  four diagnostics; a consumer counting messages books four units of work for one broken result.
+  The check owns its unit's definition, so it prints the number rather than leaving it to be
+  reconstructed from prose.
+- **`--json` does not change the exit code.** It is an output format. A flag that changed the
+  verdict as well as the rendering could not be added to an existing invocation safely.
+- **Malformed input emits no envelope.** Exit 2 means the record was never evaluated, and an
+  envelope of zeros there is the shape a consumer trusts carrying counts nothing produced — the
+  single worst output this contract could permit.
+
+**Nothing consumes this yet.** The envelope exists so a count can be READ rather than re-derived;
+wiring `review_units.py` to run these checks and take their counts is a separate change (issue #4).
+Stating it that way is deliberate — a contract that describes a consumer which does not exist reads
+as a guarantee the repository does not make.
 
 ## Discrepancy message style
 

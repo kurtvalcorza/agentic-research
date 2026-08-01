@@ -16,28 +16,21 @@ from contextlib import redirect_stdout, redirect_stderr
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from _load import load  # noqa: E402
+from _load import load, fixture  # noqa: E402
 
 pf = load("skills/prisma-flow/scripts/prisma_flow.py")
 
 
 def counts_template1(**overrides):
-    """A reconciling databases-and-registers-only flow (PRISMA 2020 Template 1)."""
-    c = {
-        "schema_version": "1.0",
-        "identified_databases": {"OpenAlex": 412, "CrossRef": 88},
-        "identified_registers": {"PROSPERO": 0},
-        "duplicates_removed": 96,
-        "removed_other_reasons": 0,
-        "records_screened": 404,
-        "records_excluded_title_abstract": 328,
-        "reports_sought": 76,
-        "reports_not_retrieved": 4,
-        "reports_assessed": 72,
-        "reports_excluded": {"wrong population": 18, "not empirical": 9, "wrong outcome": 7},
-        "studies_included_databases": 38,
-        "studies_included_total": 38,
-    }
+    """A reconciling databases-and-registers-only flow (PRISMA 2020 Template 1).
+
+    Loaded from the fixture rather than restated here. The two were a field-for-field
+    duplicate, so a schema change to either would have left the other silently stale
+    — and the fixture is what the `--json` tests assert "5 of 5 stages checked"
+    against, so a drifted copy would have kept passing while describing a different
+    record.
+    """
+    c = json.loads(fixture("counts.valid.json").read_text(encoding="utf-8"))
     c.update(overrides)
     return c
 

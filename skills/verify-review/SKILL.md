@@ -48,7 +48,7 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_cite_internal` | 1 | `validate-citations` | draft citations with no extraction-matrix match |
 | `U_screen` | 1 | `screen-literature` | unresolved dual-reviewer disagreements |
 | `U_extract` | 1 | `extract-synthesis` | extraction fields flagged unreconciled |
-| `U_prisma` | 1 | `prisma-flow` | arms failing reconciliation (`prisma_flow.py --strict`) |
+| `U_prisma` | 1 | `prisma-flow` | stages failing reconciliation **plus stages nothing could reach** (`prisma_flow.py --strict`, which reports both in the artifact; `--json` emits the same count as data, but *replaces* the diagram, so run it separately if you want both). Both terms, because a record naming only two ends fails nothing for want of anything to check, and a unit counting only failures would report it as zero work |
 | `U_consistency` | 1 | `validate-consistency` | `critical_breaks + max(0, 75 − score)` (graded) |
 | `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level. **Read the `U_grade: N` line the check prints; do not count diagnostics.** One result can raise four, and counting messages books four units of work for one broken result |
 | `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve at the named `(study, result)` target (`grade_profile.py --rob`); matching but unconfirmed appraisals are excluded and counted only by `H_rob` |
