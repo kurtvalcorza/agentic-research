@@ -115,9 +115,20 @@ one, which is strictly worse than the failing check you started with.
 
 **That the record is complete.** Requiring an identification and an inclusion count establishes
 that the flow has two named ends; it does not establish that everything between them was
-reported. A record supplying only those two passes, and reconciles, because an edge is checked
-only when both of its counts were supplied — a partially reported flow is incomplete, not
-contradictory, and the check says nothing either way about the stages left out.
+reported. An edge is checked only when both of its counts were supplied, so a partially reported
+flow is incomplete rather than contradictory, and the check says nothing either way about the
+stages left out.
+
+What it will no longer do is pretend otherwise. The reconciliation line names how many of the
+eight stages were actually checked, and a record where **none** were says so outright rather
+than printing a tick — "Nothing was reconciled … This diagram reports the counts given; it does
+not attest to them." A bare ✅ over a flow nothing had examined was the fail-open behind #9.
+
+One asymmetry worth knowing before trusting a minimal record: `studies_included_total` is
+checked against the sum of the two arm totals whenever it is supplied, and the arm totals
+default to zero. So `identified_other` plus `studies_included_total: 5` does **not** reconcile —
+it reports `0 + 0 = 0, but studies_included_total = 5`, exit 1 under `--strict`. Supply the arm
+total alongside it, or omit the grand total until you have both.
 
 ## Boundaries
 
