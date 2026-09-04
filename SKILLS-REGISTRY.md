@@ -103,8 +103,8 @@ absence and fall back to the keyless scripts automatically.
 | verify-sources | validation (external) | resolve_citation.py |
 | validate-consistency | validation | — |
 | validate-manuscript | validation (batch) | — |
-| verify-review | validation (loop → verified end-state) | review_units.py |
-| prisma-flow | reporting | prisma_flow.py, prisma_checklist.py |
+| verify-review | validation (loop → verified end-state) | review_units.py, prisma_reporting_checks.py |
+| prisma-flow | reporting | prisma_flow.py, prisma_checklist.py, prisma_compliance.py, prisma_abstract_checklist.py, prisma_updated_flow.py |
 | orchestrate-research | orchestration | — |
 | review-literature | orchestration | rlm_corpus_loader.py |
 
