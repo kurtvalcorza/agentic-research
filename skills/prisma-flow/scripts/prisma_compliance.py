@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Evidence-bearing PRISMA 2020 reporting compliance checker. Standard library only.
+
+This is deliberately separate from ``prisma_checklist.py``. The legacy checker
+answers "was every row addressed?"; this checker answers the stronger question
+"does every row carry a reporting location/N-A assertion, substantive evidence,
+and a recorded human confirmation?". Keeping the predicates separate prevents a
+location-only checklist from being rendered as compliance verification.
+
+WHAT THIS CHECKS
+  All 42 addressable PRISMA 2020 rows; exact row identity; located versus explicitly
+  not-applicable disposition; substantive evidence for located rows; and an explicit
+  human confirmation for every positive or N/A compliance assertion.
+
+WHAT THIS CANNOT CHECK
+  Whether the evidence text or cited manuscript passage actually satisfies the
+  PRISMA item, whether the human confirmation is substantively correct, or whether
+  the review methods themselves were rigorous. PRISMA is a reporting guideline.
+
+EXIT CODES
+  0 clean, or violations found without --strict
+  1 compliance-record violations under --strict
+  2 malformed input — no authoritative artifact is emitted
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+SCHEMA_VERSIONS = {"1.0"}
+JSON_ENVELOPE_VERSION = "1.0"
+VARIANT = "prisma_2020"
+
+PRISMA_2020 = (
+    ("Title", "1", "Title"), ("Abstract", "2", "Abstract"),
+    ("Introduction", "3", "Rationale"), ("Introduction", "4", "Objectives"),
+    ("Methods", "5", "Eligibility criteria"), ("Methods", "6", "Information sources"),
+    ("Methods", "7", "Search strategy"), ("Methods", "8", "Selection process"),
+    ("Methods", "9", "Data collection process"), ("Methods", "10a", "Data items"),
+    ("Methods", "10b", "Data items"), ("Methods", "11", "Study risk of bias assessment"),
+    ("Methods", "12", "Effect measures"), ("Methods", "13a", "Synthesis methods"),
+    ("Methods", "13b", "Synthesis methods"), ("Methods", "13c", "Synthesis methods"),
+    ("Methods", "13d", "Synthesis methods"), ("Methods", "13e", "Synthesis methods"),
+    ("Methods", "13f", "Synthesis methods"), ("Methods", "14", "Reporting bias assessment"),
+    ("Methods", "15", "Certainty assessment"), ("Results", "16a", "Study selection"),
+    ("Results", "16b", "Study selection"), ("Results", "17", "Study characteristics"),
+    ("Results", "18", "Risk of bias in studies"), ("Results", "19", "Results of individual studies"),
+    ("Results", "20a", "Results of syntheses"), ("Results", "20b", "Results of syntheses"),
+    ("Results", "20c", "Results of syntheses"), ("Results", "20d", "Results of syntheses"),
+    ("Results", "21", "Reporting biases"), ("Results", "22", "Certainty of evidence"),
+    ("Discussion", "23a", "Discussion"), ("Discussion", "23b", "Discussion"),
+    ("Discussion", "23c", "Discussion"), ("Discussion", "23d", "Discussion"),
+    ("Other information", "24a", "Registration and protocol"),
+    ("Other information", "24b", "Registration and protocol"),
+    ("Other information", "24c", "Registration and protocol"),
+    ("Other information", "25", "Support"), ("Other information", "26", "Competing interests"),
+    ("Other information", "27", "Availability of data, code, and other materials"),
+)
+ROOT_KEYS = {"schema_version", "variant", "items"}
+ITEM_KEYS = {"number", "location", "not_applicable", "evidence", "human_confirmed"}
+
+
+class InputError(ValueError):
+    """Malformed input (exit 2)."""
+
+
+def _obj(value, ctx):
+    if not isinstance(value, dict):
+        raise InputError(f"{ctx}: expected an object, got {type(value).__name__}")
+    return value
+
+
+def _closed(value, allowed, ctx):
+    unknown = sorted(set(value) - set(allowed))
+    if unknown:
+        raise InputError(
+            f"{ctx}: unrecognised key(s) {', '.join(repr(k) for k in unknown)} "
+            f"(expected one of: {', '.join(sorted(allowed))})"
+        )
+
+
+def _optional_text(value, ctx):
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise InputError(f"{ctx}: expected a string, got {type(value).__name__} {value!r}")
+    return value.strip()
+
+
+def parse(raw: dict) -> dict[str, dict]:
+    _obj(raw, "record")
+    _closed(raw, ROOT_KEYS, "record")
+    version = raw.get("schema_version")
+    if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
+        raise InputError(f"record: unrecognised or missing schema_version {version!r}")
+    if raw.get("variant") != VARIANT:
+        raise InputError(f"record.variant: expected {VARIANT!r}, got {raw.get('variant')!r}")
+    items = raw.get("items")
+    if not isinstance(items, list) or not items:
+        raise InputError("record.items: expected a non-empty list")
+    valid = {number for _, number, _ in PRISMA_2020}
+    entries: dict[str, dict] = {}
+    for i, item in enumerate(items):
+        ctx = f"record.items[{i}]"
+        _obj(item, ctx)
+        _closed(item, ITEM_KEYS, ctx)
+        number = item.get("number")
+        if not isinstance(number, str) or number not in valid:
+            raise InputError(f"{ctx}.number: unknown PRISMA 2020 row {number!r}")
+        if number in entries:
+            raise InputError(f"{ctx}.number: duplicate row {number!r}")
+        if "location" in item and "not_applicable" in item:
+            raise InputError(f"{ctx}: location and not_applicable are mutually exclusive")
+        location = _optional_text(item.get("location"), f"{ctx}.location")
+        na = _optional_text(item.get("not_applicable"), f"{ctx}.not_applicable")
+        evidence = _optional_text(item.get("evidence"), f"{ctx}.evidence")
+        confirmed = item.get("human_confirmed")
+        if confirmed is not None and not isinstance(confirmed, bool):
+            raise InputError(f"{ctx}.human_confirmed: expected a boolean")
+        entries[number] = {
+            "location": location,
+            "not_applicable": na,
+            "evidence": evidence,
+            "human_confirmed": confirmed,
+        }
+    return entries
+
+
+def check(entries: dict[str, dict]) -> list[str]:
+    errors: list[str] = []
+    for section, number, topic in PRISMA_2020:
+        entry = entries.get(number)
+        prefix = f"item {number} ({topic}, {section})"
+        if entry is None:
+            errors.append(f"{prefix}: missing from compliance record")
+            continue
+        loc, na = entry["location"], entry["not_applicable"]
+        if not loc and not na:
+            errors.append(f"{prefix}: neither a manuscript location nor an N/A justification is recorded")
+            continue
+        if loc and not entry["evidence"]:
+            errors.append(f"{prefix}: located but no substantive reporting evidence is supplied")
+        if entry["human_confirmed"] is not True:
+            errors.append(f"{prefix}: compliance assertion is not human-confirmed")
+    return errors
+
+
+def _cell(value):
+    return str(value).replace("|", "&#124;").replace("\n", "<br>")
+
+
+def render(entries: dict[str, dict], errors: list[str], source: str) -> str:
+    failing = {err.split(" ", 2)[1] for err in errors}
+    passed = len(PRISMA_2020) - len(failing)
+    lines = [f"# PRISMA 2020 compliance evidence — {passed} of {len(PRISMA_2020)} rows verified", ""]
+    if errors:
+        lines += [f"## ⚠️ {len(errors)} issue(s)", ""] + [f"- {e}" for e in errors] + [""]
+    else:
+        lines += ["✅ Every row is addressed, evidenced where applicable, and human-confirmed.", ""]
+    lines += [
+        "| Section | # | Topic | Location / N-A justification | Evidence | Human confirmed | Status |",
+        "|:--|:--|:--|:--|:--|:--:|:--|",
+    ]
+    last = None
+    for section, number, topic in PRISMA_2020:
+        entry = entries.get(number) or {}
+        loc = entry.get("location") or ""
+        na = entry.get("not_applicable") or ""
+        disposition = _cell(loc) if loc else (f"*n/a — {_cell(na)}*" if na else "—")
+        evidence = _cell(entry.get("evidence") or "") or "—"
+        confirmed = "yes" if entry.get("human_confirmed") is True else "no"
+        status = "verified" if number not in failing else "not verified"
+        shown = section if section != last else ""
+        last = section
+        lines.append(f"| {shown} | {number} | {topic} | {disposition} | {evidence} | {confirmed} | {status} |")
+    lines += [
+        "", "---", "",
+        f"*Generated by `prisma_compliance.py` from `{source}`. A clean result means the recorded "
+        "reporting assertions are evidence-bearing and human-confirmed; it does not score methodological "
+        "quality and cannot make the underlying human judgment infallible.*",
+    ]
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Validate evidence-bearing PRISMA 2020 reporting compliance records.")
+    parser.add_argument("infile", nargs="?")
+    parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+    source = args.infile or "stdin"
+    try:
+        text = open(args.infile, encoding="utf-8").read() if args.infile else sys.stdin.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        sys.stderr.write(f"prisma_compliance: cannot read {source} ({exc})\n")
+        return 2
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(f"prisma_compliance: invalid JSON ({exc})\n")
+        return 2
+    try:
+        entries = parse(raw)
+    except InputError as exc:
+        sys.stderr.write(f"prisma_compliance: {exc}\n")
+        return 2
+    errors = check(entries)
+    if args.json:
+        json.dump(
+            {
+                "check": "prisma_compliance", "schema_version": JSON_ENVELOPE_VERSION,
+                "issues": len(errors), "units": {"U_prisma_compliance": len({e.split(' ', 2)[1] for e in errors})},
+                "gates": {}, "unattributed": 0,
+            }, sys.stdout, indent=2,
+        )
+        sys.stdout.write("\n")
+        return 1 if errors and args.strict else 0
+    print(render(entries, errors, source))
+    return 1 if errors and args.strict else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
