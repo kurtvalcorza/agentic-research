@@ -2,105 +2,95 @@
 
 Evidence strength grading using GRADE (Grading of Recommendations Assessment, Development and Evaluation) and Oxford CEBM (Centre for Evidence-Based Medicine) frameworks.
 
+## GRADE modes
+
+The skill now has two explicit certainty contracts:
+
+- **Legacy / compatibility mode — `scripts/grade_profile.py`**: preserves existing schema `1.0`, result-level RoB traceability, five-domain completeness, legal upgrades, no cross-result aggregate certainty, and fail-closed arithmetic. Existing reviews remain reproducible under the contract they were created with.
+- **Current GRADE Book mode — `scripts/grade_profile_current.py`**: schema `2.0`, intended for new full outcome-level GRADE assessments. It adds versioned GRADE guidance provenance, a target of certainty, decision thresholds, structured relative/absolute effects, baseline risk for dichotomous outcomes, `-3` extremely-serious downgrades with explicit justification, explicit domain-overlap accounting, canonical `dissemination_bias`, and a fuller Summary of Findings table.
+
+The current GRADE Book is a living source. Every `2.0` record therefore carries `grade_guidance.source`, `grade_guidance.profile`, and `grade_guidance.as_of`; old records are not silently reinterpreted under newer guidance.
+
+> **Compatibility:** `publication_bias` is accepted by the current-mode parser as a legacy alias and is normalized to `dissemination_bias` with a migration note. A record containing both names is malformed. The legacy `1.0` checker is unchanged.
+
 ## What It Does
 
-- **Evidence-Body Classification**: Summarizes the design mix contributing to each result
-- **Risk-of-Bias Synthesis**: Consumes human-confirmed, per-result study appraisals
-- **Result-Level Grading**: Assigns certainty (High, Moderate, Low, Very Low) to each protocol outcome or synthesis theme
-- **Domain-Specific**: Adapts criteria for clinical, AI/ML, social science, or policy research
+- **Evidence-Body Classification**: summarizes the design mix contributing to each result.
+- **Risk-of-Bias Synthesis**: current/full systematic-review records require `risk_of_bias.basis: confirmed_rob`; the legacy checker additionally resolves those claims against the upstream appraisal record when `--rob` is supplied.
+- **Result-Level Grading**: assigns certainty (High, Moderate, Low, Very Low) to each protocol outcome; current/full mode is outcome-level rather than theme-level.
+- **Decision Context**: current mode requires the target/range/threshold about which certainty is being rated.
+- **Effect Context**: current mode represents participant/study counts and, where applicable, relative effects, baseline risk, absolute effects, and intervals.
 
-> **Where the "risk of bias" downgrade comes from.** GRADE has five downgrade domains: risk of bias, inconsistency, indirectness, imprecision, publication bias. The **risk-of-bias** domain is driven by the per-study appraisal from the **`appraise-risk-of-bias`** skill — the design-appropriate validated instrument (RoB 2, ROBINS-I, Newcastle-Ottawa, QUADAS-2), human-confirmed — and this skill **consumes those confirmed overall ratings** rather than forming an ad hoc LLM judgment (LLM RoB accuracy is ~0.62, the pipeline's weakest link). The other four domains are assessed here across the body of evidence.
+## Current GRADE Book profile
 
-## Grading Frameworks
+A current-mode result is conceptually:
 
-**GRADE System** (default for clinical/health)
-- **High**: RCTs with low risk of bias
-- **Moderate**: RCTs with limitations or strong observational studies
-- **Low**: Observational studies with consistent findings
-- **Very Low**: Case reports, expert opinion, inconsistent data
-
-**Oxford CEBM Levels** (alternative for evidence hierarchies)
-- **Level 1**: Systematic reviews of RCTs
-- **Level 2**: Individual RCTs or observational studies with dramatic effect
-- **Level 3**: Non-randomized controlled cohort studies
-- **Level 4**: Case-series, case-control, or historically controlled studies
-- **Level 5**: Mechanism-based reasoning
-
-## Supported Domains
-
-**Clinical Research**
-- Standard GRADE criteria
-- Focus on patient outcomes
-- Bias assessment for interventions
-
-**AI/ML Research**
-- Adaptation for model performance
-- Dataset quality assessment
-- Generalizability evaluation
-
-**Social Science**
-- Qualitative rigor
-- Mixed methods integration
-- Context transferability
-
-**Policy Research**
-- Real-world applicability
-- Implementation fidelity
-- External validity
-
-## Output Formats
-
-**Detailed Report**
-- Evidence-body design breakdown
-- Risk-of-bias synthesis
-- Grade rationale
-- Limitations noted
-
-**Summary Table**
-- Quick reference grid
-- One certainty rating per protocol outcome or synthesis theme
-- Key quality indicators
-
-**Evidence Profile**
-- Aggregated across all studies contributing to each result
-- Domain judgments for the evidence body
-- Result-level certainty assessment
-
-## When to Use
-
-- During literature extraction (Phase 2)
-- When assessing claim strength
-- For systematic reviews
-- When grading recommendations
-- During peer review preparation
-
-## Example Output
-
-```markdown
-## Evidence Profile: All-cause mortality
-
-**Evidence body**: 8 studies (5 randomized, 3 non-randomized)
-**Result assessed**: All-cause mortality at 12 months
-**Risk-of-bias basis**: Human-confirmed appraisals for the contributing studies
-
-**GRADE domains**:
-- Risk of bias: Serious (downgrade 1)
-- Inconsistency: Not serious
-- Indirectness: Not serious
-- Imprecision: Not serious
-- Publication bias: Undetected
-
-**Certainty**: MODERATE
+```text
+result
+├── outcome + time point
+├── effect
+│   ├── measure
+│   ├── relative estimate / interval (where applicable)
+│   ├── baseline risk (dichotomous outcomes)
+│   └── absolute estimate / interval (where applicable)
+├── decision thresholds
+├── target of certainty
+├── starting level
+├── domains
+│   ├── risk_of_bias
+│   ├── inconsistency
+│   ├── indirectness
+│   ├── imprecision
+│   └── dissemination_bias
+├── explicit domain overlap / already-accounted-for records
+├── legal upgrades
+├── final certainty
+└── certainty statement + footnotes
 ```
+
+Run:
+
+```bash
+python skills/validate-evidence/scripts/grade_profile_current.py grade-profile-v2.json --strict
+python skills/validate-evidence/scripts/grade_profile_current.py grade-profile-v2.json --strict --json
+```
+
+A `-3` domain downgrade is representable only as a whole step and requires a visible, non-empty justification. If two domains are explicitly declared to share the same cause, the current checker rejects a record that downgrades both for that same declared concern; it does not try to infer overlap from prose.
+
+For dichotomous outcomes, current mode requires the decision-relevant chain needed for absolute effects: relative estimate and interval, baseline risk, absolute effect and interval. Continuous outcomes require a continuous estimate and interval. Narrative/no-pooled-estimate outcomes remain representable but must still identify contributing studies and participants.
+
+## Summary of Findings
+
+Current mode generates a result-level Summary of Findings table containing:
+
+- outcome and time point;
+- relative/continuous effect and interval as applicable;
+- baseline risk and absolute effect for dichotomous outcomes;
+- participants and contributing studies;
+- the declared decision target and threshold context;
+- certainty rating/symbol;
+- certainty explanation and footnotes.
+
+This is intentionally richer than the legacy certainty-summary table.
+
+## Verification boundary
+
+Both checkers validate **structure, traceability requirements that their contract can observe, legality, and arithmetic**. They do not decide whether an expert's threshold, effect estimate, or domain judgment is substantively correct. A clean result is a floor for an auditable GRADE assessment, not an automated expert certification.
+
+Repository-level wording should therefore remain **GRADE-aligned** unless a specific review's declared GRADE profile has passed its applicable machine checks and required human judgments.
+
+## Oxford CEBM
+
+Oxford CEBM remains available as an alternative evidence hierarchy for use cases that are not performing a full GRADE certainty assessment.
 
 ## Related Skills
 
-- `appraise-risk-of-bias` - Upstream, human-gated. Supplies the per-study, human-confirmed risk-of-bias ratings (RoB 2 / ROBINS-I / Newcastle-Ottawa / QUADAS-2) that drive the GRADE risk-of-bias downgrade domain.
-- `synthesize-research` - Uses evidence grades for claim strength
-- `validate-citations` - Ensures proper attribution
-- `validate-manuscript` - Includes evidence quality checks
-- `review-literature` - Phase 2 integration
+- `appraise-risk-of-bias` — upstream human-gated RoB 2 / ROBINS-I / Newcastle-Ottawa / QUADAS-2 appraisal.
+- `synthesize-research` — evidence synthesis and claim-strength use.
+- `validate-citations` — attribution integrity.
+- `validate-manuscript` — manuscript-level quality checks.
+- `review-literature` — literature-review orchestration.
 
-## Standalone Use
+## Standalone use
 
-This skill can be invoked independently to grade evidence for any research context, not just literature reviews.
+This skill can be invoked independently. Use legacy mode only when preserving an existing `1.0` review contract; prefer current GRADE Book mode for new full outcome-level GRADE work.
