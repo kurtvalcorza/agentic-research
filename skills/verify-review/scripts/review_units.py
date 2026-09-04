@@ -40,7 +40,8 @@ INPUT (a JSON file, or stdin):
 DERIVED VS REPORTED COUNTS
   Without `checks`, every number above is asserted by whoever wrote this file. With
   it, the named checks are RUN and what they report overrides what the record says
-  — `U_prisma`, `U_checklist`, `U_grade`, `U_rob_trace` and the `H_rob` gate. When
+  — `U_prisma`, `U_checklist`, `U_grade`, `U_rob_trace`, the three strengthened
+  PRISMA reporting units, and the `H_rob` and `H_prisma_evidence` gates. When
   `units_in_scope` is declared, a unit a check could have derived may not be
   self-reported: it is listed under `underived_units` and the verdict is held.
 
@@ -120,6 +121,16 @@ DEFAULT_WEIGHTS = {
     "U_rob_trace": 1,
     # U_checklist: PRISMA rows neither located nor justified (prisma_checklist.py).
     "U_checklist": 1,
+    # The strengthened PRISMA 2020 reporting units (RFC #21), all three derived by
+    # `prisma_reporting_checks`. They are DISTINCT from U_checklist, which asks only
+    # whether a row was addressed: U_prisma_compliance counts 42-row compliance rows
+    # with a repairable reporting defect, U_prisma_abstract the same over the 12
+    # abstract items, U_prisma_updated the updated-review flow's reconciliation
+    # failures. A row owed only a human confirmation is in NONE of them — that is
+    # H_prisma_evidence, because no number of agent cycles produces a signature.
+    "U_prisma_abstract": 1,
+    "U_prisma_compliance": 1,
+    "U_prisma_updated": 1,
     "U_consistency": 1,
 }
 CONSISTENCY_GATE = 75      # validate-consistency pass threshold
@@ -134,7 +145,7 @@ CEILING = 25               # hard backstop
 # the sign-offs still owed. Describing it as studies would invite an assembler to
 # deduplicate the producer's count and understate the human workload.
 #
-# NOTE what this module cannot do. It now RUNS the four checks named in a `checks`
+# NOTE what this module cannot do. It now RUNS the checks named in a `checks`
 # block and takes their counts over the record's own, so a hand-written units.json
 # of all zeros no longer reaches VERIFIED on the scope-declaring path — that was
 # issue #4. Two limits survive the fix and are not shrinking:
@@ -147,7 +158,14 @@ CEILING = 25               # hard backstop
 #     is derived, but from an object in this same file rather than from a run.
 #
 # Human gates are never auto-zeroed by any number of cycles.
-GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric")
+# H_prisma_evidence is DEFINED AS the count the PRISMA reporting sub-gate reports:
+# compliance ASSERTIONS (42-row and abstract) that are disposed but not
+# human-confirmed. Like H_rob it counts sign-offs still owed, and like H_rob it
+# cannot establish that a recorded confirmation is authentic — only that the record
+# does not yet claim one. Before this existed, `human_confirmed` reached the verdict
+# through nothing at all: the compliance checker emitted `gates: {}`, so a record
+# confirming no row and a record confirming all 42 were indistinguishable here.
+GATE_KEYS = ("H_rob", "H_screen_adj", "H_cite_manual", "H_numeric", "H_prisma_evidence")
 
 # Citation integrity + consistency are universal for EVERY review type (spec
 # §3.3): the floor the loop guarantees for any review. A VERIFIED verdict must
@@ -162,7 +180,7 @@ CONSISTENCY_KEYS = {"score", "critical_breaks"}
 
 # --- derived counts ---------------------------------------------------------
 #
-# The four checks this module may RUN, so a count can be derived from a check
+# The checks this module may RUN, so a count can be derived from a check
 # rather than asserted by whoever wrote units.json. Everything above computes a
 # verdict from numbers it is given; this table is what lets some of those numbers
 # come from somewhere.
@@ -206,6 +224,20 @@ CHECK_TABLE = {
         "optional_records": (("rob_record", "--rob"),),
         "conditional_units": {"U_rob_trace": "rob_record"},
     },
+    "prisma_reporting_checks": {
+        # The strengthened PRISMA reporting path. The positional record is the
+        # 42-row evidence-bearing compliance record; the abstract and updated-flow
+        # records are secondary, so their units are CONDITIONAL — supply the record
+        # or the unit is underived, never zero. This is the `--rob`/`U_rob_trace`
+        # pattern, for the same reason: a reported 0 would claim a check ran.
+        "script": ("skills", "verify-review", "scripts", "prisma_reporting_checks.py"),
+        "units": ("U_prisma_compliance", "U_prisma_abstract", "U_prisma_updated"),
+        "gates": ("H_prisma_evidence",),
+        "optional_records": (("abstract_record", "--abstract"),
+                             ("updated_flow_record", "--updated-flow")),
+        "conditional_units": {"U_prisma_abstract": "abstract_record",
+                              "U_prisma_updated": "updated_flow_record"},
+    },
     "rob_appraisal": {
         "script": ("skills", "appraise-risk-of-bias", "scripts", "rob_appraisal.py"),
         "units": (),
@@ -233,7 +265,25 @@ DERIVED_BY = {u: name for name, spec in CHECK_TABLE.items() for u in spec["units
 # `H_rob` pairs with `U_rob_trace` because they are in scope for exactly the same
 # review types in every row of the contract's table — both come from the appraisal
 # record, and a review that must trace appraisals must also have them signed.
-GATE_SCOPE_PROXY = {"H_rob": "U_rob_trace"}
+# `H_prisma_evidence` pairs with `U_prisma_compliance` for the same reason: both
+# come from the compliance record, and a review that must count compliance defects
+# must also have its compliance assertions signed.
+GATE_SCOPE_PROXY = {"H_rob": "U_rob_trace", "H_prisma_evidence": "U_prisma_compliance"}
+
+# Secondary record keys that may name an APPRAISAL file, and so fall under the
+# identity rule in `_validated_checks`. `optional_records` is the set of ALL
+# secondary keys; this is the subset that can carry a pending RoB signature.
+#
+# The PRISMA reporting keys are deliberately NOT here, and the closure argument the
+# identity rule rests on is unchanged by them: a pending signature lives in an
+# appraisal file and reaches the verdict only through `H_rob`, which only
+# `rob_appraisal` derives. `abstract_record` and `updated_flow_record` name a
+# checklist and a flow-count record — no signature can live in either — and the
+# confirmations `prisma_reporting_checks` does count come from its OWN records and
+# reach the verdict through `H_prisma_evidence`, which it derives itself. A new
+# secondary key that CAN name an appraisal must be added here;
+# `test_every_appraisal_route_is_read_by_the_gate_owner` fails until it is.
+APPRAISAL_ROUTES = {("grade_profile", "rob_record")}
 
 # gate -> the check that produces it, the DERIVED_BY of the gate side.
 DERIVED_BY_GATE = {g: name for name, spec in CHECK_TABLE.items() for g in spec["gates"]}
@@ -398,7 +448,7 @@ def _would_derive(name, entry):
 
 
 class CheckRunner:
-    """Runs the four checks and reports what they SAID, not what units.json claims.
+    """Runs the checks and reports what they SAID, not what units.json claims.
 
     Built by main() from the argv. Its two roots are the trust boundary:
 
@@ -622,25 +672,26 @@ def _validated_checks(data, runner):
     # with nothing left over. `test_every_appraisal_route_is_read_by_the_gate_owner`
     # pins the enumeration, so a fifth check adding a record key cannot silently
     # reopen it.
-    for name, entry in sorted(raw.items()):
-        if not (isinstance(entry, dict) and "rob_record" in entry):
+    for name, key in sorted(APPRAISAL_ROUTES):
+        entry = raw.get(name)
+        if not (isinstance(entry, dict) and key in entry):
             continue
         rob = raw.get("rob_appraisal")
         if not isinstance(rob, dict) or "record" not in rob:
             raise InputError(
-                f"checks.{name}: supplies 'rob_record' but no 'rob_appraisal' entry "
+                f"checks.{name}: supplies {key!r} but no 'rob_appraisal' entry "
                 f"runs that record. Pending signatures in it would be counted by "
                 f"nothing — {name} books them to no unit and no gate — so the "
                 f"appraisal check must run alongside")
-        mine = runner.contained_record(entry["rob_record"], f"checks.{name}.rob_record")
+        mine = runner.contained_record(entry[key], f"checks.{name}.{key}")
         theirs = runner.contained_record(rob["record"], "checks.rob_appraisal.record")
         # samefile, not string equality: it is the identity of the FILE that
         # matters, and two spellings of one path (case on Windows, a link, a
         # relative hop) are the same appraisal.
         if not runner.same_record(mine, theirs):
             raise InputError(
-                f"checks.{name}.rob_record and checks.rob_appraisal.record name "
-                f"DIFFERENT files ({entry['rob_record']!r} vs {rob['record']!r}). "
+                f"checks.{name}.{key} and checks.rob_appraisal.record name "
+                f"DIFFERENT files ({entry[key]!r} vs {rob['record']!r}). "
                 f"They must be the same appraisal: {name} reports the pending "
                 f"signatures it finds to no unit and no gate, so only the appraisal "
                 f"check running on that same record can count them")
@@ -790,7 +841,7 @@ def compute(data, weights, runner=None):
     # The REST of the cheap validation, hoisted above the run loop. "After every
     # cheap validation" was only true of the unit keys: a record with valid check
     # paths but an unknown scope unit, a fractional gate count, a bad cycle or a
-    # non-numeric history still ran all four checks — up to four 120-second
+    # non-numeric history still ran every declared check — each up to 120-second
     # timeouts — before being rejected for a field nothing had looked at yet.
     declared, declared_present = _validated_scope(data)
     # `gates` must be present AND an object on the scope-declaring path — an
