@@ -1,0 +1,255 @@
+{
+  "schema_version": "1.0",
+  "variant": "prisma_2020",
+  "items": [
+    {
+      "number": "1",
+      "location": "Section for item 1",
+      "evidence": "Item 1 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "2",
+      "location": "Section for item 2",
+      "evidence": "Item 2 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "3",
+      "location": "Section for item 3",
+      "evidence": "Item 3 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "4",
+      "location": "Section for item 4",
+      "evidence": "Item 4 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "5",
+      "location": "Section for item 5",
+      "evidence": "Item 5 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "6",
+      "location": "Section for item 6",
+      "evidence": "Item 6 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "7",
+      "location": "Section for item 7",
+      "evidence": "Item 7 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "8",
+      "location": "Section for item 8",
+      "evidence": "Item 8 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "9",
+      "location": "Section for item 9",
+      "evidence": "Item 9 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "10a",
+      "location": "Section for item 10a",
+      "evidence": "Item 10a is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "10b",
+      "location": "Section for item 10b",
+      "evidence": "Item 10b is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "11",
+      "location": "Section for item 11",
+      "evidence": "Item 11 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "12",
+      "location": "Section for item 12",
+      "evidence": "Item 12 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "13a",
+      "location": "Section for item 13a",
+      "evidence": "Item 13a is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "13b",
+      "location": "Section for item 13b",
+      "evidence": "Item 13b is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "13c",
+      "location": "Section for item 13c",
+      "evidence": "Item 13c is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "13d",
+      "location": "Section for item 13d",
+      "evidence": "Item 13d is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "13e",
+      "location": "Section for item 13e",
+      "evidence": "Item 13e is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "13f",
+      "location": "Section for item 13f",
+      "evidence": "Item 13f is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "14",
+      "location": "Section for item 14",
+      "evidence": "Item 14 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "15",
+      "location": "Section for item 15",
+      "evidence": "Item 15 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "16a",
+      "location": "Section for item 16a",
+      "evidence": "Item 16a is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "16b",
+      "location": "Section for item 16b",
+      "evidence": "Item 16b is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "17",
+      "location": "Section for item 17",
+      "evidence": "Item 17 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "18",
+      "location": "Section for item 18",
+      "evidence": "Item 18 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "19",
+      "location": "Section for item 19",
+      "evidence": "Item 19 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "20a",
+      "location": "Section for item 20a",
+      "evidence": "Item 20a is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "20b",
+      "location": "Section for item 20b",
+      "evidence": "Item 20b is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "20c",
+      "location": "Section for item 20c",
+      "evidence": "Item 20c is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "20d",
+      "location": "Section for item 20d",
+      "evidence": "Item 20d is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "21",
+      "location": "Section for item 21",
+      "evidence": "Item 21 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "22",
+      "location": "Section for item 22",
+      "evidence": "Item 22 is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "23a",
+      "location": "Section for item 23a",
+      "evidence": "Item 23a is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "23b",
+      "location": "Section for item 23b",
+      "evidence": "Item 23b is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "23c",
+      "location": "Section for item 23c",
+      "evidence": "Item 23c is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "23d",
+      "location": "Section for item 23d",
+      "evidence": "Item 23d is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "24a",
+      "location": "Section for item 24a",
+      "evidence": "Item 24a is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "24b",
+      "location": "Section for item 24b",
+      "evidence": "Item 24b is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "24c",
+      "location": "Section for item 24c",
+      "evidence": "Item 24c is reported at the cited location: the required element is stated there in full rather than cross-referenced.",
+      "human_confirmed": true
+    },
+    {
+      "number": "25",
+      "location": "Section for item 25",
+      "evidence": "Item 25 is reported at the cited location: the required element is stated there in full rather than cross-referenced."
+    },
+    {
+      "number": "26",
+      "location": "Section for item 26",
+      "evidence": "Item 26 is reported at the cited location: the required element is stated there in full rather than cross-referenced."
+    },
+    {
+      "number": "27",
+      "location": "Section for item 27",
+      "evidence": "Item 27 is reported at the cited location: the required element is stated there in full rather than cross-referenced."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "variant": "updated_databases_registers",
+  "identified_databases": {
+    "MEDLINE": 90
+  },
+  "identified_registers": {
+    "CENTRAL": 10
+  },
+  "duplicates_removed": 10,
+  "removed_other_reasons": 0,
+  "records_screened": 90,
+  "records_excluded_title_abstract": 80,
+  "reports_sought": 10,
+  "reports_not_retrieved": 0,
+  "reports_assessed": 10,
+  "reports_excluded": {
+    "wrong population": 6
+  },
+  "new_studies_included_databases": 4,
+  "previous_studies_included": 12,
+  "previous_reports_included": 15,
+  "new_studies_included": 4,
+  "new_reports_included": 5,
+  "updated_studies_included": 16,
+  "updated_reports_included": 20
+}
