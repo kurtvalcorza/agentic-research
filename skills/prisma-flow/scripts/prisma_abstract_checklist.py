@@ -192,6 +192,50 @@ def check(verification: str, entries: dict[str, dict]) -> tuple[list[str], dict[
     return errors, statuses
 
 
+def mechanical_defects(verification: str, entries: dict[str, dict]) -> set[str]:
+    """Abstract items with a repairable defect, under the declared level.
+
+    Addressability mode asks only that an item be located or justified. Compliance
+    mode additionally requires substantive evidence behind a located item. Neither
+    counts an item that is merely awaiting its human confirmation: that is
+    ``unconfirmed_assertions``, and it reaches the verdict as a gate.
+    """
+    rows: set[str] = set()
+    for number, _topic in PRISMA_ABSTRACTS:
+        entry = entries.get(number)
+        if entry is None:
+            rows.add(number)
+            continue
+        if not entry["location"] and not entry["not_applicable"]:
+            rows.add(number)
+            continue
+        if verification == "compliance" and entry["location"] and not entry["evidence"]:
+            rows.add(number)
+    return rows
+
+
+def unconfirmed_assertions(verification: str, entries: dict[str, dict]) -> int:
+    """Disposed abstract items still owed a human confirmation.
+
+    Always 0 in ``addressability`` mode, which does not assert compliance and so
+    owes no confirmation. The PRISMA reporting sub-gate refuses an
+    addressability-mode record for exactly that reason: aggregating it would report
+    a satisfied human gate over a record that never claimed one.
+    """
+    if verification != "compliance":
+        return 0
+    total = 0
+    for number, _topic in PRISMA_ABSTRACTS:
+        entry = entries.get(number)
+        if entry is None:
+            continue
+        if not entry["location"] and not entry["not_applicable"]:
+            continue
+        if entry["human_confirmed"] is not True:
+            total += 1
+    return total
+
+
 def _cell(value: object) -> str:
     return (
         str(value)
@@ -285,8 +329,8 @@ def main() -> int:
                 "check": "prisma_abstract_checklist",
                 "schema_version": JSON_ENVELOPE_VERSION,
                 "issues": len(errors),
-                "units": {"U_prisma_abstract": len({e.split(' ', 2)[1] for e in errors})},
-                "gates": {},
+                "units": {"U_prisma_abstract": len(mechanical_defects(verification, entries))},
+                "gates": {"H_prisma_evidence": unconfirmed_assertions(verification, entries)},
                 "unattributed": 0,
                 "detail": {"verification": verification},
             },
