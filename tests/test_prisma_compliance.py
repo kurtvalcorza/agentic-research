@@ -76,6 +76,55 @@ class PrismaComplianceTests(unittest.TestCase):
         with self.assertRaises(pc.InputError):
             pc.parse({"schema_version": "1.0", "variant": "prisma_2020", "items": data})
 
+    def test_blanket_not_applicable_record_fails(self):
+        """F24-02 / V27-01: a 42-row record declaring every item not-applicable
+        must not exit clean, even when every row is human-confirmed."""
+        data = [{"number": number, "not_applicable": "n", "human_confirmed": True}
+                for _, number, _ in pc.PRISMA_2020]
+        entries = pc.parse({"schema_version": "1.0", "variant": "prisma_2020", "items": data})
+        errors = pc.check(entries)
+        self.assertTrue(errors)
+        # Every mandatory item (i.e. every item outside CONDITIONALLY_APPLICABLE)
+        # must be rejected for asserting N/A at all, not merely for a short
+        # justification.
+        self.assertTrue(any("not a legitimate disposition" in e and "item 1 " in e for e in errors))
+
+    def test_one_character_evidence_fails(self):
+        """F24-02: 'x' is not substantive evidence, even paired with a located row
+        and human_confirmed=True."""
+        data = [{"number": number, "location": "Manuscript, somewhere",
+                  "evidence": "x", "human_confirmed": True}
+                for _, number, _ in pc.PRISMA_2020]
+        entries = pc.parse({"schema_version": "1.0", "variant": "prisma_2020", "items": data})
+        errors = pc.check(entries)
+        self.assertEqual(42, len(errors))
+        self.assertTrue(all("too short to be substantive" in e for e in errors))
+
+    def test_mandatory_item_cannot_be_marked_not_applicable(self):
+        data = rows()
+        data[0] = {"number": "1", "not_applicable": "Not applicable to this review.",
+                   "human_confirmed": True}
+        entries = pc.parse({"schema_version": "1.0", "variant": "prisma_2020", "items": data})
+        errors = pc.check(entries)
+        self.assertTrue(any("item 1 " in e and "not a legitimate disposition" in e for e in errors))
+
+    def test_conditionally_applicable_item_permits_not_applicable(self):
+        data = [row for row in rows() if row["number"] != "13f"] + [{
+            "number": "13f", "not_applicable": "No sensitivity analyses were performed.",
+            "human_confirmed": True,
+        }]
+        entries = pc.parse({"schema_version": "1.0", "variant": "prisma_2020", "items": data})
+        errors = pc.check(entries)
+        self.assertFalse(any("item 13f" in e for e in errors))
+
+    def test_evidence_restating_the_location_is_rejected(self):
+        data = rows()
+        data[0] = {"number": "1", "location": "Manuscript title page",
+                   "evidence": "Manuscript title page", "human_confirmed": True}
+        entries = pc.parse({"schema_version": "1.0", "variant": "prisma_2020", "items": data})
+        errors = pc.check(entries)
+        self.assertTrue(any("item 1 " in e and "merely restates" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

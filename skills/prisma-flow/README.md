@@ -19,7 +19,7 @@ The flow diagram is an audit trail of study selection. Reconciliation proves tha
 Two predicates are intentionally separate:
 
 - `scripts/prisma_checklist.py` — the established **addressability** check. It models all 42 addressable PRISMA 2020 rows and verifies that each has a manuscript location or explicit N/A justification.
-- `scripts/prisma_compliance.py` — the stronger **evidence-bearing compliance record**. Every applicable located row must carry substantive evidence and every positive/N-A assertion must be human-confirmed. A location-only record cannot pass this checker.
+- `scripts/prisma_compliance.py` — the stronger **evidence-bearing compliance record**. Every located row must carry substantive evidence (a minimum length, and not a verbatim repeat of the location) and every positive/N-A assertion must be human-confirmed. Not-applicable is only accepted for the fixed set of items whose own PRISMA 2020 wording is conditional (`CONDITIONALLY_APPLICABLE`); every other row must be located. A location-only, blanket-N/A, or trivial-evidence record cannot pass this checker.
 
 PRISMA remains a reporting guideline. A clean compliance record is not a methodological-quality score and does not make an expert judgment infallible.
 

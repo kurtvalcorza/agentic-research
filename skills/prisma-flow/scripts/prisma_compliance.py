@@ -9,13 +9,22 @@ location-only checklist from being rendered as compliance verification.
 
 WHAT THIS CHECKS
   All 42 addressable PRISMA 2020 rows; exact row identity; located versus explicitly
-  not-applicable disposition; substantive evidence for located rows; and an explicit
-  human confirmation for every positive or N/A compliance assertion.
+  not-applicable disposition, restricted to the items PRISMA 2020 itself makes
+  conditional (CONDITIONALLY_APPLICABLE) so a review cannot declare a mandatory
+  row (e.g. Title, Rationale, Eligibility criteria) not-applicable; substantive
+  evidence for located rows, where "substantive" means at least
+  MIN_SUBSTANTIVE_CHARS characters and not a verbatim repeat of the location text;
+  and an explicit human confirmation for every positive or N/A compliance
+  assertion.
 
 WHAT THIS CANNOT CHECK
   Whether the evidence text or cited manuscript passage actually satisfies the
-  PRISMA item, whether the human confirmation is substantively correct, or whether
-  the review methods themselves were rigorous. PRISMA is a reporting guideline.
+  PRISMA item, whether an N/A justification is substantively correct even though
+  it is long enough, whether the human confirmation is substantively correct, or
+  whether the review methods themselves were rigorous. The length floor and the
+  conditionally-applicable set catch vacuous and blanket-N/A records; they cannot
+  certify that a passing record is methodologically sound. PRISMA is a reporting
+  guideline.
 
 EXIT CODES
   0 clean, or violations found without --strict
@@ -59,6 +68,39 @@ PRISMA_2020 = (
 )
 ROOT_KEYS = {"schema_version", "variant", "items"}
 ITEM_KEYS = {"number", "location", "not_applicable", "evidence", "human_confirmed"}
+
+# Items whose OWN PRISMA 2020 wording is conditional — "if applicable", "if
+# meta-analysis was done", "if done/performed" — or that report the outcome of a
+# method an earlier item (11, 14, 15) allows a review to skip. Every other row
+# describes something every systematic review must report regardless of which
+# methods it chose, so it can never be legitimately not-applicable. Without this
+# set, a record could mark items 1 (Title) through 9 (Data collection process)
+# not_applicable and still pass — the all-N/A record this policy exists to reject.
+# This is a documented, revisitable convention, not a PRISMA-authored rule: a
+# reviewer who disagrees with a specific inclusion changes this set, not the
+# reader.
+CONDITIONALLY_APPLICABLE = {
+    "10b",  # other variables collected, "if applicable"
+    "13d",  # methods to synthesise results, "if meta-analysis was done"
+    "13e",  # methods to explore heterogeneity, "if applicable"
+    "13f",  # sensitivity analyses, "if done"
+    "18",   # risk of bias in studies — only if item 11's assessment was performed
+    "20b",  # results of statistical syntheses, "if meta-analysis was done"
+    "20c",  # investigations of heterogeneity — only if undertaken
+    "20d",  # sensitivity analyses results — only if undertaken
+    "21",   # reporting bias results — only if item 14's assessment was performed
+    "22",   # certainty of evidence — only if item 15's GRADE-style assessment was performed
+    "27",   # data/code/materials availability — only if there is material to locate
+}
+
+# A one-character "x" or "n" is a value, not an assertion. Chosen to admit the
+# shortest plausible genuine sentence ("Not registered.") while rejecting a bare
+# token; it is a floor, not a substantiveness judgement software can make.
+MIN_SUBSTANTIVE_CHARS = 10
+
+
+def _substantive(text: str) -> bool:
+    return len(text.strip()) >= MIN_SUBSTANTIVE_CHARS
 
 
 class InputError(ValueError):
@@ -139,8 +181,28 @@ def check(entries: dict[str, dict]) -> list[str]:
         if not loc and not na:
             errors.append(f"{prefix}: neither a manuscript location nor an N/A justification is recorded")
             continue
-        if loc and not entry["evidence"]:
-            errors.append(f"{prefix}: located but no substantive reporting evidence is supplied")
+        if na:
+            if number not in CONDITIONALLY_APPLICABLE:
+                errors.append(
+                    f"{prefix}: not applicable is not a legitimate disposition for this "
+                    f"item — PRISMA 2020 requires every review to report it"
+                )
+            elif not _substantive(na):
+                errors.append(
+                    f"{prefix}: not-applicable justification is too short to be "
+                    f"substantive ({na!r})"
+                )
+        if loc:
+            if not entry["evidence"]:
+                errors.append(f"{prefix}: located but no substantive reporting evidence is supplied")
+            elif not _substantive(entry["evidence"]):
+                errors.append(
+                    f"{prefix}: evidence is too short to be substantive ({entry['evidence']!r})"
+                )
+            elif entry["evidence"].strip().casefold() == loc.strip().casefold():
+                errors.append(
+                    f"{prefix}: evidence merely restates the location and asserts nothing"
+                )
         if entry["human_confirmed"] is not True:
             errors.append(f"{prefix}: compliance assertion is not human-confirmed")
     return errors
