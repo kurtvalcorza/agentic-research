@@ -25,6 +25,7 @@ EXIT CODES
 """
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import io
 import json
@@ -32,6 +33,17 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
+
+# Shared with both engines' own parsers so the dispatcher recognises exactly the
+# flags either one accepts. argparse.parse_known_args() rather than a manual
+# `not arg.startswith("-")` scan: the manual scan misreads the first VALUE of a
+# future valued option (e.g. `--foo bar`) as the input file, because "bar" does
+# not start with "-" either. No such option exists today, but the hazard is in
+# the parsing strategy, not in today's flag set.
+_DISPATCH_PARSER = argparse.ArgumentParser(add_help=False)
+_DISPATCH_PARSER.add_argument("infile", nargs="?")
+_DISPATCH_PARSER.add_argument("--strict", action="store_true")
+_DISPATCH_PARSER.add_argument("--json", action="store_true")
 
 
 def _load_sibling(filename: str, module_name: str):
@@ -63,10 +75,10 @@ def _input_text_and_restore() -> tuple[str | None, bool]:
     selected checker so malformed-input diagnostics and exit codes remain owned by
     the underlying contract.
     """
-    positional = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
-    if positional:
+    args, _unknown = _DISPATCH_PARSER.parse_known_args(sys.argv[1:])
+    if args.infile:
         try:
-            return Path(positional[0]).read_text(encoding="utf-8"), False
+            return Path(args.infile).read_text(encoding="utf-8"), False
         except (OSError, UnicodeDecodeError):
             return None, False
     text = sys.stdin.read()
@@ -87,9 +99,28 @@ def _declared_variant(text: str | None) -> str | None:
 def main() -> int:
     text, _ = _input_text_and_restore()
     variant = _declared_variant(text)
-    if variant in _UPDATED_VARIANTS:
+    # isinstance first: a variant that is itself unhashable (a list or object, from
+    # a record shaped as `"variant": [...]`) would raise TypeError on set
+    # membership, surfacing as an unhandled traceback instead of the documented
+    # exit 2 the branch below reports for any other non-updated variant value.
+    if isinstance(variant, str) and variant in _UPDATED_VARIANTS:
         updated = _load_sibling("prisma_updated_flow.py", "_prisma_updated_flow")
         return updated.main()
+    if variant is not None:
+        # A record naming a `variant` at all is declaring intent to be an
+        # updated-review record — `variant` is not a key the new-review contract
+        # recognises at all. Falling through to the legacy engine used to report
+        # this as an alphabetically-sorted list of every updated-only key the
+        # legacy schema does not recognise (e.g. 'new_reports_included',
+        # 'new_studies_included', ...), which is a true diagnostic that still
+        # points a reader at their data instead of their typo. Naming the
+        # unrecognised variant directly is the more useful, closer diagnostic.
+        sys.stderr.write(
+            f"prisma_flow: record.variant: unrecognised value {variant!r}; expected "
+            f"one of {sorted(_UPDATED_VARIANTS)!r} for an updated review, or omit "
+            f"variant entirely for a new-review record\n"
+        )
+        return 2
     return _legacy.main()
 
 
