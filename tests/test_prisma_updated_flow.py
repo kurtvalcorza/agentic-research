@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pathlib
+import re
 import unittest
 
 from _load import load
@@ -116,6 +118,30 @@ class PrismaUpdatedFlowTests(unittest.TestCase):
         r["records_screened"] = "100"
         with self.assertRaises(pf.CountError):
             pf.parse(r)
+
+    def test_previous_reports_cannot_be_fewer_than_previous_studies(self):
+        r = db_only()
+        r["previous_reports_included"] = 10  # previous_studies_included is 15
+        errors = pf.check(pf.parse(r))
+        self.assertTrue(any("previous_reports_included" in e and "previous_studies_included" in e
+                             for e in errors))
+
+
+class TestClosedSchemaConformance(unittest.TestCase):
+    """The updated-flow analogue of prisma_flow.py's shared-CLI-contract test.
+
+    F24-01 found the flagship conformance meta-test inspecting a dispatcher that
+    reads no counts, and noted that ``prisma_updated_flow.ROOT_KEYS`` had no
+    equivalent guard at all. A key ``check()`` reads but ``ROOT_KEYS`` omits would
+    be rejected by ``parse()`` as unrecognised before ``check()`` ever saw it —
+    the check refusing its own documented input.
+    """
+
+    def test_every_key_the_script_reads_is_in_the_closed_schema(self):
+        source = pathlib.Path(pf.__file__).read_text(encoding="utf-8")
+        consumed = set(re.findall(r'c\["([a-z_]+)"\]', source))
+        self.assertTrue(consumed)
+        self.assertEqual(consumed - pf.ROOT_KEYS, set())
 
 
 if __name__ == "__main__":

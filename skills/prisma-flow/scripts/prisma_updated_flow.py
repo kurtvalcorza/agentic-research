@@ -10,7 +10,8 @@ records cannot be inferred ambiguously.
 WHAT THIS CHECKS
   New-search flow arithmetic; independent other-methods-arm arithmetic where the
   explicit variant enables it; previous + new = updated study/report totals; and
-  basic report/study cardinality for the newly included evidence.
+  report/study cardinality (reports may not be fewer than studies) for the
+  previous review's own arm as well as for the newly included evidence.
 
 WHAT THIS CANNOT CHECK
   Whether the supplied counts are true, whether reports have been correctly linked
@@ -118,6 +119,11 @@ def _sum(mapping):
 
 def check(c):
     errors = []
+    if c["previous_reports_included"] < c["previous_studies_included"]:
+        errors.append(
+            f"previous review: previous_reports_included={c['previous_reports_included']} "
+            f"cannot be fewer than previous_studies_included={c['previous_studies_included']}"
+        )
     identified_db = _sum(c["identified_databases"]) + _sum(c["identified_registers"])
     expected_screened = identified_db - c["duplicates_removed"] - c["removed_other_reasons"]
     if expected_screened < 0 or c["records_screened"] != expected_screened:
