@@ -17,7 +17,8 @@ Start: "review the literature on [topic]" / "I need a systematic review"
 ├─ Registrable / systematic review? → PROTOCOL FIRST
 │  └─ design-review-protocol (review type: systematic/scoping/rapid/umbrella/
 │     narrative; frame PICO/PEO/SPIDER/PCC; registrable PRISMA-P protocol.md)
-│        └─ generate-screening-criteria (operationalize the protocol's eligibility)
+│        ├─ generate-screening-criteria (operationalize the protocol's eligibility)
+│        └─ optional strict intervention profile → cochrane-intervention
 │
 ├─ Have a corpus yet?
 │  ├─ NO (start from a question) → acquire-corpus (multi-DB search + snowball +
@@ -36,7 +37,8 @@ Start: "review the literature on [topic]" / "I need a systematic review"
 │
 ├─ Synthesis & certainty
 │  ├─ structure-arguments / recursive-lit-review (theme-driven synthesis, SWiM)
-│  └─ validate-evidence (GRADE certainty; risk-of-bias domain from appraisal)
+│  └─ validate-evidence (legacy GRADE compatibility or current/full GRADE profile;
+│     risk-of-bias domain from appraisal)
 │
 ├─ Drafting → draft-section → write-manuscript (with enhance-writing, tools-for-thought,
 │     frame-contributions for contribution framing)
@@ -50,7 +52,8 @@ Start: "review the literature on [topic]" / "I need a systematic review"
 │  │  └─ validate-manuscript (batch: citations + evidence + consistency)
 │  └─ Want a VERIFIED END-STATE (loop until clean, then hand off to humans)?
 │     └─ verify-review (units-remaining loop over the checks above; weights citation
-│        integrity ×3; stops at VERIFIED | BLOCKED_ON_HUMAN | PLATEAU | CEILING;
+│        integrity ×3; profile-aware registration for Cochrane/current GRADE;
+│        stops at VERIFIED | BLOCKED_ON_HUMAN | PLATEAU | CEILING;
 │        runnable backend review_units.py)
 │
 └─ Reporting → prisma-flow (PRISMA 2020 flow from REAL counts, reconciliation-gated)
@@ -85,12 +88,13 @@ absence and fall back to the keyless scripts automatically.
 |:------|:------|:-------|
 | design-review-protocol | protocol | — |
 | generate-screening-criteria | protocol | — |
+| cochrane-intervention | systematic-review profile (MECIR-oriented) | cochrane_profile.py |
 | acquire-corpus | search | search_openalex.py |
 | dedupe-records | dedup | dedupe_records.py |
 | screen-literature | screening | kappa.py |
 | extract-synthesis | extraction | — |
 | appraise-risk-of-bias | appraisal (human-gated) | rob_appraisal.py |
-| validate-evidence | grading (GRADE) | grade_profile.py |
+| validate-evidence | grading (GRADE) | grade_profile.py, grade_profile_current.py |
 | structure-arguments | synthesis/drafting | — |
 | recursive-lit-review | large-corpus synthesis | — |
 | synthesize-research | orchestrator | — |
@@ -107,6 +111,14 @@ absence and fall back to the keyless scripts automatically.
 | prisma-flow | reporting | prisma_flow.py, prisma_checklist.py, prisma_compliance.py, prisma_abstract_checklist.py, prisma_updated_flow.py |
 | orchestrate-research | orchestration | — |
 | review-literature | orchestration | rlm_corpus_loader.py |
+
+### verify-review methodology registrations
+
+The profile integration layer registers `cochrane_profile → U_cochrane` and
+`grade_profile_current → U_grade_current`. Declaring
+`profile: cochrane_intervention` automatically puts `U_cochrane` in frozen scope;
+current/full GRADE remains explicit because the legacy certainty contract is still
+supported. See `skills/verify-review/references/research-profile-integration.md`.
 
 ---
 
