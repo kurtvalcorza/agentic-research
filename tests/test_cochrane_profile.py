@@ -8,8 +8,17 @@ from _load import load
 cp = load("skills/cochrane-intervention/scripts/cochrane_profile.py")
 
 
-def human(identifier, decision=None, value=None, judgment=None):
-    row = {"id": identifier, "actor_type": "human"}
+def human(identifier, *, decision=None, value=None, judgment=None,
+          recorded_at="2026-08-01T09:00:00", attestation=None):
+    row = {
+        "id": identifier,
+        "actor_type": "human",
+        "recorded_at": recorded_at,
+        "independence_attestation": (
+            attestation
+            or f"{identifier} recorded this independently before seeing the co-reviewer's judgment."
+        ),
+    }
     if decision is not None:
         row["decision"] = decision
     if value is not None:
@@ -17,6 +26,10 @@ def human(identifier, decision=None, value=None, judgment=None):
     if judgment is not None:
         row["judgment"] = judgment
     return row
+
+
+def binary_value(events_a=10, n_a=100, events_b=20, n_b=100):
+    return {"groups": [{"n": n_a, "events": events_a}, {"n": n_b, "events": events_b}]}
 
 
 def valid_record():
@@ -38,8 +51,16 @@ def valid_record():
             "missing_results_bias_plan": "Assess missing results at synthesis level.",
             "grade_plan": "GRADE each important outcome.",
             "team": [
-                {"id": "alice", "actor_type": "human", "roles": ["screening", "extraction"], "expertise": ["systematic review methods"]},
-                {"id": "bob", "actor_type": "human", "roles": ["screening", "RoB"], "expertise": ["clinical domain expertise"]},
+                {
+                    "id": "alice", "actor_type": "human",
+                    "roles": ["screening", "extraction"],
+                    "expertise": ["methodologist", "statistician"],
+                },
+                {
+                    "id": "bob", "actor_type": "human",
+                    "roles": ["screening", "RoB"],
+                    "expertise": ["topic_expert"],
+                },
             ],
             "conflicts_of_interest": ["No relevant conflicts declared by Alice or Bob."],
             "stakeholder_involvement": "Patient/public input considered during outcome prioritisation.",
@@ -62,7 +83,6 @@ def valid_record():
             ],
             "embase": {"available": False, "searched": False, "justification": "No licensed Embase access."},
             "imported_corpus": False,
-            "acquisition_manifest": "not applicable",
         },
         "studies": [
             {"study_id": "S1", "reports": ["R1", "R2"], "primary_report": "R1", "design": "rct"}
@@ -91,9 +111,10 @@ def valid_record():
                 "outcome": "Outcome O", "outcome_definition": "Binary event",
                 "time_point": "12 months", "analysis_population": "intention-to-treat",
                 "effect_measure": "risk ratio", "source_location": "R1 p.7",
-                "extractor_a": human("alice", value={"events": [10, 20], "n": [100, 100]}),
-                "extractor_b": human("bob", value={"events": [10, 20], "n": [100, 100]}),
-                "reconciled_value": {"events": [10, 20], "n": [100, 100]},
+                "outcome_type": "binary",
+                "extractor_a": human("alice", value=binary_value()),
+                "extractor_b": human("bob", value=binary_value()),
+                "reconciled_value": binary_value(),
                 "reconciliation_note": "Agreement.",
             }
         ],
@@ -113,7 +134,11 @@ def valid_record():
         "missing_results_bias": [
             {"result_id": "O1", "judgment": "not suspected", "rationale": "Protocol and reported outcomes were compared."}
         ],
-        "grade_linkage": {"missing_results_bias_feeds_grade": True},
+        "grade_linkage": {
+            "linked_results": [
+                {"result_id": "O1", "grade_outcome": "Outcome O at 12 months", "certainty_domain": "publication_bias"}
+            ]
+        },
     }
 
 
@@ -138,9 +163,23 @@ class CochraneProfileTests(unittest.TestCase):
 
     def test_same_person_twice_is_not_independent(self):
         r = valid_record()
-        r["screening"][0]["reviewer_b"]["id"] = "alice"
+        r["screening"][0]["reviewer_b"] = human("alice", decision="include")
         errors = cp.check(self.parsed(r))
         self.assertTrue(any("must be distinct people" in e for e in errors))
+
+    def test_reviewer_not_in_protocol_team_fails_independence_gate(self):
+        r = valid_record()
+        r["screening"][0]["reviewer_b"] = human("carol", decision="include")
+        errors = cp.check(self.parsed(r))
+        self.assertTrue(any("not a declared member of protocol.team" in e for e in errors))
+
+    def test_identical_independence_attestation_is_rejected(self):
+        r = valid_record()
+        same_text = "Recorded independently."
+        r["screening"][0]["reviewer_a"]["independence_attestation"] = same_text
+        r["screening"][0]["reviewer_b"]["independence_attestation"] = same_text
+        errors = cp.check(self.parsed(r))
+        self.assertTrue(any("must not be identical boilerplate" in e for e in errors))
 
     def test_every_linked_report_requires_full_text_record(self):
         r = valid_record()
@@ -158,11 +197,58 @@ class CochraneProfileTests(unittest.TestCase):
         errors = cp.check(self.parsed(r))
         self.assertTrue(any("requires an exclusion reason" in e for e in errors))
 
+    def test_reconciliation_cannot_silently_overturn_unanimous_screening_decision(self):
+        r = valid_record()
+        row = r["screening"][0]
+        row["reconciled_decision"] = "exclude"
+        row["exclusion_reason"] = "Overturned on reconciliation."
+        row["reconciliation_note"] = ""
+        errors = cp.check(self.parsed(r))
+        self.assertTrue(any("overturns unanimous reviewers" in e for e in errors))
+
     def test_duplicate_outcome_extraction_requires_two_humans(self):
         r = valid_record()
         r["extractions"][0]["extractor_b"]["actor_type"] = "agent"
         errors = cp.check(self.parsed(r))
         self.assertTrue(any("extraction" in e and "human actors" in e for e in errors))
+
+    def test_null_extraction_value_is_rejected(self):
+        r = valid_record()
+        r["extractions"][0]["extractor_a"]["value"] = None
+        r["extractions"][0]["extractor_b"]["value"] = None
+        r["extractions"][0]["reconciled_value"] = None
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_binary_extraction_requires_two_arms(self):
+        r = valid_record()
+        r["extractions"][0]["extractor_a"]["value"] = {"groups": [{"n": 100, "events": 10}]}
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_binary_extraction_rejects_events_exceeding_n(self):
+        r = valid_record()
+        r["extractions"][0]["extractor_a"]["value"] = binary_value(events_a=200, n_a=100)
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_precomputed_effect_requires_ci_bounds(self):
+        r = valid_record()
+        row = r["extractions"][0]
+        row["outcome_type"] = "precomputed_effect"
+        effect = {"estimate": 0.8, "ci_lower": 0.6, "ci_upper": 1.1}
+        row["extractor_a"]["value"] = effect
+        row["extractor_b"]["value"] = effect
+        row["reconciled_value"] = effect
+        self.assertEqual([], cp.check(self.parsed(r)))
+
+    def test_reconciliation_cannot_silently_overturn_unanimous_extraction_value(self):
+        r = valid_record()
+        row = r["extractions"][0]
+        row["reconciled_value"] = binary_value(events_a=15)
+        row["reconciliation_note"] = ""
+        errors = cp.check(self.parsed(r))
+        self.assertTrue(any("overturns unanimous extractors" in e for e in errors))
 
     def test_rct_routes_to_rob2(self):
         r = valid_record()
@@ -178,6 +264,14 @@ class CochraneProfileTests(unittest.TestCase):
         errors = cp.check(self.parsed(r))
         self.assertTrue(any("must route to ROBINS-I" in e for e in errors))
 
+    def test_reconciliation_cannot_silently_overturn_unanimous_rob_judgment(self):
+        r = valid_record()
+        row = r["risk_of_bias"][0]
+        row["reconciled_judgment"] = "high"
+        row["reconciliation_note"] = ""
+        errors = cp.check(self.parsed(r))
+        self.assertTrue(any("overturns unanimous assessors" in e for e in errors))
+
     def test_missing_rob_for_extracted_result_fails(self):
         r = valid_record()
         r["risk_of_bias"] = []
@@ -190,6 +284,14 @@ class CochraneProfileTests(unittest.TestCase):
         r["search"]["sources"] = [s for s in r["search"]["sources"] if s["name"] != "CENTRAL"]
         errors = cp.check(self.parsed(r))
         self.assertTrue(any("CENTRAL is required" in e for e in errors))
+
+    def test_medline_ovid_variant_is_recognised(self):
+        r = valid_record()
+        for s in r["search"]["sources"]:
+            if s["name"] == "MEDLINE":
+                s["name"] = "MEDLINE (Ovid)"
+        errors = cp.check(self.parsed(r))
+        self.assertFalse(any("MEDLINE/PubMed is required" in e for e in errors))
 
     def test_available_embase_must_be_searched(self):
         r = valid_record()
@@ -206,9 +308,36 @@ class CochraneProfileTests(unittest.TestCase):
     def test_imported_corpus_requires_manifest(self):
         r = valid_record()
         r["search"]["imported_corpus"] = True
-        r["search"]["acquisition_manifest"] = ""
         errors = cp.check(self.parsed(r))
         self.assertTrue(any("imported/pre-collected corpora" in e for e in errors))
+
+    def test_acquisition_manifest_must_be_structured_object(self):
+        r = valid_record()
+        r["search"]["imported_corpus"] = True
+        r["search"]["acquisition_manifest"] = "x"
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_acquisition_manifest_captured_by_must_be_team_member(self):
+        r = valid_record()
+        r["search"]["imported_corpus"] = True
+        r["search"]["acquisition_manifest"] = {
+            "reference": "search-log-2026-08-01.ris",
+            "digest": "sha256:abc123",
+            "captured_by": "mallory",
+        }
+        errors = cp.check(self.parsed(r))
+        self.assertTrue(any("must be a declared protocol.team member" in e for e in errors))
+
+    def test_acquisition_manifest_accepted_when_captured_by_team_member(self):
+        r = valid_record()
+        r["search"]["imported_corpus"] = True
+        r["search"]["acquisition_manifest"] = {
+            "reference": "search-log-2026-08-01.ris",
+            "digest": "sha256:abc123",
+            "captured_by": "alice",
+        }
+        self.assertEqual([], cp.check(self.parsed(r)))
 
     def test_report_cannot_link_to_two_studies(self):
         r = valid_record()
@@ -219,14 +348,32 @@ class CochraneProfileTests(unittest.TestCase):
     def test_missing_results_bias_is_first_class_and_required(self):
         r = valid_record()
         r["missing_results_bias"] = [{"result_id": "OTHER", "judgment": "unclear", "rationale": "No data."}]
+        r["grade_linkage"]["linked_results"] = [
+            {"result_id": "OTHER", "grade_outcome": "Outcome O at 12 months", "certainty_domain": "publication_bias"}
+        ]
         errors = cp.check(self.parsed(r))
         self.assertTrue(any("O1" in e and "assessment is required" in e for e in errors))
 
-    def test_missing_results_bias_must_feed_grade(self):
+    def test_missing_results_bias_must_be_linked_to_named_grade_outcome(self):
         r = valid_record()
-        r["grade_linkage"]["missing_results_bias_feeds_grade"] = False
+        r["grade_linkage"]["linked_results"] = [
+            {"result_id": "SOMETHING_ELSE", "grade_outcome": "Unrelated", "certainty_domain": "publication_bias"}
+        ]
         errors = cp.check(self.parsed(r))
-        self.assertTrue(any("must explicitly feed" in e for e in errors))
+        self.assertTrue(any("is not linked to a named" in e for e in errors))
+        self.assertTrue(any("has no corresponding missing_results_bias record" in e for e in errors))
+
+    def test_expertise_must_use_declared_vocabulary(self):
+        r = valid_record()
+        r["protocol"]["team"][0]["expertise"] = ["no methodologist on team"]
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_statistician_expertise_is_required(self):
+        r = valid_record()
+        r["protocol"]["team"][0]["expertise"] = ["methodologist"]
+        errors = cp.check(self.parsed(r))
+        self.assertTrue(any("'statistician'" in e and "not recorded" in e for e in errors))
 
     def test_unknown_field_is_malformed(self):
         r = valid_record()
@@ -237,6 +384,18 @@ class CochraneProfileTests(unittest.TestCase):
     def test_malformed_actor_type_is_not_coerced(self):
         r = valid_record()
         r["screening"][0]["reviewer_a"]["actor_type"] = True
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_missing_recorded_at_is_malformed(self):
+        r = valid_record()
+        del r["screening"][0]["reviewer_a"]["recorded_at"]
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_invalid_recorded_at_timestamp_is_malformed(self):
+        r = valid_record()
+        r["screening"][0]["reviewer_a"]["recorded_at"] = "not-a-timestamp"
         with self.assertRaises(cp.InputError):
             cp.parse(r)
 
