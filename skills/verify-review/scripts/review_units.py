@@ -4,9 +4,9 @@
 The mature loop engine is kept byte-for-byte in ``review_units_core.py``. This
 entry point registers opt-in research-profile checks that live on independent
 feature branches: current/full GRADE and the Cochrane intervention-review profile.
-It mutates the core's declarative tables before re-exporting its API, so the same
-validation, scope, routing, preview, manifest, and fail-closed machinery remains
-the single implementation.
+It mutates the core's declarative unit/check vocabulary before re-exporting its
+API, while keeping profile-only optional records in this wrapper so the parent's
+closed optional-record contract remains exact.
 
 PROFILE ACTIVATION
   ``profile: "cochrane_intervention"`` is valid only with
@@ -18,9 +18,9 @@ CURRENT GRADE
   ``U_grade_current`` is registered as an explicit opt-in unit/check because the
   repository preserves the legacy GRADE contract alongside current/full mode.
   Put ``U_grade_current`` in ``units_in_scope`` and declare the
-  ``grade_profile_current`` check. Its optional ``rob_record`` is an appraisal
-  route, so supplying it requires ``rob_appraisal`` to run on the same record,
-  preserving the human-gate identity invariant.
+  ``grade_profile_current`` check. Its wrapper-owned optional ``rob_record`` is an
+  appraisal route, so supplying it requires ``rob_appraisal`` to run on the same
+  record, preserving the human-gate identity invariant.
 
 WHAT THIS CANNOT CHECK
   Registration cannot authenticate a review profile, an appraisal confirmation,
@@ -65,7 +65,11 @@ _core.CHECK_TABLE.update({
         "script": ("skills", "validate-evidence", "scripts", "grade_profile_current.py"),
         "units": ("U_grade_current",),
         "gates": (),
-        "optional_records": (("rob_record", "--rob"),),
+        # Profile-only secondary records are intentionally NOT stored in this
+        # parent table. The core regression suite proves that every secondary key
+        # in CHECK_TABLE belongs to the core's own appraisal/PRISMA closure. This
+        # wrapper owns and validates its extension in PROFILE_OPTIONAL_RECORDS.
+        "optional_records": (),
         "conditional_units": {},
     },
     "cochrane_profile": {
@@ -77,10 +81,13 @@ _core.CHECK_TABLE.update({
     },
 })
 
-# The parent engine deliberately owns only the appraisal routes registered in its
-# own CHECK_TABLE. Profile extensions are enumerated here instead of mutating the
-# parent's APPRAISAL_ROUTES set: that keeps the core closure invariant meaningful
-# while giving this integration layer an equally explicit closure of its own.
+# Wrapper-owned argv vocabulary. Keeping this separate from CHECK_TABLE is not a
+# bypass: _validated_checks_with_profiles validates it against a closed schema,
+# resolves every path through the same runner containment boundary, appends only
+# the fixed flag declared here, and then enforces appraisal file identity.
+PROFILE_OPTIONAL_RECORDS = {
+    "grade_profile_current": (("rob_record", "--rob"),),
+}
 PROFILE_APPRAISAL_ROUTES = {("grade_profile_current", "rob_record")}
 
 # Rebuild producer maps after extending the declarative table. The core's compute
@@ -125,18 +132,57 @@ def _validated_scope_with_profile(data):
 
 
 def _validated_checks_with_profiles(data, runner):
-    """Validate core checks, then close appraisal identity for profile routes.
+    """Validate core checks plus wrapper-owned profile secondary records.
 
-    The parent engine enforces this invariant for the routes it owns. Current GRADE
-    is registered by this wrapper, so its ``rob_record`` is checked here against
-    the same ``rob_appraisal.record`` identity rule rather than mutating the core's
-    route enumeration behind its regression tests.
+    The core validator owns the base check schema. For a profile check, this layer
+    first validates the extension keys against PROFILE_OPTIONAL_RECORDS, removes
+    those keys from a shallow validation copy, and lets the unchanged core validate
+    everything else. It then appends only the fixed flags declared above, resolves
+    their paths through the same CheckRunner containment boundary, and closes the
+    current-GRADE appraisal identity rule against ``rob_appraisal.record``.
     """
-    out = _base_validated_checks(data, runner)
     raw = data.get("checks")
     if not isinstance(raw, dict):
-        return out  # the core already handled absent/malformed shapes
+        return _base_validated_checks(data, runner)
 
+    # Build a validation-only copy in which wrapper-owned optional keys are removed.
+    # The original record remains untouched and is used below to build the final
+    # argv. Unknown extension keys fail here before any subprocess can run.
+    sanitized = dict(data)
+    sanitized_checks = dict(raw)
+    for name, option_specs in PROFILE_OPTIONAL_RECORDS.items():
+        entry = raw.get(name)
+        if not isinstance(entry, dict):
+            continue  # core validator owns the missing/wrong-type diagnostic
+        allowed = {"record"} | {key for key, _ in option_specs}
+        _core._reject_unknown_keys(entry, allowed, f"checks.{name}")
+        option_keys = {key for key, _ in option_specs}
+        sanitized_checks[name] = {
+            key: value for key, value in entry.items() if key not in option_keys
+        }
+    sanitized["checks"] = sanitized_checks
+
+    out = _base_validated_checks(sanitized, runner)
+
+    # Add the wrapper-owned fixed argv. `runner.argv_for` already resolved and
+    # validated the primary record; secondary paths go through contained_record.
+    for name, option_specs in PROFILE_OPTIONAL_RECORDS.items():
+        entry = raw.get(name)
+        if not isinstance(entry, dict) or name not in out:
+            continue
+        argv, expected = out[name]
+        argv = list(argv)
+        for key, flag in option_specs:
+            if key in entry:
+                argv += [
+                    flag,
+                    runner.contained_record(entry[key], f"checks.{name}.{key}"),
+                ]
+        out[name] = (argv, expected)
+
+    # A profile check that reads an appraisal must share the exact file with the
+    # H_rob owner. This is structural, not scope-dependent: an out-of-scope unit
+    # must not make a pending signature disappear from the verdict.
     for name, key in sorted(PROFILE_APPRAISAL_ROUTES):
         entry = raw.get(name)
         if not (isinstance(entry, dict) and key in entry):
@@ -171,8 +217,9 @@ for _name in dir(_core):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_core, _name)
 
-# Wrapper-owned integration vocabulary is intentionally exported after the core so
-# callers/tests can distinguish parent routes from routes introduced by this layer.
+# Wrapper-owned integration vocabulary is exported after the core so callers and
+# tests can distinguish parent closure from profile extension closure.
+globals()["PROFILE_OPTIONAL_RECORDS"] = PROFILE_OPTIONAL_RECORDS
 globals()["PROFILE_APPRAISAL_ROUTES"] = PROFILE_APPRAISAL_ROUTES
 
 
