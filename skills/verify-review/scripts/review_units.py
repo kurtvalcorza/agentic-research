@@ -10,9 +10,11 @@ closed optional-record contract remains exact.
 
 PROFILE ACTIVATION
   ``profile: "cochrane_intervention"`` is valid only with
-  ``review_type: "systematic"`` and automatically adds ``U_cochrane`` to the
-  frozen scope. Omitting the ``cochrane_profile`` check therefore leaves that unit
-  underived and prevents VERIFIED; the profile cannot be declared and then ignored.
+  ``review_type: "systematic"`` and requires an explicit ``units_in_scope``
+  declaration. The integration appends ``U_cochrane`` to that frozen scope when
+  missing; it never creates a singleton scope from the profile alone. Omitting the
+  ``cochrane_profile`` check therefore leaves that unit underived and prevents
+  VERIFIED without suppressing defects from the review's already-declared scope.
 
 CURRENT GRADE
   ``U_grade_current`` is registered as an explicit opt-in unit/check because the
@@ -122,12 +124,18 @@ def _validated_scope_with_profile(data):
         raise _core.InputError(
             "profile: cochrane_intervention requires review_type 'systematic'"
         )
+    if not declared_present:
+        raise _core.InputError(
+            "profile: cochrane_intervention requires explicit units_in_scope; "
+            "profile activation may add U_cochrane but cannot define the rest of "
+            "the frozen review scope"
+        )
     scoped = list(declared)
     if "U_cochrane" not in scoped:
         scoped.append("U_cochrane")
-    # A declared methodological profile is itself a scope declaration. This means
-    # the rigorous path applies even if units_in_scope was omitted: gates must be
-    # explicit and U_cochrane must be derived before VERIFIED is reachable.
+    # A methodological profile augments an already-declared frozen scope. It must
+    # never create scope by itself: doing so would turn an otherwise lenient record
+    # into a singleton U_cochrane scope and silently discard other derived defects.
     return scoped, True
 
 

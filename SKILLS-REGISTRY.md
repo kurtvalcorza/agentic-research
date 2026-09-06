@@ -116,9 +116,11 @@ absence and fall back to the keyless scripts automatically.
 
 The profile integration layer registers `cochrane_profile → U_cochrane` and
 `grade_profile_current → U_grade_current`. Declaring
-`profile: cochrane_intervention` automatically puts `U_cochrane` in frozen scope;
-current/full GRADE remains explicit because the legacy certainty contract is still
-supported. See `skills/verify-review/references/research-profile-integration.md`.
+`profile: cochrane_intervention` requires an explicit `units_in_scope` declaration;
+the integration appends `U_cochrane` to that frozen scope if it is not already
+named, but never creates the rest of the scope from the profile. Current/full GRADE
+remains explicit because the legacy certainty contract is still supported. See
+`skills/verify-review/references/research-profile-integration.md`.
 
 ---
 

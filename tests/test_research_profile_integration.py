@@ -49,6 +49,19 @@ class ResearchProfileIntegrationTests(unittest.TestCase):
             ru.PROFILE_APPRAISAL_ROUTES,
         )
 
+    def test_every_wrapper_optional_record_is_pinned_to_an_appraisal_route(self):
+        optional_routes = {
+            (name, key)
+            for name, option_specs in ru.PROFILE_OPTIONAL_RECORDS.items()
+            for key, _flag in option_specs
+        }
+        self.assertEqual(
+            optional_routes,
+            ru.PROFILE_APPRAISAL_ROUTES,
+            "a new wrapper-owned secondary record must not bypass the H_rob "
+            "identity closure silently",
+        )
+
     def test_current_grade_appraisal_requires_gate_owner_on_same_record(self):
         runner = _Runner()
         with self.assertRaises(ru.InputError):
@@ -116,13 +129,12 @@ class ResearchProfileIntegrationTests(unittest.TestCase):
                 runner,
             )
 
-    def test_cochrane_profile_activates_its_unit_without_manual_scope_entry(self):
-        scope, declared = ru._validated_scope({
-            "review_type": "systematic",
-            "profile": "cochrane_intervention",
-        })
-        self.assertTrue(declared)
-        self.assertIn("U_cochrane", scope)
+    def test_cochrane_profile_requires_explicit_frozen_scope(self):
+        with self.assertRaisesRegex(ru.InputError, "requires explicit units_in_scope"):
+            ru._validated_scope({
+                "review_type": "systematic",
+                "profile": "cochrane_intervention",
+            })
 
     def test_cochrane_profile_augments_existing_frozen_scope(self):
         scope, declared = ru._validated_scope({
