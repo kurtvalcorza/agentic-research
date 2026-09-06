@@ -7,6 +7,21 @@ from _load import load
 ru = load("skills/verify-review/scripts/review_units.py")
 
 
+class _Runner:
+    """Minimal runner for structural checks-block validation."""
+
+    def argv_for(self, name, entry):
+        return [name, entry["record"]]
+
+    def contained_record(self, value, ctx):
+        if not isinstance(value, str) or not value:
+            raise ru.InputError(f"{ctx}: expected path")
+        return value
+
+    def same_record(self, a, b):
+        return a == b
+
+
 class ResearchProfileIntegrationTests(unittest.TestCase):
     def test_new_units_are_registered_with_weights(self):
         self.assertEqual(1, ru.DEFAULT_WEIGHTS["U_grade_current"])
@@ -15,11 +30,63 @@ class ResearchProfileIntegrationTests(unittest.TestCase):
         self.assertEqual("cochrane_profile", ru.DERIVED_BY["U_cochrane"])
 
     def test_current_grade_reuses_the_appraisal_identity_rule(self):
-        self.assertIn(("grade_profile_current", "rob_record"), ru.APPRAISAL_ROUTES)
+        self.assertEqual(
+            {("grade_profile", "rob_record")},
+            ru.APPRAISAL_ROUTES,
+            "the parent engine keeps ownership of its own appraisal routes",
+        )
+        self.assertIn(
+            ("grade_profile_current", "rob_record"),
+            ru.PROFILE_APPRAISAL_ROUTES,
+        )
         self.assertEqual(
             (("rob_record", "--rob"),),
             ru.CHECK_TABLE["grade_profile_current"]["optional_records"],
         )
+
+    def test_current_grade_appraisal_requires_gate_owner_on_same_record(self):
+        runner = _Runner()
+        with self.assertRaises(ru.InputError):
+            ru._validated_checks(
+                {
+                    "checks": {
+                        "grade_profile_current": {
+                            "record": "grade.json",
+                            "rob_record": "pending-rob.json",
+                        }
+                    }
+                },
+                runner,
+            )
+
+        with self.assertRaises(ru.InputError):
+            ru._validated_checks(
+                {
+                    "checks": {
+                        "grade_profile_current": {
+                            "record": "grade.json",
+                            "rob_record": "pending-rob.json",
+                        },
+                        "rob_appraisal": {"record": "clean-other-rob.json"},
+                    }
+                },
+                runner,
+            )
+
+        planned = ru._validated_checks(
+            {
+                "checks": {
+                    "grade_profile_current": {
+                        "record": "grade.json",
+                        "rob_record": "same-rob.json",
+                    },
+                    "rob_appraisal": {"record": "same-rob.json"},
+                }
+            },
+            runner,
+        )
+        self.assertIn("grade_profile_current", planned)
+        self.assertIn("rob_appraisal", planned)
 
     def test_cochrane_profile_activates_its_unit_without_manual_scope_entry(self):
         scope, declared = ru._validated_scope({
