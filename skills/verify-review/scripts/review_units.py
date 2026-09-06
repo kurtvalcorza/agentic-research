@@ -77,10 +77,11 @@ _core.CHECK_TABLE.update({
     },
 })
 
-# A current-GRADE check that reads an appraisal is subject to the same record-
-# identity closure as the legacy certainty check. This forces a matching
-# ``rob_appraisal`` entry whenever ``rob_record`` is supplied.
-_core.APPRAISAL_ROUTES.add(("grade_profile_current", "rob_record"))
+# The parent engine deliberately owns only the appraisal routes registered in its
+# own CHECK_TABLE. Profile extensions are enumerated here instead of mutating the
+# parent's APPRAISAL_ROUTES set: that keeps the core closure invariant meaningful
+# while giving this integration layer an equally explicit closure of its own.
+PROFILE_APPRAISAL_ROUTES = {("grade_profile_current", "rob_record")}
 
 # Rebuild producer maps after extending the declarative table. The core's compute
 # and preview functions read these module globals at call time.
@@ -96,6 +97,7 @@ _core.DERIVED_BY_GATE = {
 }
 
 _base_validated_scope = _core._validated_scope
+_base_validated_checks = _core._validated_checks
 
 
 def _validated_scope_with_profile(data):
@@ -122,13 +124,56 @@ def _validated_scope_with_profile(data):
     return scoped, True
 
 
+def _validated_checks_with_profiles(data, runner):
+    """Validate core checks, then close appraisal identity for profile routes.
+
+    The parent engine enforces this invariant for the routes it owns. Current GRADE
+    is registered by this wrapper, so its ``rob_record`` is checked here against
+    the same ``rob_appraisal.record`` identity rule rather than mutating the core's
+    route enumeration behind its regression tests.
+    """
+    out = _base_validated_checks(data, runner)
+    raw = data.get("checks")
+    if not isinstance(raw, dict):
+        return out  # the core already handled absent/malformed shapes
+
+    for name, key in sorted(PROFILE_APPRAISAL_ROUTES):
+        entry = raw.get(name)
+        if not (isinstance(entry, dict) and key in entry):
+            continue
+        rob = raw.get("rob_appraisal")
+        if not isinstance(rob, dict) or "record" not in rob:
+            raise _core.InputError(
+                f"checks.{name}: supplies {key!r} but no 'rob_appraisal' entry "
+                f"runs that record. Pending signatures in it would be counted by "
+                f"nothing, so the appraisal check must run alongside"
+            )
+        mine = runner.contained_record(entry[key], f"checks.{name}.{key}")
+        theirs = runner.contained_record(
+            rob["record"], "checks.rob_appraisal.record"
+        )
+        if not runner.same_record(mine, theirs):
+            raise _core.InputError(
+                f"checks.{name}.{key} and checks.rob_appraisal.record name "
+                f"DIFFERENT files ({entry[key]!r} vs {rob['record']!r}). They must "
+                f"be the same appraisal so pending signatures cannot disappear "
+                f"between the profile check and the H_rob owner"
+            )
+    return out
+
+
 _core._validated_scope = _validated_scope_with_profile
+_core._validated_checks = _validated_checks_with_profiles
 
 # Re-export the core API after mutation. Functions remain bound to the core module,
-# whose globals above now contain the extended tables and scope resolver.
+# whose globals above now contain the extended tables and scope/check resolvers.
 for _name in dir(_core):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_core, _name)
+
+# Wrapper-owned integration vocabulary is intentionally exported after the core so
+# callers/tests can distinguish parent routes from routes introduced by this layer.
+globals()["PROFILE_APPRAISAL_ROUTES"] = PROFILE_APPRAISAL_ROUTES
 
 
 if __name__ == "__main__":
