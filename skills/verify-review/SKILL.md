@@ -53,6 +53,9 @@ The progress scalar is a **weighted** sum `U = Σ (weightᵢ × unitᵢ)`, recom
 | `U_grade` | 1 | `validate-evidence` | results failing `grade_profile.py --strict` — missing domain, illegal upgrade, arithmetic mismatch, unjustified starting level. **Read the `U_grade: N` line the check prints; do not count diagnostics.** One result can raise four, and counting messages books four units of work for one broken result |
 | `U_rob_trace` | 1 | `validate-evidence` | studies cited as confirmed-appraisal backing that do not resolve at the named `(study, result)` target (`grade_profile.py --rob`); matching but unconfirmed appraisals are excluded and counted only by `H_rob` |
 | `U_checklist` | 1 | `prisma-flow` | PRISMA rows neither located nor justified (`prisma_checklist.py --strict`), over all **42** addressable rows |
+| `U_prisma_compliance` | 1 | `prisma-flow` | 42-row **compliance** rows with a repairable reporting defect — missing from the record, disposed by neither a location nor an N/A justification, or located without substantive evidence (`prisma_compliance.py --strict`). A row whose only gap is the human confirmation is excluded and counted by `H_prisma_evidence` |
+| `U_prisma_abstract` | 1 | `prisma-flow` | the same, over the **12** PRISMA 2020 for Abstracts items (`prisma_abstract_checklist.py --strict`) |
+| `U_prisma_updated` | 1 | `prisma-flow` | updated-review flow stages that do not reconcile (`prisma_updated_flow.py --strict`) |
 
 > **`U_grade` was redefined.** It previously counted "themes/outcomes not yet GRADE-graded", which
 > had no operational definition and so could never fail for the right reason. It is now **defined
@@ -79,6 +82,7 @@ Name the record each check runs against:
 |:--|:--|
 | `prisma_flow` | `U_prisma` |
 | `prisma_checklist` | `U_checklist` |
+| `prisma_reporting_checks` | `U_prisma_compliance`, and `U_prisma_abstract` / `U_prisma_updated` **only when their record is given** |
 | `grade_profile` | `U_grade`, and `U_rob_trace` **only when `rob_record` is given** |
 | `rob_appraisal` | the `H_rob` gate |
 
@@ -156,6 +160,7 @@ The loop runs on **both** registrable/systematic reviews and the lighter narrati
 | `U_grade` | ✅ | ✅ | ✅ | ⬜ no certainty grading | only if grading was performed |
 | `U_rob_trace` | ✅ | ✅ | ⬜ heuristic basis permitted | ⬜ | ⬜ |
 | `U_checklist` | ✅ | ✅ | ✅ | ⬜ ScR variant not implemented | ⬜ |
+| `U_prisma_compliance`, `U_prisma_abstract`, `U_prisma_updated` | opt-in | opt-in | opt-in | opt-in | opt-in |
 | `U_prisma` | ✅ | ✅ | ✅ | ✅ | ⬜ no PRISMA flow |
 | `U_screen` | ✅ dual-reviewer | ✅ | ⬜ single screening permitted | ✅ | ⬜ no dual-screening κ |
 | `H_rob` | ✅ | ✅ | ⬜ | ⬜ | ⬜ |
@@ -215,8 +220,13 @@ Each cycle:
 | `U_screen` | `screen-literature` re-screen of the disagreement subset |
 | `U_extract` | `extract-synthesis` re-reconcile the flagged extraction fields |
 | `U_grade` | `validate-evidence` → fix the results `grade_profile.py --strict` reports: a missing domain, an illegal upgrade, arithmetic that does not reconcile, or a starting level inconsistent with the predominant design |
+| `U_grade_current` | `validate-evidence` → fix the result-level defects `grade_profile_current.py --strict` reports; when the failure is `confirmed_rob` traceability, repair the exact `(study, result)` appraisal in `appraise-risk-of-bias` and rerun with the same `rob_record` |
+| `U_cochrane` | `cochrane-intervention` → repair the protocol/search/screening/extraction/RoB/GRADE-linkage defect named by `cochrane_profile.py --strict`; do not collapse the profile back to generic `systematic` |
 | `U_rob_trace` | `appraise-risk-of-bias` → create the missing appraisal or correct the study/result identifiers the certainty record cites. **Matching but unconfirmed appraisals are excluded from this unit and counted only by the human gate (`H_rob`) — hand off, do not loop.** |
 | `U_checklist` | `prisma-flow` → address the reported rows in the manuscript, or record an explicit `not_applicable` justification for each. Remember completeness is over all **42** rows, not the 27 numbered items |
+| `U_prisma_compliance` | `prisma-flow` → supply the missing location/justification or the substantive evidence for each reported row. **Rows awaiting a human confirmation are excluded from this unit and counted only by `H_prisma_evidence` — hand off, do not loop.** |
+| `U_prisma_abstract` | `prisma-flow` → same repair over the 12 abstract items; the abstract checklist is separate from main item 2 |
+| `U_prisma_updated` | `prisma-flow` → trace the previous-review, new-search or updated-total count that does not reconcile. The variant is declared, never inferred |
 
 **Every unit in `DEFAULT_WEIGHTS` must appear in this table.** The backend can nominate any
 registered unit as `dominant_unit`, and Step 4's `CONTINUE → route to the repair skill` has nothing

@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "variant": "prisma_2020_abstracts",
+  "verification": "addressability",
+  "items": [
+    {
+      "number": "1",
+      "location": "Abstract sentence for item 1"
+    },
+    {
+      "number": "2",
+      "location": "Abstract sentence for item 2"
+    },
+    {
+      "number": "3",
+      "location": "Abstract sentence for item 3"
+    },
+    {
+      "number": "4",
+      "location": "Abstract sentence for item 4"
+    },
+    {
+      "number": "5",
+      "location": "Abstract sentence for item 5"
+    },
+    {
+      "number": "6",
+      "location": "Abstract sentence for item 6"
+    },
+    {
+      "number": "7",
+      "location": "Abstract sentence for item 7"
+    },
+    {
+      "number": "8",
+      "location": "Abstract sentence for item 8"
+    },
+    {
+      "number": "9",
+      "location": "Abstract sentence for item 9"
+    },
+    {
+      "number": "10",
+      "location": "Abstract sentence for item 10"
+    },
+    {
+      "number": "11",
+      "location": "Abstract sentence for item 11"
+    },
+    {
+      "number": "12",
+      "location": "Abstract sentence for item 12"
+    }
+  ]
+}
