@@ -220,6 +220,8 @@ Each cycle:
 | `U_screen` | `screen-literature` re-screen of the disagreement subset |
 | `U_extract` | `extract-synthesis` re-reconcile the flagged extraction fields |
 | `U_grade` | `validate-evidence` → fix the results `grade_profile.py --strict` reports: a missing domain, an illegal upgrade, arithmetic that does not reconcile, or a starting level inconsistent with the predominant design |
+| `U_grade_current` | `validate-evidence` → fix the result-level defects `grade_profile_current.py --strict` reports; when the failure is `confirmed_rob` traceability, repair the exact `(study, result)` appraisal in `appraise-risk-of-bias` and rerun with the same `rob_record` |
+| `U_cochrane` | `cochrane-intervention` → repair the protocol/search/screening/extraction/RoB/GRADE-linkage defect named by `cochrane_profile.py --strict`; do not collapse the profile back to generic `systematic` |
 | `U_rob_trace` | `appraise-risk-of-bias` → create the missing appraisal or correct the study/result identifiers the certainty record cites. **Matching but unconfirmed appraisals are excluded from this unit and counted only by the human gate (`H_rob`) — hand off, do not loop.** |
 | `U_checklist` | `prisma-flow` → address the reported rows in the manuscript, or record an explicit `not_applicable` justification for each. Remember completeness is over all **42** rows, not the 27 numbered items |
 | `U_prisma_compliance` | `prisma-flow` → supply the missing location/justification or the substantive evidence for each reported row. **Rows awaiting a human confirmation are excluded from this unit and counted only by `H_prisma_evidence` — hand off, do not loop.** |
