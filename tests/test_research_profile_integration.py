@@ -11,7 +11,7 @@ class _Runner:
     """Minimal runner for structural checks-block validation."""
 
     def argv_for(self, name, entry):
-        return [name, entry["record"]]
+        return [name, entry["record"], "--strict", "--json"]
 
     def contained_record(self, value, ctx):
         if not isinstance(value, str) or not value:
@@ -35,13 +35,18 @@ class ResearchProfileIntegrationTests(unittest.TestCase):
             ru.APPRAISAL_ROUTES,
             "the parent engine keeps ownership of its own appraisal routes",
         )
-        self.assertIn(
-            ("grade_profile_current", "rob_record"),
-            ru.PROFILE_APPRAISAL_ROUTES,
+        self.assertEqual(
+            (),
+            ru.CHECK_TABLE["grade_profile_current"]["optional_records"],
+            "profile-only secondary keys must not silently widen the core closure",
         )
         self.assertEqual(
             (("rob_record", "--rob"),),
-            ru.CHECK_TABLE["grade_profile_current"]["optional_records"],
+            ru.PROFILE_OPTIONAL_RECORDS["grade_profile_current"],
+        )
+        self.assertIn(
+            ("grade_profile_current", "rob_record"),
+            ru.PROFILE_APPRAISAL_ROUTES,
         )
 
     def test_current_grade_appraisal_requires_gate_owner_on_same_record(self):
@@ -87,6 +92,29 @@ class ResearchProfileIntegrationTests(unittest.TestCase):
         )
         self.assertIn("grade_profile_current", planned)
         self.assertIn("rob_appraisal", planned)
+        self.assertEqual(
+            ["grade_profile_current", "grade.json", "--strict", "--json",
+             "--rob", "same-rob.json"],
+            planned["grade_profile_current"][0],
+            "the wrapper must append the fixed --rob flag after core validation",
+        )
+
+    def test_unknown_profile_option_fails_closed(self):
+        runner = _Runner()
+        with self.assertRaises(ru.InputError):
+            ru._validated_checks(
+                {
+                    "checks": {
+                        "grade_profile_current": {
+                            "record": "grade.json",
+                            "rob_record": "rob.json",
+                            "args": ["--anything"],
+                        },
+                        "rob_appraisal": {"record": "rob.json"},
+                    }
+                },
+                runner,
+            )
 
     def test_cochrane_profile_activates_its_unit_without_manual_scope_entry(self):
         scope, declared = ru._validated_scope({
