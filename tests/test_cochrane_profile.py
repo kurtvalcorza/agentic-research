@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from _load import load
@@ -404,6 +409,125 @@ class CochraneProfileTests(unittest.TestCase):
         before = copy.deepcopy(r)
         cp.parse(r)
         self.assertEqual(before, r)
+
+
+def continuous_value(n_a=100, mean_a=5.0, sd_a=1.2, n_b=100, mean_b=4.0, sd_b=1.1):
+    return {"groups": [
+        {"n": n_a, "mean": mean_a, "sd": sd_a},
+        {"n": n_b, "mean": mean_b, "sd": sd_b},
+    ]}
+
+
+class EffectValuesMustBePossibleTests(unittest.TestCase):
+    """Negative controls for F25-09.
+
+    The structured effect payload validated field presence and ``events <= n`` but
+    treated every field as a bare number. Impossible clinical data therefore passed:
+    ``{n: -1, events: -2}`` satisfies the ordering check because ``-2 > -1`` is
+    False, fractional counts were accepted, and NaN — which ``json.loads`` admits by
+    default — makes every ordering comparison False at once. A profile that
+    certifies impossible result data as structurally valid is not enforcing the
+    RFC's structured-extraction claim.
+    """
+
+    def _record_with(self, value, *, outcome_type="binary"):
+        r = valid_record()
+        row = r["extractions"][0]
+        row["outcome_type"] = outcome_type
+        row["extractor_a"]["value"] = copy.deepcopy(value)
+        row["extractor_b"]["value"] = copy.deepcopy(value)
+        row["reconciled_value"] = copy.deepcopy(value)
+        return r
+
+    def test_negative_counts_are_malformed(self):
+        # The exact falsifier from the review: -2 > -1 is False, so the pre-existing
+        # events <= n check waved this through.
+        r = self._record_with(binary_value(events_a=-2, n_a=-1))
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_fractional_counts_are_malformed(self):
+        r = self._record_with(binary_value(events_a=10, n_a=100.5))
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_negative_sd_is_malformed(self):
+        r = self._record_with(continuous_value(sd_a=-1.0), outcome_type="continuous")
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_negative_continuous_n_is_malformed(self):
+        r = self._record_with(continuous_value(n_a=-100), outcome_type="continuous")
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_continuous_mean_may_be_negative(self):
+        """A mean change score is legitimately negative; only n and sd are bounded."""
+        r = self._record_with(
+            continuous_value(mean_a=-3.5, mean_b=-1.2), outcome_type="continuous"
+        )
+        self.assertEqual([], cp.check(cp.parse(r)))
+
+    def test_negative_se_is_malformed(self):
+        effect = {"estimate": 0.8, "ci_lower": 0.6, "ci_upper": 1.1, "se": -0.1}
+        r = self._record_with(effect, outcome_type="precomputed_effect")
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_negative_variance_is_malformed(self):
+        effect = {"estimate": 0.8, "ci_lower": 0.6, "ci_upper": 1.1, "variance": -4.0}
+        r = self._record_with(effect, outcome_type="precomputed_effect")
+        with self.assertRaises(cp.InputError):
+            cp.parse(r)
+
+    def test_non_finite_numbers_are_malformed(self):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=bad):
+                r = self._record_with(binary_value(events_a=bad))
+                with self.assertRaises(cp.InputError):
+                    cp.parse(r)
+
+    def test_nan_evades_every_ordering_check_it_would_otherwise_reach(self):
+        """Why non-finiteness is rejected at the value, not left to the comparisons.
+
+        This is the property that makes NaN dangerous rather than merely odd: the
+        existing events<=n and ci_lower<=ci_upper guards are all False for NaN, so
+        without an explicit finiteness check nothing downstream would fire.
+        """
+        nan = float("nan")
+        self.assertFalse(nan > 1)
+        self.assertFalse(nan < 1)
+        self.assertFalse(nan > nan)
+
+    def test_non_finite_json_literals_are_refused_at_the_document_layer(self):
+        for literal in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(literal=literal):
+                with self.assertRaises(cp.InputError):
+                    json.loads(
+                        '{"v": %s}' % literal,
+                        parse_constant=cp._reject_json_constant,
+                    )
+
+    def test_non_finite_literal_exits_two_rather_than_raising(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                         encoding="utf-8") as handle:
+            handle.write('{"schema_version": "1.0", "v": NaN}')
+            path = handle.name
+        self.addCleanup(os.unlink, path)
+        proc = subprocess.run(
+            [sys.executable, "skills/cochrane-intervention/scripts/cochrane_profile.py", path],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(2, proc.returncode, proc.stderr)
+        self.assertIn("not a valid JSON value", proc.stderr)
+
+    def test_a_well_formed_binary_record_still_passes(self):
+        self.assertEqual([], cp.check(cp.parse(self._record_with(binary_value()))))
+
+    def test_zero_events_are_legitimate(self):
+        """A zero-event arm is a real trial result, not a defect."""
+        r = self._record_with(binary_value(events_a=0, events_b=0))
+        self.assertEqual([], cp.check(cp.parse(r)))
 
 
 if __name__ == "__main__":
