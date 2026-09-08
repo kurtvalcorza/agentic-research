@@ -5,9 +5,32 @@ The checker supports two explicit verification levels:
 
 * ``addressability`` — every item has a location or explicit not-applicable
   justification.
-* ``compliance`` — every applicable item also carries evidence and an explicit
-  human confirmation. This prevents a location pointer from being represented as
-  substantive compliance.
+* ``compliance`` — every applicable item also carries substantive evidence and an
+  explicit human confirmation. This prevents a location pointer from being
+  represented as substantive compliance.
+
+WHAT COMPLIANCE MODE CHECKS
+  All 12 PRISMA 2020 for Abstracts items; exact item identity; located versus
+  explicitly not-applicable disposition, restricted to the items the checklist
+  itself leaves conditional (CONDITIONALLY_APPLICABLE) so an abstract cannot
+  declare a mandatory item (e.g. Title, Objectives, Eligibility criteria)
+  not-applicable; substantive evidence for located items, where "substantive"
+  means at least MIN_SUBSTANTIVE_CHARS characters and not a verbatim repeat of the
+  location text; and an explicit human confirmation for every positive or N/A
+  compliance assertion.
+
+  These are the same controls the 42-row sibling ``prisma_compliance.py`` applies,
+  for the same reason: without them a record of twelve one-character N/A strings
+  reports twelve verified items while asserting no abstract reporting at all.
+
+WHAT THIS CANNOT CHECK
+  Whether the evidence text or cited abstract passage actually satisfies the
+  PRISMA item, whether an N/A justification is substantively correct even though
+  it is long enough, whether the human confirmation is authentic or correct, or
+  whether the review itself was rigorous. The length floor and the
+  conditionally-applicable set reject vacuous and blanket-N/A records; they cannot
+  certify that a passing record is methodologically sound. PRISMA is a reporting
+  guideline.
 
 A clean result means the record satisfies the declared verification contract. It
 never means the underlying human judgment was correct.
@@ -39,6 +62,32 @@ PRISMA_ABSTRACTS = (
     ("11", "Funding"),
     ("12", "Registration"),
 )
+
+# Abstract items whose OWN PRISMA 2020 for Abstracts wording gives a review
+# nothing to report when the condition does not hold. Item 12 asks the abstract to
+# "provide the register name and registration number"; unlike 42-row item 24a it
+# carries no "or state that the review was not registered" fallback, so an
+# unregistered review has no registration to cite. Every other abstract item
+# describes something every systematic review abstract must report regardless of
+# which methods the review chose — including item 5 (which asks for the risk-of-bias
+# METHODS, not their results) and item 8 (whose meta-analysis clause is conditional
+# within an otherwise mandatory item). Without this set, an abstract could mark
+# items 1 (Title), 2 (Objectives) and 3 (Eligibility criteria) not_applicable and
+# still pass — the all-N/A record this policy exists to reject.
+# This is a documented, revisitable convention, not a PRISMA-authored rule: a
+# reviewer who disagrees with a specific inclusion changes this set, not the reader.
+CONDITIONALLY_APPLICABLE = {"12"}
+
+# A one-character "x" or "n" is a value, not an assertion. Matches the 42-row
+# checker's floor so the two compliance predicates cannot drift apart: it admits the
+# shortest plausible genuine sentence ("Not registered.") while rejecting a bare
+# token. It is a floor, not a substantiveness judgement software can make.
+MIN_SUBSTANTIVE_CHARS = 10
+
+
+def _substantive(text: str) -> bool:
+    return len(text.strip()) >= MIN_SUBSTANTIVE_CHARS
+
 
 RECORD_KEYS = {"schema_version", "variant", "verification", "items"}
 ITEM_KEYS = {"number", "location", "not_applicable", "evidence", "human_confirmed"}
@@ -173,11 +222,35 @@ def check(verification: str, entries: dict[str, dict]) -> tuple[list[str], dict[
 
         # Compliance mode deliberately requires a human gate for both a positive
         # reporting assertion and an N/A judgment. A location pointer alone is not
-        # substantive evidence that the reporting requirement is met.
-        if location and not entry["evidence"]:
-            errors.append(
-                f"item {number} ({topic}): location recorded but no substantive evidence supplied"
-            )
+        # substantive evidence that the reporting requirement is met, and an N/A is
+        # only a disposition on the items the checklist itself leaves conditional.
+        if na:
+            if number not in CONDITIONALLY_APPLICABLE:
+                errors.append(
+                    f"item {number} ({topic}): not applicable is not a legitimate "
+                    "disposition for this item — PRISMA 2020 for Abstracts requires "
+                    "every review to report it"
+                )
+            elif not _substantive(na):
+                errors.append(
+                    f"item {number} ({topic}): not-applicable justification is too "
+                    f"short to be substantive ({na!r})"
+                )
+        if location:
+            if not entry["evidence"]:
+                errors.append(
+                    f"item {number} ({topic}): location recorded but no substantive evidence supplied"
+                )
+            elif not _substantive(entry["evidence"]):
+                errors.append(
+                    f"item {number} ({topic}): evidence is too short to be substantive "
+                    f"({entry['evidence']!r})"
+                )
+            elif entry["evidence"].strip().casefold() == location.strip().casefold():
+                errors.append(
+                    f"item {number} ({topic}): evidence merely restates the location "
+                    "and asserts nothing"
+                )
         if entry["human_confirmed"] is not True:
             errors.append(
                 f"item {number} ({topic}): substantive compliance is not human-confirmed"
@@ -196,8 +269,11 @@ def mechanical_defects(verification: str, entries: dict[str, dict]) -> set[str]:
     """Abstract items with a repairable defect, under the declared level.
 
     Addressability mode asks only that an item be located or justified. Compliance
-    mode additionally requires substantive evidence behind a located item. Neither
-    counts an item that is merely awaiting its human confirmation: that is
+    mode additionally requires a legitimate, substantive N/A disposition or
+    substantive, non-restating evidence behind a located item — mirroring every
+    non-human predicate in ``check`` so a strict child failure cannot be rendered as
+    zero repairable PRISMA work at the verify-review layer. Neither mode counts an
+    item that is merely awaiting its human confirmation: that is
     ``unconfirmed_assertions``, and it reaches the verdict as a gate.
     """
     rows: set[str] = set()
@@ -209,7 +285,17 @@ def mechanical_defects(verification: str, entries: dict[str, dict]) -> set[str]:
         if not entry["location"] and not entry["not_applicable"]:
             rows.add(number)
             continue
-        if verification == "compliance" and entry["location"] and not entry["evidence"]:
+        if verification != "compliance":
+            continue
+        if entry["not_applicable"]:
+            if (number not in CONDITIONALLY_APPLICABLE
+                    or not _substantive(entry["not_applicable"])):
+                rows.add(number)
+            continue
+        evidence = entry["evidence"]
+        location = entry["location"]
+        if (not evidence or not _substantive(evidence)
+                or evidence.strip().casefold() == location.strip().casefold()):
             rows.add(number)
     return rows
 

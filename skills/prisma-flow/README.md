@@ -30,7 +30,17 @@ PRISMA remains a reporting guideline. A clean compliance record is not a methodo
 - `verification: addressability`
 - `verification: compliance`
 
-Compliance mode requires evidence for located items and a human confirmation for every positive or N/A assertion.
+Compliance mode requires substantive evidence for located items and a human confirmation for every
+positive or N/A assertion. "Substantive" is the same floor the 42-row checker applies: at least
+`MIN_SUBSTANTIVE_CHARS` characters and not a verbatim restatement of the location. Not-applicable is
+accepted only for the items the abstract checklist itself leaves conditional
+(`CONDITIONALLY_APPLICABLE`, currently item 12 alone), so a blanket all-N/A abstract record cannot
+report itself as verified.
+
+It cannot check whether the cited abstract passage actually satisfies the item, whether an N/A
+justification is correct even though it is long enough, or whether a recorded human confirmation is
+authentic. The length floor and the conditional set reject vacuous records; they do not certify a
+passing one.
 
 ## Canonical systematic-review reporting record
 
