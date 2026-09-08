@@ -18,7 +18,7 @@ The current GRADE Book is a living source. Every `2.0` record therefore carries 
 - **Evidence-Body Classification**: summarizes the design mix contributing to each result.
 - **Risk-of-Bias Synthesis**: a `confirmed_rob` basis is never accepted as a self-asserted string. Strict systematic/umbrella current-mode runs must supply `--rob` and resolve every cited study at the exact upstream `result_assessed` target. The same upstream appraisal schema used by the legacy checker is reused here.
 - **Result-Level Grading**: assigns certainty (High, Moderate, Low, Very Low) to protocol outcomes. Legacy theme-level synthesis remains available for GRADE-inspired adaptations; current/full mode is outcome-level.
-- **Decision Context**: current mode requires both free-text `target_of_certainty` and a structured `target_threshold` that names a declared threshold, effect basis, and whether the target claims that threshold is met.
+- **Decision Context**: current mode requires both free-text `target_of_certainty` and a structured `target_threshold` that names a declared threshold, effect basis, the unit the effect is expressed in, and whether the target claims that threshold is met.
 - **Effect Context**: current mode represents participant/study counts and, where applicable, relative effects, baseline risk, absolute effects, and intervals.
 
 ## Risk-of-bias provenance boundary
@@ -52,6 +52,7 @@ result
 ├── target_threshold
 │   ├── threshold_label
 │   ├── effect_basis
+│   ├── effect_unit
 │   └── claim: meets | does_not_meet
 ├── starting level
 ├── domains
@@ -80,6 +81,10 @@ A `-3` domain downgrade is representable only as a whole step and requires a vis
 For dichotomous outcomes, current mode requires the decision-relevant chain needed for absolute effects: relative estimate and interval, baseline risk, absolute effect and interval. Continuous outcomes require a continuous estimate and interval. Narrative/no-pooled-estimate outcomes remain representable but must still identify contributing studies and participants.
 
 The structured `target_threshold` is deliberately conservative. For one-sided `above`/`below` thresholds, the checker flags a contradiction only when the declared effect interval lies wholly on the opposite side from the target claim. If the interval crosses the threshold, or the threshold shape is not mechanically decidable from one scalar boundary, expert judgment remains explicit rather than inferred from prose.
+
+`target_threshold.effect_unit` states the scale the selected effect interval is expressed on, because the effect record itself carries none. The threshold's own `unit` is compared against it before any numbers are: identical units compare directly, and absolute-risk scales that differ by a pure factor (`proportion`, `percentage points`, `per 100`, `per 1000`, `per 10000`) are converted onto the effect's scale first. Without this, a threshold of `20 per 1000` against an interval of `[0.01, 0.03]` in proportions would read `0.03 < 20` as a met threshold, when on a common scale `[10, 30] per 1000` actually crosses it.
+
+Anything that is not a pure-factor conversion — a risk ratio against a risk difference, say, which needs a baseline risk — fails closed: the check reports the target claim as not mechanically decidable rather than comparing raw numbers. It cannot detect a unit that is *declared* wrongly; it only ensures that what is declared is reconciled before it is compared.
 
 ## Summary of Findings
 
