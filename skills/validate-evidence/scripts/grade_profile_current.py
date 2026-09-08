@@ -58,7 +58,33 @@ for _name in dir(_core):
 
 InputError = _core.InputError
 
-TARGET_THRESHOLD_KEYS = {"threshold_label", "effect_basis", "claim"}
+TARGET_THRESHOLD_KEYS = {"threshold_label", "effect_basis", "claim", "effect_unit"}
+
+# The scale an absolute-risk quantity is expressed on, as the population the unit
+# counts per. A threshold of "20 per 1000" and an interval of [0.01, 0.03] in
+# proportions are the same kind of quantity on different scales; comparing their
+# raw numbers is not a comparison at all. Only scales that convert by a pure factor
+# belong here — anything needing a baseline risk or a transform (a risk ratio
+# against a risk difference, say) is not convertible and must fail closed instead.
+RISK_SCALE_PER = {
+    "proportion": 1.0,
+    "per 1": 1.0,
+    "risk difference per 1": 1.0,
+    "percent": 100.0,
+    "percentage point": 100.0,
+    "percentage points": 100.0,
+    "per 100": 100.0,
+    "%": 100.0,
+    "per 1000": 1000.0,
+    "per 1,000": 1000.0,
+    "per 10000": 10000.0,
+    "per 10,000": 10000.0,
+}
+
+
+def _normalize_unit(unit: str) -> str:
+    """Fold the incidental spelling of a unit, never its meaning."""
+    return " ".join(unit.strip().casefold().replace("_", " ").split())
 TARGET_EFFECT_BASES = {"absolute", "relative", "continuous", "narrative"}
 TARGET_CLAIMS = {"meets", "does_not_meet"}
 INTERVAL_BY_BASIS = {
@@ -79,6 +105,11 @@ def _target_record(value, result: dict, ctx: str) -> dict:
         "threshold_label": _core._text(value["threshold_label"], f"{ctx}.threshold_label"),
         "effect_basis": _core._text(value["effect_basis"], f"{ctx}.effect_basis"),
         "claim": _core._text(value["claim"], f"{ctx}.claim"),
+        # The scale the selected effect interval is expressed on. The frozen core's
+        # effect record carries no scale metadata, so without this the threshold's
+        # own `unit` has nothing to be compared against and the numbers are read as
+        # if they shared a scale.
+        "effect_unit": _core._text(value["effect_unit"], f"{ctx}.effect_unit"),
     }
     if target["effect_basis"] not in TARGET_EFFECT_BASES:
         raise InputError(
@@ -146,6 +177,34 @@ def parse_appraisal(raw: dict) -> dict:
         raise InputError(str(exc)) from exc
 
 
+def _selected_threshold(result: dict) -> dict:
+    target = result["target_threshold"]
+    return next(
+        row for row in result["decision_thresholds"]
+        if row["label"] == target["threshold_label"]
+    )
+
+
+def _threshold_value_on_effect_scale(result: dict) -> float | None:
+    """The threshold value restated on the effect interval's scale, or None.
+
+    None means the two units are not mechanically reconcilable — not that they
+    disagree. The caller must treat that as a defect to report rather than as a
+    comparison that quietly did not happen: the whole point of the target-threshold
+    contract is that the claim is decidable.
+    """
+    threshold = _selected_threshold(result)
+    threshold_unit = _normalize_unit(threshold["unit"])
+    effect_unit = _normalize_unit(result["target_threshold"]["effect_unit"])
+    if threshold_unit == effect_unit:
+        return threshold["value"]
+    threshold_per = RISK_SCALE_PER.get(threshold_unit)
+    effect_per = RISK_SCALE_PER.get(effect_unit)
+    if threshold_per is None or effect_per is None:
+        return None
+    return threshold["value"] * (effect_per / threshold_per)
+
+
 def _threshold_position(result: dict) -> str | None:
     """Return meets/does_not_meet/crosses when a one-sided interval is decidable."""
     target = result["target_threshold"]
@@ -156,11 +215,10 @@ def _threshold_position(result: dict) -> str | None:
     interval = result["effect"].get(interval_field)
     if not isinstance(interval, dict):
         return None
-    threshold = next(
-        row for row in result["decision_thresholds"]
-        if row["label"] == target["threshold_label"]
-    )
-    value = threshold["value"]
+    threshold = _selected_threshold(result)
+    value = _threshold_value_on_effect_scale(result)
+    if value is None:
+        return None
     lower, upper = interval["lower"], interval["upper"]
     if threshold["direction"] == "below":
         if upper < value:
@@ -241,17 +299,32 @@ def _check_targets(record: dict) -> list[str]:
                 f"effect.{INTERVAL_BY_BASIS[basis]}"
             )
             continue
+        threshold = _selected_threshold(result)
+        if _threshold_value_on_effect_scale(result) is None:
+            # Fail closed rather than comparing raw numbers across scales. A
+            # threshold of 20 "per 1000" against an interval in proportions would
+            # otherwise read 0.03 < 20 as a met threshold, when on a common scale
+            # [10, 30] per 1000 actually crosses it.
+            errors.append(
+                f"result {rid}: threshold {threshold['label']!r} is stated in "
+                f"{threshold['unit']!r} but the {basis} effect is stated in "
+                f"{target['effect_unit']!r}; the two are not a known conversion, so the "
+                "target claim is not mechanically decidable"
+            )
+            continue
         position = _threshold_position(result)
         if position is not None and position != "crosses" and position != target["claim"]:
-            threshold = next(
-                row for row in result["decision_thresholds"]
-                if row["label"] == target["threshold_label"]
-            )
             interval = result["effect"][INTERVAL_BY_BASIS[basis]]
+            on_scale = _threshold_value_on_effect_scale(result)
+            restated = (
+                "" if on_scale == threshold["value"]
+                else f" ({threshold['value']} {threshold['unit']} = {on_scale} {target['effect_unit']})"
+            )
             errors.append(
                 f"result {rid}: declared target claims the {basis} effect {target['claim'].replace('_', ' ')} "
                 f"threshold {threshold['label']!r}, but interval [{interval['lower']}, {interval['upper']}] "
-                f"lies wholly on the opposite side of {threshold['direction']} {threshold['value']}"
+                f"{target['effect_unit']} lies wholly on the opposite side of "
+                f"{threshold['direction']} {on_scale}{restated}"
             )
     return errors
 

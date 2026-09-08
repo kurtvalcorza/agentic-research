@@ -237,6 +237,11 @@ CHECK_TABLE = {
                              ("updated_flow_record", "--updated-flow")),
         "conditional_units": {"U_prisma_abstract": "abstract_record",
                               "U_prisma_updated": "updated_flow_record"},
+        # This check is itself a runner: it shells out to prisma-flow. Without the
+        # operator's --skills-root it would resolve its children relative to its own
+        # file, so a relocated tree would find the sub-gate but not what it runs.
+        # The value is OPERATOR argv, never anything from units.json.
+        "passes_skills_root": True,
     },
     "rob_appraisal": {
         "script": ("skills", "appraise-risk-of-bias", "scripts", "rob_appraisal.py"),
@@ -526,6 +531,8 @@ class CheckRunner:
         for key, flag in spec["optional_records"]:
             if key in entry:
                 argv += [flag, self.contained_record(entry[key], f"checks.{name}.{key}")]
+        if spec.get("passes_skills_root"):
+            argv += ["--skills-root", str(self.skills_root)]
         return argv
 
     def run(self, name, argv, expected_units):

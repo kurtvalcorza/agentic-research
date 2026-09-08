@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime
 
@@ -136,9 +137,54 @@ def _bool(value, ctx: str) -> bool:
 
 
 def _number(value, ctx: str) -> float:
+    """A finite real number.
+
+    NaN and +/-Infinity are rejected here rather than tolerated downstream: Python's
+    ``json.loads`` accepts the JavaScript literals ``NaN``, ``Infinity`` and
+    ``-Infinity`` by default, and a NaN admitted into a result payload evades every
+    ordering check that follows it (``NaN > n``, ``ci_lower > ci_upper`` and the CI
+    containment tests are all False for NaN), so an impossible result would read as
+    structurally valid. ``main`` additionally refuses those literals at the JSON
+    layer so they cannot reach a non-numeric field either.
+    """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise InputError(f"{ctx}: expected a number, got {type(value).__name__} {value!r}")
+    if not math.isfinite(value):
+        raise InputError(f"{ctx}: expected a finite number, got {value!r}")
     return value
+
+
+def _count(value, ctx: str) -> int:
+    """A whole, non-negative participant/event count.
+
+    Sample sizes and event counts are counts of people. A negative or fractional one
+    is not a value a reviewer can have extracted from a report, so it is malformed
+    input rather than a finding.
+    """
+    number = _number(value, ctx)
+    if number < 0:
+        raise InputError(f"{ctx}: expected a non-negative count, got {number!r}")
+    if isinstance(number, float) and not number.is_integer():
+        raise InputError(f"{ctx}: expected a whole count, got {number!r}")
+    return int(number)
+
+
+def _non_negative(value, ctx: str) -> float:
+    """A dispersion or precision quantity, which cannot be negative."""
+    number = _number(value, ctx)
+    if number < 0:
+        raise InputError(f"{ctx}: expected a non-negative number, got {number!r}")
+    return number
+
+
+def _reject_json_constant(name: str):
+    """Refuse the non-finite JSON literals ``json.loads`` accepts by default.
+
+    ``NaN``, ``Infinity`` and ``-Infinity`` are JavaScript extensions, not JSON.
+    Rejecting them at the document layer means a non-finite value cannot reach any
+    field, including the ones a typed validator never inspects.
+    """
+    raise InputError(f"record: {name} is not a valid JSON value")
 
 
 def _timestamp(value: str, ctx: str) -> str:
@@ -197,18 +243,29 @@ def _validate_effect_value(outcome_type: str, value, ctx: str) -> dict:
             for key in sorted(keys):
                 if key not in gobj:
                     raise InputError(f"{gctx}: missing required field {key!r}")
-                _number(gobj[key], f"{gctx}.{key}")
-            if outcome_type == "binary" and gobj["events"] > gobj["n"]:
-                raise InputError(f"{gctx}: events cannot exceed n")
+            # Each field is validated against what it actually is: n and events are
+            # counts of people, sd is a dispersion, and only mean is unrestricted.
+            # Validating them all as bare numbers is what let n=-1, events=-2 pass,
+            # since -2 > -1 is False.
+            _count(gobj["n"], f"{gctx}.n")
+            if outcome_type == "binary":
+                _count(gobj["events"], f"{gctx}.events")
+                if gobj["events"] > gobj["n"]:
+                    raise InputError(f"{gctx}: events cannot exceed n")
+            else:
+                _number(gobj["mean"], f"{gctx}.mean")
+                _non_negative(gobj["sd"], f"{gctx}.sd")
     elif outcome_type == "precomputed_effect":
         _closed(obj, PRECOMPUTED_KEYS, ctx)
         for key in PRECOMPUTED_REQUIRED:
             if key not in obj:
                 raise InputError(f"{ctx}: missing required field {key!r}")
             _number(obj[key], f"{ctx}.{key}")
+        # se and variance are precision quantities: negative ones are impossible,
+        # not merely implausible.
         for key in PRECOMPUTED_OPTIONAL:
             if key in obj:
-                _number(obj[key], f"{ctx}.{key}")
+                _non_negative(obj[key], f"{ctx}.{key}")
         if obj["ci_lower"] > obj["ci_upper"]:
             raise InputError(f"{ctx}: ci_lower cannot exceed ci_upper")
     else:
@@ -660,8 +717,11 @@ def main() -> int:
         sys.stderr.write(f"cochrane_profile: cannot read {source} ({exc})\n")
         return 2
     try:
-        raw = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
+        raw = json.loads(raw_text, parse_constant=_reject_json_constant)
+    except (json.JSONDecodeError, InputError) as exc:
+        # InputError reaches here from _reject_json_constant: a non-finite literal is
+        # a malformed document, so it must exit 2 like any other unreadable input
+        # rather than escaping as a traceback.
         sys.stderr.write(f"cochrane_profile: input is not valid JSON ({exc})\n")
         return 2
     try:
