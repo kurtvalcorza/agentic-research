@@ -467,6 +467,36 @@ class ThresholdUnitsMustBeBoundBeforeComparisonTests(unittest.TestCase):
         parsed, _ = gp.parse(r)
         self.assertIsNone(gp._threshold_position(parsed["results"][0]))
 
+    def test_narrative_basis_is_exempt_from_unit_reconciliation(self):
+        """A narrative claim compares nothing, so unrelated units are not a defect.
+
+        This goes through check(), not _threshold_position alone: the regression it
+        pins was in _check_targets, which called the reconciliation unconditionally
+        while the adjacent interval-presence check already exempted narrative. The
+        two unit strings here are deliberately unrelated and unconvertible — a
+        fixture that reused one string for both would mask exactly this bug.
+        """
+        r = valid_record()
+        result = r["results"][0]
+        result["target_threshold"]["effect_basis"] = "narrative"
+        result["target_threshold"]["effect_unit"] = "narrative summary"
+        result["decision_thresholds"][0]["unit"] = "risk difference"
+        parsed, _ = gp.parse(r)
+        errors = gp.check(parsed, gp.parse_appraisal(valid_appraisal()))
+        self.assertEqual([], [e for e in errors if "mechanically decidable" in e], errors)
+        self.assertIsNone(gp._threshold_position(parsed["results"][0]))
+
+    def test_a_non_narrative_basis_is_still_reconciled(self):
+        """The narrative exemption must not become a general escape hatch."""
+        r = valid_record()
+        result = r["results"][0]
+        result["target_threshold"]["effect_basis"] = "absolute"
+        result["target_threshold"]["effect_unit"] = "narrative summary"
+        result["decision_thresholds"][0]["unit"] = "risk difference"
+        parsed, _ = gp.parse(r)
+        errors = gp.check(parsed, gp.parse_appraisal(valid_appraisal()))
+        self.assertTrue(any("mechanically decidable" in e for e in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -300,7 +300,13 @@ def _check_targets(record: dict) -> list[str]:
             )
             continue
         threshold = _selected_threshold(result)
-        if _threshold_value_on_effect_scale(result) is None:
+        # A narrative claim compares nothing: there is no interval, and effect_unit
+        # and the threshold's unit describe unrelated things, so reconciling them is
+        # meaningless. _threshold_position already exempts narrative for the same
+        # reason; this guard keeps the two in step. Without it, a legitimate
+        # narrative result fails whenever those two free-text fields happen not to
+        # match -- a check firing on a comparison that never happens.
+        if basis != "narrative" and _threshold_value_on_effect_scale(result) is None:
             # Fail closed rather than comparing raw numbers across scales. A
             # threshold of 20 "per 1000" against an interval in proportions would
             # otherwise read 0.03 < 20 as a met threshold, when on a common scale
