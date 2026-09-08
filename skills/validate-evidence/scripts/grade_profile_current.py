@@ -19,6 +19,12 @@ WHAT THIS CANNOT CHECK
   uses only the structured target_threshold record and flags only an interval that
   lies wholly on the opposite side of a one-sided threshold.
 
+  A narrative basis is not checked at all: it has no interval, so neither the
+  threshold comparison nor the unit reconciliation applies to it, and a narrative
+  target claim therefore passes on its structure alone. It also cannot tell that a
+  unit is DECLARED wrongly — only that what is declared is reconciled before it is
+  compared.
+
 EXIT CODES
   0 clean, or violations found without --strict
   1 GRADE method/profile violations under --strict
