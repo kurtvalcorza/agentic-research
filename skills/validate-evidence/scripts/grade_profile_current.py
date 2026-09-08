@@ -19,6 +19,12 @@ WHAT THIS CANNOT CHECK
   uses only the structured target_threshold record and flags only an interval that
   lies wholly on the opposite side of a one-sided threshold.
 
+  A narrative basis is not checked at all: it has no interval, so neither the
+  threshold comparison nor the unit reconciliation applies to it, and a narrative
+  target claim therefore passes on its structure alone. It also cannot tell that a
+  unit is DECLARED wrongly — only that what is declared is reconciled before it is
+  compared.
+
 EXIT CODES
   0 clean, or violations found without --strict
   1 GRADE method/profile violations under --strict
@@ -300,7 +306,13 @@ def _check_targets(record: dict) -> list[str]:
             )
             continue
         threshold = _selected_threshold(result)
-        if _threshold_value_on_effect_scale(result) is None:
+        # A narrative claim compares nothing: there is no interval, and effect_unit
+        # and the threshold's unit describe unrelated things, so reconciling them is
+        # meaningless. _threshold_position already exempts narrative for the same
+        # reason; this guard keeps the two in step. Without it, a legitimate
+        # narrative result fails whenever those two free-text fields happen not to
+        # match -- a check firing on a comparison that never happens.
+        if basis != "narrative" and _threshold_value_on_effect_scale(result) is None:
             # Fail closed rather than comparing raw numbers across scales. A
             # threshold of 20 "per 1000" against an interval in proportions would
             # otherwise read 0.03 < 20 as a met threshold, when on a common scale
