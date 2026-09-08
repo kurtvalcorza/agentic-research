@@ -7,6 +7,13 @@ absent rather than zero.
 """
 from __future__ import annotations
 
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from _load import load
@@ -120,6 +127,92 @@ class TestChildOutputIsNotTrusted(unittest.TestCase):
         out = vr.aggregate(compliance(), None, updated())
         self.assertEqual(0, out["gates"]["H_prisma_evidence"])
         self.assertIn("U_prisma_updated", out["units"])
+
+
+class SubGateHonoursTheOperatorsSkillsRootTests(unittest.TestCase):
+    """The sub-gate is itself a runner, so it needs the same root as its parent.
+
+    ``review_units.py`` resolves every check under ``--skills-root``. This check
+    then shells out to prisma-flow, and it used to resolve those children relative
+    to its own ``__file__`` instead. An operator who relocated the skills tree got a
+    sub-gate that was found but whose children were not — a Principle III gap that
+    only appears in exactly the layout the option exists to support.
+    """
+
+    def _compliance_record(self, directory):
+        compliance = load("skills/prisma-flow/scripts/prisma_compliance.py")
+        rows = [
+            {
+                "number": number,
+                "location": f"Section for {number}",
+                "evidence": f"Row {number} is reported in full in the manuscript.",
+                "human_confirmed": True,
+            }
+            for _section, number, _topic in compliance.PRISMA_2020
+        ]
+        path = os.path.join(directory, "compliance.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"schema_version": "1.0", "variant": "prisma_2020", "items": rows}, handle)
+        return path
+
+    def test_default_root_is_this_scripts_own_siblings(self):
+        self.assertEqual(vr.DEFAULT_PRISMA_SCRIPTS, vr.prisma_scripts_dir(None))
+
+    def test_explicit_root_is_the_parent_of_a_skills_directory(self):
+        self.assertEqual(
+            pathlib.Path("/somewhere/skills/prisma-flow/scripts"),
+            vr.prisma_scripts_dir("/somewhere"),
+        )
+
+    def test_children_resolve_under_a_relocated_skills_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "elsewhere")
+            os.makedirs(os.path.join(root, "skills"))
+            shutil.copytree("skills/prisma-flow", os.path.join(root, "skills", "prisma-flow"))
+            # The sub-gate is copied out on its own: without the option its siblings
+            # are genuinely absent, which is the negative control for this test.
+            lonely = os.path.join(tmp, "prisma_reporting_checks.py")
+            shutil.copy("skills/verify-review/scripts/prisma_reporting_checks.py", lonely)
+            record = self._compliance_record(tmp)
+
+            without = subprocess.run(
+                [sys.executable, lonely, record, "--json"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(2, without.returncode, without.stdout)
+            self.assertIn("no sibling skills", without.stderr)
+
+            with_root = subprocess.run(
+                [sys.executable, lonely, record, "--json", "--skills-root", root],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(0, with_root.returncode, with_root.stderr)
+            envelope = json.loads(with_root.stdout)
+            self.assertEqual(0, envelope["units"]["U_prisma_compliance"])
+
+    def test_the_runner_passes_its_own_root_to_this_check(self):
+        core = load("skills/verify-review/scripts/review_units_core.py")
+        self.assertTrue(core.CHECK_TABLE["prisma_reporting_checks"].get("passes_skills_root"))
+        runner = core.CheckRunner(records_root=".", skills_root="/a/root")
+        self.assertEqual(pathlib.Path("/a/root"), runner.skills_root)
+        # Only the sub-gate takes the root, because it is the only check that runs
+        # other checks. A leaf check receiving it would be given an option it does
+        # not accept, so the argv would fail at the child rather than here.
+        self.assertEqual(
+            {"prisma_reporting_checks"},
+            {name for name, spec in core.CHECK_TABLE.items()
+             if spec.get("passes_skills_root")},
+        )
+
+    def test_argv_carries_the_root_when_the_script_is_present(self):
+        core = load("skills/verify-review/scripts/review_units_core.py")
+        runner = core.CheckRunner(records_root=".", skills_root=".")
+        argv = runner.argv_for(
+            "prisma_reporting_checks",
+            {"record": "skills/verify-review/scripts/prisma_reporting_checks.py"},
+        )
+        self.assertIn("--skills-root", argv)
+        self.assertEqual(str(pathlib.Path(".")), argv[argv.index("--skills-root") + 1])
 
 
 if __name__ == "__main__":

@@ -51,7 +51,18 @@ CHECK_NAME = "prisma_reporting_checks"
 JSON_ENVELOPE_VERSION = "1.0"
 HUMAN_GATE = "H_prisma_evidence"
 HERE = Path(__file__).resolve().parent
-PRISMA_SCRIPTS = (HERE.parent.parent / "prisma-flow" / "scripts").resolve()
+# Where the prisma-flow checks live by default: this file sits in
+# skills/verify-review/scripts, so its siblings are two levels up. `--skills-root`
+# overrides it with the PARENT of a `skills` directory, matching review_units.py's
+# own option — without that passthrough, an operator who relocates the skills tree
+# gets a sub-gate that finds itself but not its children.
+DEFAULT_PRISMA_SCRIPTS = (HERE.parent.parent / "prisma-flow" / "scripts").resolve()
+
+
+def prisma_scripts_dir(skills_root: str | None) -> Path:
+    if skills_root is None:
+        return DEFAULT_PRISMA_SCRIPTS
+    return (Path(skills_root) / "skills" / "prisma-flow" / "scripts").resolve()
 
 # Child script -> the unit it owns. The sub-gate never invents a unit name: it
 # reports exactly what the child reported, under the key the child used.
@@ -67,13 +78,13 @@ class InputError(ValueError):
     """Invocation or child-output error (exit 2)."""
 
 
-def run_check(script: str, record: str) -> dict:
+def run_check(script: str, record: str, scripts_dir: Path | None = None) -> dict:
     """Run one child check and return its validated envelope.
 
     A child that exits 2 (malformed record) or crashes is an error here, never a
     count of zero: an unreadable record is not a clean one.
     """
-    path = PRISMA_SCRIPTS / script
+    path = (scripts_dir or DEFAULT_PRISMA_SCRIPTS) / script
     if not path.is_file():
         raise InputError(
             f"{script}: the check is not available at {str(path)!r}. A skill "
@@ -192,6 +203,9 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 when a reporting issue or pending confirmation remains")
     parser.add_argument("--json", action="store_true", help="machine-readable counts envelope")
+    parser.add_argument("--skills-root", dest="skills_root", metavar="PATH",
+                        help="PARENT of a 'skills' directory holding prisma-flow; "
+                             "defaults to this script's own sibling skills")
     args = parser.parse_args()
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -203,9 +217,12 @@ def main() -> int:
             "positional argument\n")
         return 2
     try:
-        compliance = run_check("prisma_compliance.py", args.infile)
-        abstract = run_check("prisma_abstract_checklist.py", args.abstract) if args.abstract else None
-        updated = run_check("prisma_updated_flow.py", args.updated_flow) if args.updated_flow else None
+        scripts_dir = prisma_scripts_dir(args.skills_root)
+        compliance = run_check("prisma_compliance.py", args.infile, scripts_dir)
+        abstract = (run_check("prisma_abstract_checklist.py", args.abstract, scripts_dir)
+                    if args.abstract else None)
+        updated = (run_check("prisma_updated_flow.py", args.updated_flow, scripts_dir)
+                   if args.updated_flow else None)
         envelope = aggregate(compliance, abstract, updated)
     except InputError as exc:
         sys.stderr.write(f"prisma_reporting_checks: {exc}\n")

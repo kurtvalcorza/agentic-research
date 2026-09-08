@@ -134,8 +134,10 @@ above.
 **A skill directory copied out on its own cannot derive anything.** Principle III keeps every skill
 runnable in isolation, and this one honours it by never importing a sibling — but the checks it runs
 are sibling *scripts*, and a lone copy has none of them. Point `--skills-root` at the parent of a
-directory named `skills` if the tree exists elsewhere. Otherwise a standalone copy has one honest
-option: **do not declare `units_in_scope`.** With scope declared and no checks reachable, every
+directory named `skills` if the tree exists elsewhere; `prisma_reporting_checks.py` is itself a
+runner over prisma-flow, so it takes the same option and the runner forwards its own root to it —
+without that, a relocated tree would find the sub-gate but not the checks it runs. Otherwise a
+standalone copy has one honest option: **do not declare `units_in_scope`.** With scope declared and no checks reachable, every
 derivable unit is held under `underived_units` and no cycle count will ever clear it.
 
 The **predicate uses raw counts** (every unit must reach 0); the **weights only shape routing and the climb gradient**. Weights/thresholds live in one config block in `scripts/review_units.py`.
