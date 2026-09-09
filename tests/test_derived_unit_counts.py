@@ -53,6 +53,10 @@ CLEAN_RUNS = {
                        "--rob", str(fixture("risk-of-bias.contract-example.json"))]),
     "rob_appraisal": ("skills/appraise-risk-of-bias/scripts/rob_appraisal.py",
                       [str(fixture("risk-of-bias.contract-example.json"))]),
+    "prisma_reporting_checks": ("skills/verify-review/scripts/prisma_reporting_checks.py",
+                                [str(fixture("prisma-compliance.valid.json")),
+                                 "--abstract", str(fixture("prisma-abstract.compliance.json")),
+                                 "--updated-flow", str(fixture("prisma-updated-flow.valid.json"))]),
 }
 
 
@@ -538,15 +542,40 @@ class TestScopeDeclaredMeansChecksRequired(unittest.TestCase):
 
         A fifth check adding a second record key would reopen the hole silently.
         This fails when that happens.
+
+        IT DID FIRE, for `prisma_reporting_checks`, and the resolution is recorded
+        here rather than by widening the assertion. That check adds two secondary
+        keys and a second gate, and neither reaches this closure:
+
+          * `abstract_record` and `updated_flow_record` name a checklist and a
+            flow-count record. No RoB signature can live in either, so they are not
+            appraisal routes and the identity rule — now driven by the explicit
+            `APPRAISAL_ROUTES` set rather than by a literal key name — does not
+            apply to them.
+          * `H_prisma_evidence` counts PRISMA compliance confirmations, from the
+            reporting check's OWN records, and that check derives the gate itself.
+            An appraisal file still reaches the verdict only through `H_rob`, and
+            `rob_appraisal` is still the only check that derives it.
+
+        So the property below is stated in the two pieces it actually has: which
+        secondary keys are appraisal routes, and which check owns each gate.
         """
         secondary = {(name, key)
                      for name, spec in ru.CHECK_TABLE.items()
                      for key, _ in spec["optional_records"]}
-        self.assertEqual(secondary, {("grade_profile", "rob_record")},
-                         "a new secondary record key needs its own identity rule — "
-                         "see _validated_checks")
-        self.assertEqual(ru.DERIVED_BY_GATE, {"H_rob": "rob_appraisal"},
-                         "a second gate producer changes which check must read the file")
+        self.assertEqual(ru.APPRAISAL_ROUTES, {("grade_profile", "rob_record")},
+                         "a new appraisal route needs the identity rule in "
+                         "_validated_checks to cover it")
+        self.assertEqual(secondary - ru.APPRAISAL_ROUTES,
+                         {("prisma_reporting_checks", "abstract_record"),
+                          ("prisma_reporting_checks", "updated_flow_record")},
+                         "a new secondary record key must be shown to be unable to "
+                         "name an appraisal, or added to APPRAISAL_ROUTES")
+        self.assertEqual(ru.DERIVED_BY_GATE,
+                         {"H_rob": "rob_appraisal",
+                          "H_prisma_evidence": "prisma_reporting_checks"},
+                         "a new gate producer changes which check must read the file "
+                         "its gate is earned from")
 
     def test_the_gate_proxy_is_wired_to_a_real_unit_and_a_real_check(self):
         """The proxy is hand-written and could drift out of the property it needs:
@@ -971,7 +1000,14 @@ class TestThePreviewDescribesTheRunItPreviews(unittest.TestCase):
 
     def test_the_preview_names_the_checks_and_the_units_they_will_derive(self):
         p = self.preview(record(checks=clean_checks()))
-        self.assertEqual(p["checks_declared"], sorted(ru.CHECK_TABLE))
+        # What the preview must echo is the block that was DECLARED. This read
+        # `sorted(ru.CHECK_TABLE)` while the fixture happened to declare every check
+        # in the table, so adding one to the table failed a test about the preview.
+        # `prisma_reporting_checks` is deliberately absent from `clean_checks()`:
+        # this record's scope does not carry its units, and declaring a check whose
+        # unit is out of scope is itself reported as ignored input. It is exercised
+        # end-to-end, with its own scope, in `test_prisma_reporting_units.py`.
+        self.assertEqual(p["checks_declared"], sorted(clean_checks()))
         self.assertEqual(p["units_that_will_be_derived"],
                          ["U_checklist", "U_grade", "U_prisma", "U_rob_trace"])
         self.assertEqual(p["underived_units"], [])

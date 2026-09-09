@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0",
+  "variant": "prisma_2020_abstracts",
+  "verification": "compliance",
+  "items": [
+    {
+      "number": "1",
+      "location": "Abstract sentence for item 1",
+      "evidence": "Abstract item 1 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "2",
+      "location": "Abstract sentence for item 2",
+      "evidence": "Abstract item 2 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "3",
+      "location": "Abstract sentence for item 3",
+      "evidence": "Abstract item 3 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "4",
+      "location": "Abstract sentence for item 4",
+      "evidence": "Abstract item 4 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "5",
+      "location": "Abstract sentence for item 5",
+      "evidence": "Abstract item 5 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "6",
+      "location": "Abstract sentence for item 6",
+      "evidence": "Abstract item 6 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "7",
+      "location": "Abstract sentence for item 7",
+      "evidence": "Abstract item 7 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "8",
+      "location": "Abstract sentence for item 8",
+      "evidence": "Abstract item 8 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "9",
+      "location": "Abstract sentence for item 9",
+      "evidence": "Abstract item 9 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "10",
+      "location": "Abstract sentence for item 10",
+      "evidence": "Abstract item 10 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "11",
+      "location": "Abstract sentence for item 11",
+      "evidence": "Abstract item 11 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    },
+    {
+      "number": "12",
+      "location": "Abstract sentence for item 12",
+      "evidence": "Abstract item 12 is stated explicitly in the structured abstract.",
+      "human_confirmed": true
+    }
+  ]
+}

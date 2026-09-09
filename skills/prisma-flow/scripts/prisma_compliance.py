@@ -208,6 +208,61 @@ def check(entries: dict[str, dict]) -> list[str]:
     return errors
 
 
+def mechanical_defects(entries: dict[str, dict]) -> set[str]:
+    """Rows carrying a reporting defect an agent loop can repair.
+
+    This deliberately mirrors every non-human predicate in ``check``: missing rows,
+    undisposed rows, invalid N/A dispositions, vacuous N/A justifications, absent or
+    vacuous located evidence, and evidence that merely repeats its location. Human
+    confirmation is excluded and counted by ``unconfirmed_assertions`` instead.
+    Keeping the unit predicate aligned with ``check`` prevents a strict child failure
+    from being rendered as zero repairable PRISMA work at the verify-review layer.
+    """
+    rows: set[str] = set()
+    for _section, number, _topic in PRISMA_2020:
+        entry = entries.get(number)
+        if entry is None:
+            rows.add(number)
+            continue
+        loc, na = entry["location"], entry["not_applicable"]
+        if not loc and not na:
+            rows.add(number)
+            continue
+        if na:
+            if number not in CONDITIONALLY_APPLICABLE or not _substantive(na):
+                rows.add(number)
+            continue
+        evidence = entry["evidence"]
+        if (not evidence or not _substantive(evidence)
+                or evidence.strip().casefold() == loc.strip().casefold()):
+            rows.add(number)
+    return rows
+
+
+def unconfirmed_assertions(entries: dict[str, dict]) -> int:
+    """Recorded compliance assertions still owed a human confirmation.
+
+    Counts rows that ARE disposed (located, or justified as N/A) and whose
+    ``human_confirmed`` is not exactly ``true``. A row that is not disposed at all
+    is not yet an assertion anyone could confirm, so it belongs to
+    ``mechanical_defects`` alone and is not double-booked here.
+
+    This makes the confirmation VISIBLE to the verification loop as a pending human
+    gate. It does not make it authentic: nothing here can establish that a person
+    actually reviewed the row, only that the record does not yet claim they did.
+    """
+    total = 0
+    for _section, number, _topic in PRISMA_2020:
+        entry = entries.get(number)
+        if entry is None:
+            continue
+        if not entry["location"] and not entry["not_applicable"]:
+            continue
+        if entry["human_confirmed"] is not True:
+            total += 1
+    return total
+
+
 def _cell(value):
     return str(value).replace("|", "&#124;").replace("\n", "<br>")
 
@@ -276,8 +331,10 @@ def main() -> int:
         json.dump(
             {
                 "check": "prisma_compliance", "schema_version": JSON_ENVELOPE_VERSION,
-                "issues": len(errors), "units": {"U_prisma_compliance": len({e.split(' ', 2)[1] for e in errors})},
-                "gates": {}, "unattributed": 0,
+                "issues": len(errors),
+                "units": {"U_prisma_compliance": len(mechanical_defects(entries))},
+                "gates": {"H_prisma_evidence": unconfirmed_assertions(entries)},
+                "unattributed": 0,
             }, sys.stdout, indent=2,
         )
         sys.stdout.write("\n")
