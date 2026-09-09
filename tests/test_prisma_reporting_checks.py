@@ -160,7 +160,7 @@ class SubGateHonoursTheOperatorsSkillsRootTests(unittest.TestCase):
 
     def test_explicit_root_is_the_parent_of_a_skills_directory(self):
         self.assertEqual(
-            pathlib.Path("/somewhere/skills/prisma-flow/scripts"),
+            pathlib.Path("/somewhere/skills/prisma-flow/scripts").resolve(),
             vr.prisma_scripts_dir("/somewhere"),
         )
 
