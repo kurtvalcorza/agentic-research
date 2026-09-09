@@ -5,7 +5,7 @@ PRISMA 2020, Cochrane review conduct, and GRADE.
 
 ## Governing document
 
-`.specify/memory/constitution.md` (v1.0.0) governs this repository and supersedes conflicting
+`.specify/memory/constitution.md` (v1.1.0) governs this repository and supersedes conflicting
 practice elsewhere. The two non-negotiable principles are:
 
 - **II. Keyless, stdlib-only baseline** — no dependency may be introduced, including for tests.
@@ -35,6 +35,7 @@ Active plan: [specs/001-standards-enforcement-parity/plan.md](specs/001-standard
 
 - `skills/<name>/SKILL.md` — agent instructions; `README.md` — human docs; optional `scripts/`
   and `references/`.
+- `.agents/skills/<name>/SKILL.md` — Spec Kit skills for spec-driven development.
 - `steering/ai-research-provenance.md` — provenance stamping and AI-disclosure convention.
 - `tests/` — stdlib unittest suite; the only place shared helper code is permitted.
 - `specs/` — speckit feature specifications.
