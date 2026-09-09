@@ -1,13 +1,15 @@
 ---
 name: acquire-corpus
-description: Build a literature corpus by searching bibliographic databases and citation-chaining (snowballing), with a PRISMA-S-compliant search log — the front end of a systematic/literature review. Use when starting a review from a question rather than a pre-collected pile of PDFs, when you need a documented, reproducible search, or to expand an existing corpus via backward/forward citation chasing. Keyless by default (OpenAlex/CrossRef); scite MCP is optional enrichment.
+description: Build a literature corpus by searching bibliographic databases and citation-chaining (snowballing), with a PRISMA-S-aligned search log — the front end of a systematic/literature review. Use when starting a review from a question rather than a pre-collected pile of PDFs, when you need a documented, reproducible search, or to expand an existing corpus via backward/forward citation chasing. Keyless by default (OpenAlex/CrossRef); scite MCP is optional enrichment.
 ---
 
 # acquire-corpus
 
 ## Purpose
 
-A rigorous review begins with a **documented, reproducible search** — not a folder of PDFs you happened to have. This skill is the missing front end of the research pipeline: it searches bibliographic databases, snowballs from key papers, and logs every query so the search can be reproduced and reported to the **PRISMA-S** standard. Its output feeds `dedupe-records` → `screen-literature`.
+A rigorous review begins with a **documented, reproducible search** — not a folder of PDFs you happened to have. This skill is the missing front end of the research pipeline: it searches bibliographic databases, snowballs from key papers, and logs every query so the search can be reproduced and reported in a **PRISMA-S-aligned** form. Its output feeds `dedupe-records` → `screen-literature`.
+
+> **Standards status:** the skill writes PRISMA-S-oriented search documentation; it does not run a PRISMA-S validator. Treat this as **aligned/guidance**, not compliance-verified.
 
 ## When to use
 
@@ -26,12 +28,12 @@ A rigorous review begins with a **documented, reproducible search** — not a fo
 | **arXiv API** | Physics/CS/math preprints | No |
 | **scite MCP** | *Optional* enrichment — Smart Citations, retraction flags during acquisition | **Paid — often off.** Never assume present; degrade to OpenAlex. |
 
-> Multi-database search is a PRISMA/Cochrane requirement — no single index is complete. Run OpenAlex always; add domain databases as the topic warrants, and **record each as a separate source** in the search log.
+> Multi-database search is a PRISMA/Cochrane expectation for rigorous systematic reviews — no single index is complete. Run OpenAlex always for the generic profile; add domain databases as the topic warrants, and **record each as a separate source** in the search log. Stricter profiles such as `cochrane_intervention` impose their own source requirements.
 
 ## Procedure
 
 ### Step 1 — Build the search strategy
-From the research question + screening criteria (see `generate-screening-criteria`), derive search concepts and a **Boolean strategy** (concept blocks joined by AND, synonyms within a block by OR). Write the strategy down verbatim — it must be reproducible and is itself a PRISMA-S reporting item. For a high-stakes review, have the strategy peer-reviewed (PRESS) before running.
+From the research question + screening criteria (see `generate-screening-criteria`), derive search concepts and a **Boolean strategy** (concept blocks joined by AND, synonyms within a block by OR). Write the strategy down verbatim — it must be reproducible and is itself a PRISMA-S reporting concern. For a high-stakes review, have the strategy peer-reviewed (PRESS) before running.
 
 ### Step 2 — Run the searches (date-stamped)
 For each database, run the strategy and **record the exact query, the date run, and the result count**:
@@ -53,14 +55,14 @@ Snowballing recovers papers keyword search misses; it is an expected supplementa
 ### Step 4 — Merge + hand off
 Concatenate all raw JSONL into one candidate set. **Do not dedupe here** — hand the merged set to `dedupe-records` (record-level dedup is its own auditable step whose removed-count feeds the PRISMA flow). Then `screen-literature`.
 
-### Step 5 — Write the PRISMA-S search log
-Emit `corpus/search-log.md` capturing, per PRISMA-S: each **database + interface**, the **exact query strings**, **date(s) run**, any **filters/limits** (years, language, type), **records per source**, the **snowball seeds + direction + yield**, and **who/what ran it** (this skill + model, per `ai-research-provenance`). This log is what makes the search reproducible and the review reportable.
+### Step 5 — Write the PRISMA-S-aligned search log
+Emit `corpus/search-log.md` capturing: each **database + interface**, the **exact query strings**, **date(s) run**, any **filters/limits** (years, language, type), **records per source**, the **snowball seeds + direction + yield**, and **who/what ran it** (this skill + model, per `ai-research-provenance`). This log makes the search reproducible and supports PRISMA/PRISMA-S reporting, but it is not itself a PRISMA-S compliance verdict.
 
 ## Outputs
 
 - `corpus/raw/*.jsonl` — per-source records (kept separate for auditable counts).
 - `corpus/candidates.jsonl` — merged candidate set (input to `dedupe-records`).
-- `corpus/search-log.md` — PRISMA-S search documentation (databases, queries, dates, counts, snowball).
+- `corpus/search-log.md` — PRISMA-S-aligned search documentation (databases, queries, dates, counts, snowball).
 - Identification counts (per source + snowball) → the PRISMA flow's "identification" row (`prisma-flow`).
 
 ## Boundaries
@@ -68,6 +70,7 @@ Emit `corpus/search-log.md` capturing, per PRISMA-S: each **database + interface
 - This skill **acquires and documents**; it does not screen (`screen-literature`) or dedupe (`dedupe-records`). Keeping these separate is what makes each count auditable.
 - Search relevance ranking is the backend's (OpenAlex). For exhaustive systematic reviews, run multiple concept queries and validate recall against a known "gold set" of must-find papers before locking the search.
 - Full-text PDF retrieval is separate — records carry DOIs/links; downloading gated PDFs is out of scope.
+- `PRISMA-S-aligned` means the log is structured around the reporting guidance. No runnable PRISMA-S compliance checker exists in this skill.
 
 ## Related
 

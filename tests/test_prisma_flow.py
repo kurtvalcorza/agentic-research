@@ -286,10 +286,18 @@ class TestSharedCliContractConformance(unittest.TestCase):
         self.assertIn("✅", out)
 
     def test_every_key_the_script_reads_is_in_the_closed_schema(self):
-        """A key the script consumes but the schema omits would be rejected as
-        unknown — the check refusing its own documented input."""
-        source = pathlib.Path(
-            pf.__file__ if hasattr(pf, "__file__") else "").read_text(encoding="utf-8")
+        """A key the implementation consumes but the schema omits would be
+        rejected as unknown — the check refusing its own documented input.
+
+        ``prisma_flow.py`` is now a thin dispatcher (see its own module
+        docstring): it re-exports the new-review engine's API but contains no
+        `c.get(...)` reads of its own, so inspecting ``pf.__file__`` inspected a
+        file that reads no counts and the ``assertTrue(consumed)`` guard below
+        fired — correctly, but over the wrong module. This targets the actual
+        implementation that reads RECORD_KEYS.
+        """
+        impl = load("skills/prisma-flow/scripts/prisma_flow_new.py")
+        source = pathlib.Path(impl.__file__).read_text(encoding="utf-8")
         consumed = set(re.findall(r'c\.get\("([a-z_]+)"', source))
         self.assertTrue(consumed)
         self.assertEqual(consumed - pf.RECORD_KEYS, set())
