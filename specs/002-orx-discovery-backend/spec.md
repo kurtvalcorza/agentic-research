@@ -6,7 +6,7 @@
 
 **Created**: 2026-09-09
 
-**Last Revised**: 2026-09-10 — reviewer rounds 1 and 2 addressed
+**Last Revised**: 2026-09-10 — reviewer rounds 1–3 addressed
 
 **Status**: Draft — ready for independent re-review
 
@@ -41,11 +41,21 @@ Three further findings at `10b8f964` are resolved in this revision:
 | 2 | `authors: []` violated fail-closed semantics and exposed title-only false merges | No empty/default author list is synthesized. An enriched hit must be completed to the dedupe-safe bibliographic minimum before admission; otherwise it is preserved in `corpus/enrichment-unresolved.jsonl` and excluded from `candidates.jsonl`. |
 | 3 | Per-invocation timeout allowed cumulative stalls | A per-sub-source circuit breaker and run-level enrichment failure budget prevent repeated failed calls from accumulating unbounded delay. |
 
+### Reviewer round 3
+
+Two findings at `9cb569b9` are resolved in this revision:
+
+| # | Finding | Resolution |
+|:--|:--------|:-----------|
+| 1 | Degraded enrichment could disappear from the generated human-readable log | FR-005 records reviewer-selected keyless-only mode; FR-029 preserves every query outcome in `search-log.md` and requires a run-level degradation note whenever enrichment fails or is skipped because a circuit is open. SC-005 requires chosen-keyless and degraded-keyless runs to be distinguishable to a reader. |
+| 2 | `enrichment-unresolved.jsonl` had no explicit handoff/consumer | FR-032 now requires the generated log and acquisition handoff to surface the unresolved file path and count for reviewer triage. Automatic admission after resolution remains explicitly out of scope; unresolved hits cannot enter screening until bibliographic resolution satisfies FR-031. |
+
 The safety rule for sparse enrichment is now explicit: **recall evidence may be preserved without being
 fed into an unsafe deduplication path**. A hit that cannot be completed to the bibliographic fields
 required for guarded deduplication is not discarded silently; it is retained as unresolved evidence,
-counted, logged, and handed off for manual or later resolution, but it does not enter the automatic
-candidate/dedupe path.
+counted, logged, and surfaced to the reviewer for triage, but it does not enter the automatic
+candidate/dedupe path. This feature does not define a second admission mechanism for unresolved hits:
+they require later bibliographic resolution that satisfies FR-031 before they may enter screening.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -58,7 +68,8 @@ and admitted only when they can safely enter the existing downstream deduplicati
 
 **Independent Test**: Use a question with a known full-text-only exemplar. Confirm that enrichment
 finds the exemplar, then confirm that an enriched hit enters `candidates.jsonl` only after satisfying
-the safe-admission rule in FR-031; otherwise it appears in `enrichment-unresolved.jsonl`.
+the safe-admission rule in FR-031; otherwise it appears in `enrichment-unresolved.jsonl` and is
+surfaced in the reviewer handoff.
 
 **Acceptance Scenarios**:
 
@@ -68,8 +79,9 @@ the safe-admission rule in FR-031; otherwise it appears in `enrichment-unresolve
 2. **Given** an enriched work duplicates a keyless work, **When** candidates are assembled, **Then**
    both are retained for `dedupe-records`; acquisition does not perform cross-source deduplication.
 3. **Given** an enriched hit cannot be completed safely, **When** acquisition finishes, **Then** the
-   hit is preserved in `corpus/enrichment-unresolved.jsonl`, counted in the acquisition record, and
-   excluded from the automatic candidate/dedupe path.
+   hit is preserved in `corpus/enrichment-unresolved.jsonl`, counted in the acquisition record,
+   surfaced by path and count for reviewer triage, and excluded from the automatic candidate/dedupe
+   path until bibliographic resolution satisfies FR-031.
 
 ---
 
@@ -92,19 +104,22 @@ to the pre-feature run for the same query.
    **Then** the query falls back keyless and the circuit breaker prevents repeated failed attempts to
    that sub-source during the same run.
 4. **Given** OpenResearch is usable, **When** the reviewer requests keyless-only acquisition, **Then**
-   no enriched command is invoked.
+   no enriched command is invoked and the acquisition record identifies the run as reviewer-selected
+   keyless-only mode.
 
 ---
 
 ### User Story 3 — Search documentation discloses reproducibility and losses (Priority: P2)
 
 A reader can determine which backend answered each query, which enriched hits were admitted, which
-were unresolved, whether OpenResearch is required to reproduce the search, and whether any
-normalization or metadata-completion loss occurred. One structured acquisition record is the source
-of truth and the human-readable search log is generated from it.
+were unresolved, whether OpenResearch is required to reproduce the search, whether enrichment was
+attempted but degraded, and whether any normalization or metadata-completion loss occurred. One
+structured acquisition record is the source of truth and the human-readable search log is generated
+from it without dropping method-significant outcomes.
 
-**Independent Test**: Run enriched and keyless acquisitions, inspect `acquisition-record.json`,
-regenerate `search-log.md`, and run the disclosure gate against both.
+**Independent Test**: Run successful-enriched, reviewer-selected keyless-only, and degraded-keyless
+acquisitions; inspect `acquisition-record.json`, regenerate `search-log.md`, and run the disclosure
+gate against each.
 
 **Acceptance Scenarios**:
 
@@ -112,11 +127,15 @@ regenerate `search-log.md`, and run the disclosure gate against both.
    normalization drops, unresolved-enrichment count, and OpenResearch version when used.
 2. Successful enrichment requires an explicit non-keyless reproducibility disclosure naming the
    affected queries and backend version(s).
-3. A keyless-only run carries no OpenResearch reproducibility caveat.
-4. `search-log.md` is generated from `acquisition-record.json`; it is never independently authored.
-5. An enriched acquisition record missing required disclosure fails the disclosure gate under
+3. A reviewer-selected keyless-only run carries no OpenResearch reproducibility caveat and is
+   identified as intentionally keyless-only rather than degraded.
+4. `search-log.md` is generated from `acquisition-record.json`; it is never independently authored,
+   and it preserves each query outcome.
+5. If any query is `failed-and-fell-back` or `skipped-circuit-open`, the generated log includes a
+   run-level degradation note so the reader can see that intended enrichment did not complete.
+6. An enriched acquisition record missing required disclosure fails the disclosure gate under
    `--strict` as a method violation.
-6. A valid keyless acquisition record passes the disclosure gate.
+7. A valid keyless acquisition record passes the disclosure gate.
 
 ---
 
@@ -141,7 +160,8 @@ run acquisition to completion.
 - **Discovery invocation hangs.** The process is terminated at the per-invocation deadline and its
   sub-source circuit opens.
 - **Repeated failures across sub-sources.** The run-level enrichment failure budget stops further
-  enrichment attempts once exhausted; remaining queries are keyless.
+  enrichment attempts once exhausted; remaining queries are keyless and the generated log records
+  the degraded outcomes rather than presenting the run as intentionally keyless-only.
 - **Malformed transport.** Non-JSON, truncated JSON, a non-collection top-level value, or an empty
   stream is an enrichment failure. A valid empty collection is a genuine zero-result response.
 - **Unknown upstream record key.** The enriched response fails closed under FR-007 and falls back
@@ -155,7 +175,8 @@ run acquisition to completion.
   FR-016 because guarded fuzzy deduplication remains available and the alternative source identifier
   is preserved.
 - **All enriched hits remain unresolved.** The keyless candidate set remains valid; unresolved hits
-  are reported separately and do not masquerade as admitted candidates.
+  are reported separately, surfaced by path and count for reviewer triage, and do not masquerade as
+  admitted candidates.
 - **Disclosure absent from an otherwise valid enriched acquisition record.** Exit `1` under
   `--strict`.
 - **Acquisition record malformed, wrong-schema, or carrying unknown keys.** Exit `2`.
@@ -174,12 +195,15 @@ run acquisition to completion.
   the local prerequisite; usability is determined by bounded `orx discover` invocations.
 - **FR-002**: Each enriched invocation MUST terminate within five seconds on timeout/unreachability
   and MUST NOT block acquisition indefinitely.
-- **FR-003**: Absence or failure of enrichment MUST NOT emit an OpenResearch warning/error, prompt the
-  user, suggest installation, alter keyless exit semantics, or prevent keyless completion.
+- **FR-003**: Absence or failure of enrichment MUST NOT emit an unsolicited runtime OpenResearch
+  warning/error, prompt the user, suggest installation, alter keyless exit semantics, or prevent
+  keyless completion. Required method disclosure in the generated artifacts under FR-029 is not a
+  runtime warning and MUST still be emitted.
 - **FR-004**: A failed enriched query MUST fall back to the keyless path and be recorded as
   `failed-and-fell-back`, not as a legitimate zero-result query.
 - **FR-005**: The reviewer MUST be able to force keyless-only acquisition even when OpenResearch is
-  usable.
+  usable. The canonical acquisition record MUST identify reviewer-selected keyless-only mode so it
+  cannot be confused with a run that intended enrichment but degraded to keyless.
 - **FR-033**: A timeout, network failure, command-surface failure, or unsupported-schema failure MUST
   open a circuit for the affected enriched sub-source for the remainder of the run. No automatic
   retry is permitted after the circuit opens. The cumulative failure-wait budget across all enriched
@@ -214,7 +238,11 @@ run acquisition to completion.
 - **FR-032**: An enriched hit that cannot satisfy FR-031 MUST NOT enter `candidates.jsonl`. It MUST be
   preserved in `corpus/enrichment-unresolved.jsonl` with source identifier, title, available
   discovery metadata, and a machine-readable reason for non-admission. Its count MUST be reported in
-  the acquisition record and generated search log.
+  the acquisition record and generated search log. When the unresolved count is non-zero, the
+  generated log and acquisition handoff MUST surface the file path and count for reviewer triage.
+  Automatic admission or a separate downstream consumer for unresolved hits is out of scope for this
+  feature; an unresolved hit MUST NOT enter screening unless later bibliographic resolution satisfies
+  FR-031.
 
 #### Normalized enriched discovery mapping
 
@@ -243,8 +271,9 @@ shape check.
 
 - **FR-028**: Acquisition MUST emit `corpus/acquisition-record.json` as the canonical structured
   account of the search. It MUST be one closed-schema JSON object with required schema version.
-- **FR-013**: The acquisition record MUST capture per query: backend/sub-source, submitted query,
-  date, outcome, returned count, normalization-drop counts/reasons, admitted enriched count,
+- **FR-013**: The acquisition record MUST identify whether enrichment was reviewer-selected
+  keyless-only or automatic, and MUST capture per query: backend/sub-source, submitted query, date,
+  outcome, returned count, normalization-drop counts/reasons, admitted enriched count,
   unresolved-enrichment count/reasons, circuit-breaker state, and OpenResearch version when used.
 - **FR-014**: The record MUST distinguish `answered`, `empty`, `failed-and-fell-back`, and
   `skipped-circuit-open` outcomes.
@@ -252,7 +281,12 @@ shape check.
   state that the search is not fully reproducible without OpenResearch, naming affected queries and
   backend version(s).
 - **FR-029**: `corpus/search-log.md` MUST be generated from the acquisition record and MUST NOT be a
-  separately hand-maintained source of truth.
+  separately hand-maintained source of truth. The generated log MUST preserve each query's
+  backend/sub-source, submitted query, date, outcome, returned/admitted/unresolved counts, and
+  circuit-breaker state. If any query is `failed-and-fell-back` or `skipped-circuit-open`, the log
+  MUST include a run-level degradation note stating that enrichment was attempted but did not answer
+  those queries. The log MUST distinguish reviewer-selected keyless-only runs from runs that intended
+  enrichment but degraded to keyless.
 - **FR-021**: Successful enriched acquisition MUST be stamped as AI-assisted provenance with backend,
   sub-source, and OpenResearch version.
 
@@ -300,10 +334,12 @@ shape check.
 - **Enriched admitted record**: An `orx` discovery hit that satisfies FR-031 and carries enriched
   provenance plus downstream-safe bibliographic fields.
 - **Unresolved enriched hit**: Discovery evidence preserved in `enrichment-unresolved.jsonl` because
-  it cannot safely enter the automatic dedupe path.
+  it cannot safely enter the automatic dedupe path; surfaced to the reviewer by path/count for
+  triage and excluded from screening until later bibliographic resolution satisfies FR-031.
 - **Acquisition record**: Closed-schema source of truth for query provenance, outcomes, counts,
-  unresolved evidence, circuit state, and reproducibility disclosure.
-- **Search log**: Human-readable artifact generated from the acquisition record.
+  unresolved evidence, circuit state, requested enrichment mode, and reproducibility disclosure.
+- **Search log**: Human-readable artifact generated from the acquisition record that preserves query
+  outcomes and run-level degradation state.
 - **Circuit breaker**: Per-sub-source run state that prevents repeated failed enrichment calls.
 - **Disclosure verdict**: Gate result concerning enrichment disclosure only, not search quality.
 
@@ -318,12 +354,14 @@ shape check.
   title, non-empty verified authors, and verified year. Existing keyless candidates are not required
   to gain new record-level provenance fields.
 - **SC-005**: A reader can determine from the generated log which queries require OpenResearch to
-  reproduce.
+  reproduce, which enrichment attempts failed or were skipped because a circuit was open, and whether
+  a keyless run was reviewer-selected or the result of degradation.
 - **SC-006**: Malformed transport, timeout, unknown top-level keys, or unsupported enriched output
   never aborts acquisition and cannot trigger repeated calls after its sub-source circuit opens.
 - **SC-007**: The copied-out skill completes keyless acquisition without OpenResearch.
 - **SC-008**: For a known full-text-only exemplar, the enriched run records at least one discovery
-  absent from keyless-only search, either as safely admitted or explicitly unresolved evidence.
+  absent from keyless-only search, either as safely admitted or explicitly unresolved evidence that
+  is surfaced for reviewer triage.
 - **SC-009**: Every normalization drop and unresolved enriched hit is represented by count and reason
   in the acquisition record.
 - **SC-010**: No admitted enriched record uses an empty/default author list or missing year to satisfy
@@ -332,13 +370,14 @@ shape check.
   passes it after disclosure is added.
 - **SC-012**: The disclosure gate passes 100% of valid keyless acquisition records.
 - **SC-013**: Regenerating `search-log.md` from the same acquisition record produces identical
-  documentation.
+  documentation, including the same query outcomes and degradation note.
 - **SC-014**: A constructed same-title/different-study case with an unresolved author-less hit cannot
   be falsely merged by `dedupe-records` because the unresolved hit never enters `candidates.jsonl`.
 
 ## Assumptions
 
-- **Enrichment is on by default when usable.** FR-005 provides a keyless-only opt-out.
+- **Enrichment is on by default when usable.** FR-005 provides a keyless-only opt-out and records that
+  reviewer-selected mode explicitly.
 - **Discovery needs no daemon, account, or key.** Current literature discovery uses public endpoints.
 - **The backend is an external program.** No OpenResearch library is imported.
 - **The reviewed `LitHit` shape is version-sensitive.** Additive/breaking upstream changes are
@@ -348,9 +387,12 @@ shape check.
 - **Metadata sparsity is not fabricated away.** Missing author/year data triggers completion or the
   unresolved path; empty placeholders are forbidden for safe-admission fields.
 - **Recall evidence can exist outside the automatic candidate set.** `enrichment-unresolved.jsonl`
-  preserves discovered evidence that is methodologically unsafe to deduplicate automatically.
+  preserves discovered evidence that is methodologically unsafe to deduplicate automatically. A
+  non-zero unresolved count is surfaced to the reviewer for triage; automatic admission after that
+  triage is outside this feature and requires later bibliographic resolution satisfying FR-031.
 - **No downstream remediation is hidden here.** `dedupe-records` and `verify-sources` remain unchanged;
   this feature protects them by enforcing a safe admission boundary.
-- **The acquisition record is the source of truth.** The Markdown search log is generated from it.
+- **The acquisition record is the source of truth.** The Markdown search log is generated from it and
+  preserves method-significant outcomes rather than silently dropping degradation state.
 - **The disclosure gate does not upgrade standards claims.** It enforces enrichment disclosure only;
   PRISMA-S remains guidance rather than machine-verified compliance.
