@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -32,16 +32,23 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`
+- **All 16 items pass. The specification is ready for `/speckit-plan`.**
 
-### Outstanding
+### Resolved
 
-Two `[NEEDS CLARIFICATION]` markers remain, both deliberate — each is a scope decision with two
-defensible answers and no safe default, and guessing either would silently set the feature's size:
+Both `[NEEDS CLARIFICATION]` markers were answered by the maintainer on 2026-09-10:
 
-- **FR-016** — admission rule for records lacking a DOI. Determines whether this feature can hand
-  `dedupe-records` and `verify-sources` records they cannot process.
-- **FR-017** — enforcement posture for the reproducibility disclosure. Determines whether Principle I
-  is satisfied by a runnable gate or by an explicit non-enforcement note.
+- **FR-016** — records lacking a DOI are **admitted and tagged**, not excluded. Chosen for recall.
+  The downstream cost is accepted, not avoided: `dedupe-records` matches them on title alone and
+  `verify-sources` cannot resolve them. FR-022 and FR-023 were added so the quantity and the cost
+  are disclosed at acquisition rather than discovered at the gate that stalls on them.
+- **FR-017** — the reproducibility disclosure gets a **runnable gate**, not a guidance note.
+  FR-024 through FR-027 were added to bind it to the shared exit-code contract, to keep it silent on
+  keyless corpora, to require it to state what it cannot verify, and to stop it being read as a
+  PRISMA-S compliance claim.
+
+Both answers grew the feature: 21 functional requirements became 27, and 9 success criteria became
+12. The size increase is in the disclosure obligations the answers created, not in new capability.
 
 ### Verified during validation
 

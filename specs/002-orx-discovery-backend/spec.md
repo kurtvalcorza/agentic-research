@@ -106,6 +106,13 @@ reproducibility caveat.
 4. **Given** an acquisition ran with enrichment, **When** the search log is written, **Then** the
    version of OpenResearch that answered the queries is recorded, because its result behaviour is
    not stable across versions.
+5. **Given** a candidate set containing enriched records and a search log carrying no disclosure,
+   **When** the disclosure check runs under enforcement, **Then** it reports the omission and exits
+   as a method violation.
+6. **Given** the same candidate set once the disclosure is added, **When** the check runs again,
+   **Then** it passes.
+7. **Given** a keyless candidate set, **When** the check runs under enforcement, **Then** it passes,
+   because no disclosure is owed.
 
 ---
 
@@ -149,8 +156,16 @@ OpenResearch from the executable search path, and run an acquisition to completi
   drop count must reach the search log — silently discarding candidates would corrupt the
   identification count that feeds the PRISMA flow.
 - **Records carry no DOI.** Preprint and full-text sources routinely return records with no DOI.
-  Downstream `dedupe-records` and `verify-sources` are DOI-centred; admitting identifier-less
-  records has consequences beyond this skill. See FR-016.
+  They are admitted and tagged (FR-016), which means `dedupe-records` sees records it can match only
+  on title and `verify-sources` sees records it cannot resolve. The count must be disclosed at
+  acquisition (FR-022) so the cost is known before it is paid.
+- **Every record in a corpus is identifier-less.** A legitimate outcome for a preprint-heavy
+  question. The corpus is still valid and must pass acquisition, but the disclosure of FR-022 makes
+  the situation visible rather than presenting it as an ordinary corpus.
+- **Enriched records present, no search log at all.** The disclosure check must treat this as a
+  method violation — the disclosure is owed and absent — not as malformed input.
+- **A disclosure that names no queries.** A log carrying the caveat as boilerplate without
+  identifying which queries it applies to does not satisfy FR-015 and must fail the check.
 - **A genuine zero-result query.** The backend runs correctly and matches nothing. This must be
   distinguishable in the log from a query that failed and fell back, because the two mean opposite
   things about the search.
@@ -210,20 +225,38 @@ OpenResearch from the executable search path, and run an acquisition to completi
 
 **Downstream compatibility**
 
-- **FR-016**: The skill MUST define and apply a single rule for records lacking a DOI.
-  [NEEDS CLARIFICATION: Downstream `dedupe-records` matches primarily on DOI and `verify-sources`
-  resolves DOIs against OpenAlex/CrossRef. Preprint and full-text sources routinely return records
-  with no DOI. Admitting them raises recall but hands downstream gates records they cannot process;
-  excluding them discards exactly the preprint coverage this feature exists to add.]
+- **FR-016**: Records lacking a DOI MUST be admitted to the candidate set, tagged as
+  identifier-less, and MUST carry whatever alternative identifier the source did provide. Recall is
+  the property this feature exists to improve, and excluding these records would discard most of the
+  preprint and full-text coverage that motivates it.
+- **FR-022**: The number of identifier-less records admitted MUST be recorded in the search log and
+  reported at handoff, so the next skill in the pipeline receives a known quantity rather than
+  discovers it. An identification count that hides how much of the corpus cannot be resolved is the
+  kind of unaudited number this repository exists to prevent.
+- **FR-023**: The skill MUST state, where it documents its outputs, what admitting these records
+  costs downstream: `dedupe-records` can match them only by title similarity, and `verify-sources`
+  cannot resolve them at all. A reviewer MUST be able to learn this at acquisition time rather than
+  at the gate that stalls on it.
 
 **Enforcement posture**
 
-- **FR-017**: The disclosure required by FR-015 MUST have a defined enforcement posture.
-  [NEEDS CLARIFICATION: Principle I requires every claimed standard to be backed by a runnable gate
-  or an explicit non-enforcement note. `acquire-corpus` currently declares its PRISMA-S alignment as
-  guidance with no validator. Whether this feature adds a check that fails when an enriched corpus
-  carries no disclosure, or extends the existing guidance-only posture, changes the feature's size
-  and its claim.]
+- **FR-017**: A runnable check MUST verify that a candidate set containing enriched records is
+  accompanied by a search log carrying the disclosure required by FR-015. A corpus whose enrichment
+  is undisclosed MUST fail that check.
+- **FR-024**: The check MUST conform to the repository's shared gate contract: the record is read
+  from a path argument or from standard input; `--strict` selects enforcement; exit `0` means clean
+  or non-strict, exit `1` a method violation under `--strict`, exit `2` malformed input. A corpus
+  that is merely undisclosed is a method violation, never a malformed input.
+- **FR-025**: The check MUST pass a keyless corpus without complaint. No disclosure is owed when no
+  enriched source contributed, and a check that demanded one would make the keyless path harder than
+  the enriched one.
+- **FR-026**: The check MUST document what it cannot verify — at minimum that the disclosure is
+  truthful, that the recorded backend version is the version that actually answered, and that
+  records attributed to a source genuinely came from it. The check reads what the run wrote about
+  itself; it does not re-execute the search.
+- **FR-027**: This check MUST NOT be represented as making the skill PRISMA-S compliant. It enforces
+  enrichment disclosure and nothing else. The skill's PRISMA-S posture remains guidance, and the
+  standards table MUST continue to say so.
 
 **Constitutional constraints**
 
@@ -247,6 +280,9 @@ OpenResearch from the executable search path, and run an acquisition to completi
   version, or unavailable. It is a fact about the environment, not a user setting.
 - **Reproducibility caveat**: The statement required by FR-015, attached to the search log when and
   only when an enriched source contributed to the corpus.
+- **Disclosure verdict**: The outcome of the check required by FR-017 — clean, a method violation
+  naming what is missing, or malformed input. It is a statement about what the run recorded about
+  itself, never about whether the search was good.
 
 ## Success Criteria *(mandatory)*
 
@@ -270,6 +306,14 @@ OpenResearch from the executable search path, and run an acquisition to completi
   exemplars the keyless run does not, demonstrating the recall gain that motivates the feature.
 - **SC-009**: Every record dropped during normalisation is reflected in a count in the search log,
   so identification totals reconcile with what the backend actually returned.
+- **SC-010**: The disclosure check fails an enriched corpus whose log carries no disclosure, and
+  passes that same corpus once the disclosure is added — demonstrating it detects the condition it
+  claims to, rather than always passing.
+- **SC-011**: The disclosure check passes 100% of keyless corpora, so the guaranteed path is never
+  made harder than the enriched one.
+- **SC-012**: The count of admitted identifier-less records appears in the search log for 100% of
+  runs that admit any, so the proportion of the corpus that downstream gates cannot resolve is
+  known before those gates run.
 
 ## Assumptions
 
@@ -300,5 +344,19 @@ OpenResearch from the executable search path, and run an acquisition to completi
 - **Scope is discovery only.** Reading paper full text through the enriched backend, its experiment
   and run-orchestration capabilities, and any use of it to execute agent sessions are out of scope
   for this feature.
-- **No change to downstream skills is in scope.** If the resolution of FR-016 requires
-  `dedupe-records` or `verify-sources` to change, that is separate work with its own specification.
+- **Identifier-less records are admitted with a known, deferred cost.** FR-016 resolves in favour of
+  recall. The consequence is real and is accepted rather than hidden: `dedupe-records` will match
+  these records on title similarity alone, which is its weaker path, and `verify-sources` cannot
+  resolve them at all, so a review that cites one will need another route to verification. This
+  feature's obligation is to make the quantity visible before those gates run (FR-022, FR-023), not
+  to solve it.
+- **No change to downstream skills is in scope.** Teaching `dedupe-records` or `verify-sources` to
+  handle identifier-less records is separate work with its own specification. This feature must not
+  quietly widen to include it.
+- **The disclosure check is a new gate and inherits the workflow rules that apply to gates.** Under
+  the repository's development workflow every script that can fail a review run has a test module,
+  and gates share one exit-code contract. Both bind here (FR-024).
+- **The disclosure check does not upgrade the skill's standards claim.** `acquire-corpus` gains its
+  first runnable gate, but that gate enforces enrichment disclosure, not PRISMA-S. Presenting the
+  skill as PRISMA-S enforced on the strength of it would be precisely the unbacked claim Principle I
+  calls a defect (FR-027).
