@@ -75,8 +75,8 @@ All three findings were upheld and remediated:
 - **P1 — empty authors / false-merge risk: RESOLVED.** The adapter may not synthesize `authors: []`
   or use a missing year merely to satisfy downstream shape. FR-031 requires title + non-empty
   verified authors + verified year before enriched admission; FR-032 preserves unresolved hits
-  outside `candidates.jsonl`. This prevents known title-only fuzzy false merges without modifying
-  `dedupe-records`.
+  outside `candidates.jsonl`. This prevents the known title-only fuzzy false-merge path without
+  modifying `dedupe-records`.
 - **P2 — cumulative timeout risk: RESOLVED.** FR-033 adds a per-sub-source circuit breaker, no retry
   after a hard failure, and a fifteen-second total enrichment failure-wait budget per run.
 
