@@ -590,7 +590,13 @@ class _BoundedMetadataCompleter:
 
 
 class _FailureBudget:
-    """Cumulative enrichment failure wait for one run (SC-003: <= 15 s)."""
+    """Cumulative enrichment failure wait for one run (SC-003: <= 15 s).
+
+    A new enrichment request is admitted only when its full worst-case timeout fits
+    inside the remaining budget. This reservation rule prevents a call that starts
+    with (for example) 4.9 seconds remaining from waiting another full 5 seconds and
+    overshooting the run-level cap.
+    """
 
     def __init__(self, limit: float = ENRICHMENT_FAILURE_BUDGET_SECONDS):
         self.limit = limit
@@ -599,9 +605,15 @@ class _FailureBudget:
     def charge(self, elapsed: float) -> None:
         self.waited += min(max(0.0, float(elapsed)), ORX_TIMEOUT_SECONDS)
 
+    def can_start(self, worst_case_wait: float = ORX_TIMEOUT_SECONDS) -> bool:
+        reserve = max(0.0, float(worst_case_wait))
+        return self.waited + reserve <= self.limit
+
     @property
     def exhausted(self) -> bool:
-        return self.waited >= self.limit
+        # "Exhausted" means no further standard enrichment call can be admitted
+        # without risking an overrun, even when some sub-timeout remainder exists.
+        return not self.can_start()
 
 
 def run_orx_discover(
