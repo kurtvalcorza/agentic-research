@@ -1,4 +1,8 @@
-"""Regression for PR #33 reviewer finding: failure-budget calls must not overshoot."""
+"""Regression for PR #33 reviewer finding: failure-budget calls must not overshoot.
+
+The shared budget admits a new enrichment call only when the call's full five-second
+worst-case timeout fits inside the remaining 15-second run budget.
+"""
 from __future__ import annotations
 
 from pathlib import Path
