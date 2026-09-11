@@ -6,7 +6,7 @@
 
 **Created**: 2026-09-09
 
-**Last Revised**: 2026-09-10 — reviewer rounds 1–3 addressed
+**Last Revised**: 2026-09-11 — implementation review at `d1fcf99` addressed (round 4)
 
 **Status**: Draft — ready for independent re-review
 
@@ -49,6 +49,19 @@ Two findings at `9cb569b9` are resolved in this revision:
 |:--|:--------|:-----------|
 | 1 | Degraded enrichment could disappear from the generated human-readable log | FR-005 records reviewer-selected keyless-only mode; FR-029 preserves every query outcome in `search-log.md` and requires a run-level degradation note whenever enrichment fails or is skipped because a circuit is open. SC-005 requires chosen-keyless and degraded-keyless runs to be distinguishable to a reader. |
 | 2 | `enrichment-unresolved.jsonl` had no explicit handoff/consumer | FR-032 now requires the generated log and acquisition handoff to surface the unresolved file path and count for reviewer triage. Automatic admission after resolution remains explicitly out of scope; unresolved hits cannot enter screening until bibliographic resolution satisfies FR-031. |
+
+### Reviewer round 4 (implementation review at `d1fcf993`)
+
+Four P1 and one P2 finding against the implementation are resolved in this revision. The
+minimal vocabulary/schema changes they required are flagged here for the owner:
+
+| # | Finding | Resolution |
+|:--|:--------|:-----------|
+| 1 | Metadata completion bypassed the 15-second enrichment failure budget | FR-033 now names OpenAlex metadata completion explicitly: one five-second deadline per lookup, failure wait charged to the same run budget, a completion circuit opened by the first transport failure, and cached repeated lookups. SC-003 covers completion lookups. |
+| 2 | Title/year-only OpenAlex matching could falsely satisfy "verified authors" | FR-031 now requires completion to be addressed and corroborated by a stable identifier (OpenAlex work id, DOI, or arXiv DOI). Title similarity plus a year window is not identity; a title-only completion stays unresolved. |
+| 3 | Keyless transport failures collapsed into `empty`/`answered` | FR-014 adds a fifth outcome, `incomplete`, for a keyless search that stopped on a transport/malformed-response failure before the source was exhausted; it carries a failure reason and the partial returned count. Keyless exit semantics (FR-003) are unchanged. **Schema change.** |
+| 4 | Zero-normalizable responses lost their normalization-drop counts | FR-008 now states the fallback entry keeps every drop by count and reason; the gate requires the drops to sum to the returned count. |
+| 5 | Record/log omitted FR-022 loss counts and FR-012 method disclosure | FR-028 bumps the record schema to `1.1`, adding a structured `loss_summary` (FR-022) and `method_disclosure` (FR-012) that the log renders and the gate reconciles. FR-023 guidance is stated in the owning SKILL/README. **Schema change.** |
 
 The safety rule for sparse enrichment is now explicit: **recall evidence may be preserved without being
 fed into an unsafe deduplication path**. A hit that cannot be completed to the bibliographic fields
@@ -208,7 +221,12 @@ run acquisition to completion.
   open a circuit for the affected enriched sub-source for the remainder of the run. No automatic
   retry is permitted after the circuit opens. The cumulative failure-wait budget across all enriched
   sub-sources MUST NOT exceed fifteen seconds per run; after the budget is exhausted, all remaining
-  enrichment attempts are skipped and queries continue keyless.
+  enrichment attempts are skipped and queries continue keyless. Bibliographic metadata completion
+  for enriched hits (FR-031) is part of enrichment and is under the same bound: each completion
+  lookup has the same five-second deadline, its failure wait is charged to the same run budget, the
+  first completion transport failure opens a completion circuit for the remainder of the run, and
+  repeated lookups for one stable identifier MUST be served from a cache. Hits skipped by the
+  budget or circuit are unresolved under FR-032 with a machine-readable reason.
 
 **Record handling and safe admission**
 
@@ -219,7 +237,8 @@ run acquisition to completion.
   from that response is emitted, the sub-source circuit opens, and the query falls back keyless.
 - **FR-008**: Within a supported shape, a record missing a required discovery field (`source`, `id`,
   or usable `title`) MUST be dropped with a counted reason. A non-empty response yielding zero
-  normalizable records MUST fall back keyless.
+  normalizable records MUST fall back keyless, and its query entry MUST still carry every drop by
+  count and reason so that the drops sum to the returned count.
 - **FR-009**: Existing keyless candidate records MUST remain schema/content-compatible with the
   pre-feature candidate contract and MUST NOT be rewritten solely to add `source`/`sub_source`
   fields. Keyless backend provenance MUST instead be recorded per query in
@@ -235,6 +254,10 @@ run acquisition to completion.
   verified `year`. A DOI is preferred but not mandatory; when absent, a stable `source_id` MUST be
   retained. Metadata completion MAY use the skill's existing keyless bibliographic sources, but a
   field not actually resolved MUST remain missing and MUST NOT be defaulted to an empty/zero value.
+  Completion MUST be addressed and corroborated by a stable identifier carried by the hit (OpenAlex
+  work id, DOI, or the arXiv DOI derived from an alphaXiv identifier). Title similarity and a year
+  window are not identity: a candidate matched on title/year alone MUST NOT supply verified
+  authors, and a hit with no stable identifier or no corroborated candidate remains unresolved.
 - **FR-032**: An enriched hit that cannot satisfy FR-031 MUST NOT enter `candidates.jsonl`. It MUST be
   preserved in `corpus/enrichment-unresolved.jsonl` with source identifier, title, available
   discovery metadata, and a machine-readable reason for non-admission. Its count MUST be reported in
@@ -271,12 +294,18 @@ shape check.
 
 - **FR-028**: Acquisition MUST emit `corpus/acquisition-record.json` as the canonical structured
   account of the search. It MUST be one closed-schema JSON object with required schema version.
+  Schema `1.1` adds a run-level `loss_summary` (FR-022 counts) and `method_disclosure` (FR-012);
+  the disclosure gate accepts `1.0` records unchanged and requires both objects from `1.1`.
 - **FR-013**: The acquisition record MUST identify whether enrichment was reviewer-selected
   keyless-only or automatic, and MUST capture per query: backend/sub-source, submitted query, date,
   outcome, returned count, normalization-drop counts/reasons, admitted enriched count,
   unresolved-enrichment count/reasons, circuit-breaker state, and OpenResearch version when used.
-- **FR-014**: The record MUST distinguish `answered`, `empty`, `failed-and-fell-back`, and
-  `skipped-circuit-open` outcomes.
+- **FR-014**: The record MUST distinguish `answered`, `empty`, `incomplete`, `failed-and-fell-back`,
+  and `skipped-circuit-open` outcomes. `incomplete` applies to a keyless search whose transport or
+  response failed before the source was exhausted or the result limit was reached: a first-page
+  failure is NOT `empty` and a later-page failure is NOT `answered`. An `incomplete` entry MUST
+  carry a machine-readable failure reason and the partial returned count. Keyless exit semantics
+  (FR-003) are unaffected; this is truthful provenance, not a runtime warning.
 - **FR-015**: When any query was answered successfully by enrichment, the acquisition record MUST
   state that the search is not fully reproducible without OpenResearch, naming affected queries and
   backend version(s).
@@ -296,7 +325,9 @@ shape check.
   retain `source_id`, `authors`, and `year` so downstream fuzzy deduplication keeps its collision
   guards. DOI-less records that cannot satisfy FR-031 remain unresolved under FR-032.
 - **FR-022**: The acquisition record and generated log MUST report counts of admitted DOI-less
-  enriched records and unresolved records missing authors/year. The handoff MUST state that admitted
+  enriched records and unresolved records missing authors/year, as structured fields of the record
+  (`loss_summary`) from which the log is generated and which the gate reconciles against the query
+  entries and the unresolved count. The handoff MUST state that admitted
   DOI-less records lack exact DOI matching but retain the author/year guards; unresolved sparse hits
   are intentionally withheld from automatic deduplication to prevent title-only false merges.
 - **FR-023**: Documentation MUST state that DOI-less admitted records cannot be resolved directly by
@@ -349,7 +380,8 @@ shape check.
   pre-feature behavior for 100% of tested queries.
 - **SC-002**: With OpenResearch absent, acquisition adds no more than one second wall-clock time.
 - **SC-003**: A failed enriched sub-source incurs at most one five-second failure wait in a run; total
-  failure waiting across all enriched sub-sources never exceeds fifteen seconds.
+  failure waiting across all enriched sub-sources, including metadata-completion lookups, never
+  exceeds fifteen seconds.
 - **SC-004**: 100% of admitted enriched candidates carry `source`, `sub_source`, `source_id`, usable
   title, non-empty verified authors, and verified year. Existing keyless candidates are not required
   to gain new record-level provenance fields.
