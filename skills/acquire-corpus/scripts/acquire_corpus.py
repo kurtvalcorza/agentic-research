@@ -19,16 +19,27 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.parse
 import urllib.request
 
 OPENALEX_BASE = "https://api.openalex.org/works"
 UA = "acquire-corpus/2.0 (agentic-research; mailto:{})"
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 ORX_TIMEOUT_SECONDS = 5.0
 ORX_VERSION_TIMEOUT_SECONDS = 2.0
 ENRICHMENT_FAILURE_BUDGET_SECONDS = 15.0
+# Metadata completion for enriched hits goes to OpenAlex over HTTP. Each lookup has
+# the same five-second deadline as an ``orx discover`` call and its failure wait is
+# charged to the same run-level budget; one transport failure opens the completion
+# circuit for the remainder of the run (FR-033 / SC-003).
+METADATA_SUB_SOURCE = "openalex-metadata"
+ARXIV_DOI_PREFIX = "10.48550/arxiv."
+ARXIV_ID_RE = re.compile(
+    r"^(?:arxiv:)?((?:\d{4}\.\d{4,5})|(?:[a-z\-]+(?:\.[A-Z]{2})?/\d{7}))(?:v\d+)?$",
+    re.IGNORECASE,
+)
 ORX_STRATEGIES = ("keyword", "embedding", "openalex", "biorxiv")
 STRATEGY_SUB_SOURCE = {
     "keyword": "alphaxiv",
@@ -47,10 +58,30 @@ DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
 class EnrichmentFailure(RuntimeError):
     """An optional enrichment call/response is unusable and must fall back keyless."""
 
-    def __init__(self, reason: str, *, elapsed: float = 0.0):
+    def __init__(self, reason: str, *, elapsed: float = 0.0, drops: Counter | None = None):
         super().__init__(reason)
         self.reason = reason
         self.elapsed = max(0.0, float(elapsed))
+        # Normalization-drop counts accumulated before the failure was raised, so a
+        # zero-normalizable response still reports every drop by count and reason
+        # (FR-008 / SC-009).
+        self.drops: Counter = Counter(drops or {})
+
+
+@dataclass(frozen=True)
+class KeylessSearchResult:
+    """Records plus completion state for one keyless OpenAlex search.
+
+    ``complete`` is False when paging stopped because of a transport or malformed-
+    response failure rather than because the source was exhausted or the result
+    limit was reached. ``records`` then holds whatever was accumulated before the
+    failure, so a first-page failure is zero records but NOT a zero-result search.
+    """
+
+    records: list[dict]
+    complete: bool = True
+    failure_reason: str | None = None
+    pages_fetched: int = 0
 
 
 @dataclass(frozen=True)
@@ -108,8 +139,18 @@ def _openalex_record(work: dict) -> dict:
     }
 
 
-def keyless_openalex_search(query: str, config: AcquisitionConfig) -> list[dict]:
-    """Mirror search_openalex.py's baseline record shape and fail-soft paging."""
+def keyless_openalex_search(
+    query: str,
+    config: AcquisitionConfig,
+    *,
+    http_json=None,
+) -> KeylessSearchResult:
+    """Mirror search_openalex.py's baseline record shape and fail-soft paging.
+
+    Fail-soft means acquisition continues and the keyless exit code is unchanged;
+    it does not mean the failure is forgotten. The returned completion state lets
+    the acquisition record distinguish "returned zero" from "did not complete".
+    """
     filters = []
     if config.from_date:
         filters.append(f"from_publication_date:{config.from_date}")
@@ -126,18 +167,33 @@ def keyless_openalex_search(query: str, config: AcquisitionConfig) -> list[dict]
     if config.mailto:
         params["mailto"] = config.mailto
 
+    http_json = http_json or _http_json
     out: list[dict] = []
     seen = set()
+    pages = 0
     while len(out) < config.max_results:
         url = f"{OPENALEX_BASE}?{urllib.parse.urlencode(params)}"
+        page = pages + 1
         try:
-            data = _http_json(url, config.mailto, timeout=30.0)
-        except Exception:  # preserve the existing keyless fail-soft behavior
-            break
+            data = http_json(url, config.mailto, timeout=30.0)
+        except Exception as exc:  # fail-soft: keep going keyless, but say so
+            return KeylessSearchResult(
+                out, complete=False, pages_fetched=pages,
+                failure_reason=f"keyless-transport-failure:page-{page}:{type(exc).__name__}",
+            )
         if not isinstance(data, dict):
-            break
+            return KeylessSearchResult(
+                out, complete=False, pages_fetched=pages,
+                failure_reason=f"keyless-malformed-response:page-{page}:top-level-not-object",
+            )
+        pages = page
         results = data.get("results", [])
-        if not isinstance(results, list) or not results:
+        if not isinstance(results, list):
+            return KeylessSearchResult(
+                out, complete=False, pages_fetched=pages,
+                failure_reason=f"keyless-malformed-response:page-{page}:results-not-array",
+            )
+        if not results:
             break
         for work in results:
             if not isinstance(work, dict):
@@ -155,7 +211,7 @@ def keyless_openalex_search(query: str, config: AcquisitionConfig) -> list[dict]
             break
         params["cursor"] = cursor
         time.sleep(0.25)
-    return out
+    return KeylessSearchResult(out, complete=True, pages_fetched=pages)
 
 
 def _clean_doi(value) -> str:
@@ -270,8 +326,62 @@ def normalize_lithit_response(raw, strategy: str) -> tuple[list[dict], Counter]:
         normalized.append(rec)
 
     if raw and not normalized:
-        raise EnrichmentFailure("zero-normalizable-records")
+        raise EnrichmentFailure("zero-normalizable-records", drops=drops)
     return normalized, drops
+
+
+def _arxiv_id(rec: dict) -> str:
+    """Return the version-stripped arXiv identifier carried by an alphaXiv hit, or ''."""
+    if rec.get("sub_source") != "alphaxiv":
+        return ""
+    match = ARXIV_ID_RE.match(str(rec.get("source_id", "")).strip())
+    return match.group(1) if match else ""
+
+
+def _candidate_urls(candidate: dict) -> list[str]:
+    urls = []
+    locations = list(candidate.get("locations") or [])
+    primary = candidate.get("primary_location")
+    if isinstance(primary, dict):
+        locations.append(primary)
+    for loc in locations:
+        if not isinstance(loc, dict):
+            continue
+        for key in ("landing_page_url", "pdf_url"):
+            value = loc.get(key)
+            if isinstance(value, str) and value:
+                urls.append(value.casefold())
+    return urls
+
+
+def _identity_corroborated(rec: dict, candidate: dict) -> bool:
+    """True only when a stable identifier on the hit matches one on the candidate.
+
+    Title similarity and a year window are NOT identity: two different studies can
+    share both. Without an identifier match the completion stays unresolved
+    (FR-031 / SC-014).
+    """
+    rec_doi = _clean_doi(rec.get("doi")).casefold()
+    cand_doi = _clean_doi(candidate.get("doi")).casefold()
+    if rec_doi and cand_doi and rec_doi == cand_doi:
+        return True
+    source_id = str(rec.get("source_id", "")).strip()
+    cand_id = candidate.get("id")
+    if (
+        rec.get("sub_source") in {"openalex", "biorxiv"}
+        and re.fullmatch(r"W\d+", source_id)
+        and isinstance(cand_id, str)
+        and cand_id.rstrip("/").rsplit("/", 1)[-1] == source_id
+    ):
+        return True
+    arxiv = _arxiv_id(rec).casefold()
+    if arxiv:
+        if cand_doi == ARXIV_DOI_PREFIX + arxiv:
+            return True
+        needles = (f"arxiv.org/abs/{arxiv}", f"arxiv.org/pdf/{arxiv}")
+        if any(n in url for url in _candidate_urls(candidate) for n in needles):
+            return True
+    return False
 
 
 def _openalex_candidate_matches(rec: dict, candidate: dict, *, direct: bool) -> bool:
@@ -293,7 +403,15 @@ def _openalex_candidate_matches(rec: dict, candidate: dict, *, direct: bool) -> 
     cand_doi = _clean_doi(candidate.get("doi"))
     if rec_doi and cand_doi and rec_doi.casefold() != cand_doi.casefold():
         return False
+    if not direct and not _identity_corroborated(rec, candidate):
+        # A title-search candidate must corroborate identity independently of
+        # title/year; otherwise the hit remains unresolved.
+        return False
     return True
+
+
+def _is_not_found(exc: BaseException) -> bool:
+    return getattr(exc, "code", None) == 404
 
 
 def resolve_openalex_metadata(
@@ -302,9 +420,17 @@ def resolve_openalex_metadata(
     *,
     http_json=_http_json,
 ) -> dict | None:
-    """Resolve authors/year conservatively through the keyless OpenAlex source."""
+    """Resolve authors/year conservatively through the keyless OpenAlex source.
+
+    Exactly one bounded HTTP request per hit, addressed by a stable identifier
+    (OpenAlex work id, DOI, or arXiv DOI). Returns ``None`` when the hit carries no
+    stable identifier, when OpenAlex does not know it, or when the candidate does
+    not match. Raises ``EnrichmentFailure`` (with ``elapsed``) on timeout or
+    transport failure so the caller can charge the run-level failure budget.
+    """
     source_id = rec.get("source_id", "")
     doi = _clean_doi(rec.get("doi"))
+    arxiv = _arxiv_id(rec)
     direct = False
 
     if rec.get("sub_source") in {"openalex", "biorxiv"} and re.fullmatch(r"W\d+", source_id):
@@ -313,16 +439,29 @@ def resolve_openalex_metadata(
     elif doi:
         direct = True
         url = f"{OPENALEX_BASE}/doi:{urllib.parse.quote(doi)}"
+    elif arxiv:
+        # alphaXiv identifiers are arXiv identifiers; OpenAlex indexes arXiv
+        # preprints under the DataCite DOI 10.48550/arXiv.<id>, a stable identifier.
+        direct = True
+        url = f"{OPENALEX_BASE}/doi:{urllib.parse.quote(ARXIV_DOI_PREFIX + arxiv)}"
     else:
-        params = {"search": rec["title"], "per_page": "5"}
-        if config.mailto:
-            params["mailto"] = config.mailto
-        url = f"{OPENALEX_BASE}?{urllib.parse.urlencode(params)}"
+        # No stable identifier on the hit means no title-search candidate could
+        # corroborate identity; do not spend a request that cannot resolve.
+        return None
 
+    started = time.monotonic()
     try:
         data = http_json(url, config.mailto, timeout=ORX_TIMEOUT_SECONDS)
-    except Exception:
-        return None
+    except TimeoutError as exc:
+        elapsed = time.monotonic() - started
+        raise EnrichmentFailure(
+            "metadata-completion-timeout", elapsed=max(elapsed, ORX_TIMEOUT_SECONDS)
+        ) from exc
+    except Exception as exc:
+        elapsed = time.monotonic() - started
+        if _is_not_found(exc):
+            return None  # the identifier is simply unknown to OpenAlex
+        raise EnrichmentFailure("metadata-completion-transport-failure", elapsed=elapsed) from exc
 
     candidates = [data] if direct and isinstance(data, dict) else (
         data.get("results", []) if isinstance(data, dict) else []
@@ -366,8 +505,19 @@ def admit_enriched_hit(
     *,
     resolver=resolve_openalex_metadata,
 ) -> tuple[dict | None, dict | None]:
-    """Return (admitted, unresolved) while enforcing the safe-admission minimum."""
-    metadata = resolver(rec, config)
+    """Return (admitted, unresolved) while enforcing the safe-admission minimum.
+
+    A resolver may return metadata, ``None`` (nothing verifiable), or raise
+    ``EnrichmentFailure``; the failure reason becomes the unresolved reason so the
+    record says WHY completion did not happen (budget/circuit/transport vs. no
+    verifiable match).
+    """
+    try:
+        metadata = resolver(rec, config)
+    except EnrichmentFailure as exc:
+        unresolved = dict(rec)
+        unresolved["reason"] = exc.reason
+        return None, unresolved
     authors = metadata.get("authors") if isinstance(metadata, dict) else None
     year = (
         metadata.get("year")
@@ -389,6 +539,69 @@ def admit_enriched_hit(
                 admitted[key] = metadata[key]
     admitted["identifier_less"] = not bool(_clean_doi(admitted.get("doi")))
     return admitted, None
+
+
+class _BoundedMetadataCompleter:
+    """Wrap a metadata resolver with the run-level failure budget and a circuit.
+
+    - Repeated lookups for the same stable identifier are served from a cache, so
+      the same paper discovered by several strategies costs one request.
+    - The first transport failure opens the ``openalex-metadata`` circuit for the
+      rest of the run; no automatic retry (FR-033).
+    - Every failure wait is charged to the shared ``failure_wait`` budget, and once
+      the budget is exhausted no further completion request is attempted.
+    Skipped hits are unresolved with a machine-readable reason, never admitted.
+    """
+
+    def __init__(self, resolver, budget: "_FailureBudget"):
+        self._resolver = resolver
+        self._budget = budget
+        self._cache: dict[str, dict | None] = {}
+        self.circuit_open = False
+        self.attempts = 0
+
+    @staticmethod
+    def _key(rec: dict) -> str:
+        doi = _clean_doi(rec.get("doi")).casefold()
+        if doi:
+            return f"doi:{doi}"
+        arxiv = _arxiv_id(rec).casefold()
+        if arxiv:
+            return f"arxiv:{arxiv}"
+        return f"{rec.get('sub_source')}:{str(rec.get('source_id', '')).strip()}"
+
+    def __call__(self, rec: dict, config: AcquisitionConfig) -> dict | None:
+        key = self._key(rec)
+        if key in self._cache:
+            return self._cache[key]
+        if self.circuit_open:
+            raise EnrichmentFailure("metadata-completion-skipped:circuit-open")
+        if self._budget.exhausted:
+            raise EnrichmentFailure("metadata-completion-skipped:run-failure-budget-exhausted")
+        self.attempts += 1
+        try:
+            resolved = self._resolver(rec, config)
+        except EnrichmentFailure as exc:
+            self.circuit_open = True
+            self._budget.charge(exc.elapsed)
+            raise
+        self._cache[key] = resolved
+        return resolved
+
+
+class _FailureBudget:
+    """Cumulative enrichment failure wait for one run (SC-003: <= 15 s)."""
+
+    def __init__(self, limit: float = ENRICHMENT_FAILURE_BUDGET_SECONDS):
+        self.limit = limit
+        self.waited = 0.0
+
+    def charge(self, elapsed: float) -> None:
+        self.waited += min(max(0.0, float(elapsed)), ORX_TIMEOUT_SECONDS)
+
+    @property
+    def exhausted(self) -> bool:
+        return self.waited >= self.limit
 
 
 def run_orx_discover(
@@ -500,6 +713,43 @@ def _query_entry(
     }
 
 
+def _loss_summary(candidates: list[dict], unresolved_records: list[dict]) -> dict:
+    """FR-022 counts, derived from the records actually written (not re-declared)."""
+    admitted_enriched = [c for c in candidates if c.get("source") == "orx"]
+    return {
+        "admitted_enriched_count": len(admitted_enriched),
+        "admitted_doi_less_count": sum(
+            1 for c in admitted_enriched if not _clean_doi(c.get("doi"))
+        ),
+        "unresolved_count": len(unresolved_records),
+        "unresolved_missing_authors_count": sum(
+            1 for u in unresolved_records
+            if not (isinstance(u.get("authors"), list) and u.get("authors"))
+        ),
+        "unresolved_missing_year_count": sum(
+            1 for u in unresolved_records if not isinstance(u.get("year"), int)
+        ),
+        "metadata_completion_skipped_count": sum(
+            1 for u in unresolved_records
+            if str(u.get("reason", "")).startswith("metadata-completion-")
+        ),
+    }
+
+
+def _method_disclosure(entries: list[dict], config: AcquisitionConfig) -> dict:
+    """FR-012: structured disclosure of opaque enriched ranking/truncation."""
+    successful = [
+        q for q in entries if q["backend"] == "orx" and q["outcome"] in {"answered", "empty"}
+    ]
+    return {
+        "opaque_ranking_or_truncation": bool(successful),
+        "affected_sub_sources": sorted({q["sub_source"] for q in successful}),
+        "orx_limit": config.orx_limit if successful else None,
+        "orx_prioritize": config.orx_prioritize if successful else None,
+        "is_deduplication_step": False,
+    }
+
+
 def _write_jsonl(path: Path, records: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -548,15 +798,25 @@ def render_search_log(record: dict) -> str:
             "sub-source circuit opened. See the outcome column below.",
             "",
         ]
+    incomplete = [q for q in record["queries"] if q["outcome"] == "incomplete"]
+    if incomplete:
+        lines += [
+            "> **Keyless baseline incomplete:** one or more keyless OpenAlex searches stopped "
+            "on a transport or malformed-response failure before the source was exhausted. "
+            "Their returned counts are partial, not zero-result or complete answers; see the "
+            "failure column and re-run those queries before treating acquisition as complete.",
+            "",
+        ]
 
     lines += [
-        "| Backend | Source | Strategy | Query | Date | Outcome | Returned | Admitted | Unresolved | Circuit | Version |",
-        "|:--|:--|:--|:--|:--|:--|--:|--:|--:|:--:|:--|",
+        "| Backend | Source | Strategy | Query | Date | Outcome | Returned | Dropped | Admitted | Unresolved | Circuit | Version | Failure |",
+        "|:--|:--|:--|:--|:--|:--|--:|--:|--:|--:|:--:|:--|:--|",
     ]
     for q in record["queries"]:
         lines.append(
             "| {backend} | {source} | {strategy} | {query} | {date} | {outcome} | "
-            "{returned} | {admitted} | {unresolved} | {circuit} | {version} |".format(
+            "{returned} | {dropped} | {admitted} | {unresolved} | {circuit} | {version} | "
+            "{failure} |".format(
                 backend=_md_cell(q["backend"]),
                 source=_md_cell(q["sub_source"]),
                 strategy=_md_cell(q["strategy"]),
@@ -564,12 +824,24 @@ def render_search_log(record: dict) -> str:
                 date=_md_cell(q["date"]),
                 outcome=_md_cell(q["outcome"]),
                 returned=q["returned_count"],
+                dropped=sum(item["count"] for item in q["normalization_drops"]),
                 admitted=q["admitted_enriched_count"],
                 unresolved=q["unresolved_enrichment_count"],
                 circuit="open" if q["circuit_open"] else "closed",
                 version=_md_cell(q["orx_version"]),
+                failure=_md_cell(q["failure_reason"]),
             )
         )
+    dropped = [
+        (q, item) for q in record["queries"] for item in q["normalization_drops"]
+    ]
+    if dropped:
+        lines += ["", "### Normalization drops", ""]
+        for q, item in dropped:
+            lines.append(
+                f"- `{q['strategy']}` / `{q['sub_source']}` — {q['query']}: "
+                f"{item['count']} × `{item['reason']}`"
+            )
 
     disclosure = record["reproducibility_disclosure"]
     lines += ["", "## Reproducibility", ""]
@@ -601,11 +873,42 @@ def render_search_log(record: dict) -> str:
             "metadata is resolved.",
         ]
 
+    loss = record["loss_summary"]
     lines += [
         "",
-        "## Method limits",
+        "## Loss summary",
         "",
-        "- OpenResearch source ranking/truncation may be opaque.",
+        f"- Admitted enriched records: **{loss['admitted_enriched_count']}**",
+        f"- Admitted enriched records without a DOI: **{loss['admitted_doi_less_count']}**",
+        f"- Unresolved enriched hits: **{loss['unresolved_count']}** "
+        f"(missing verified authors: {loss['unresolved_missing_authors_count']}; "
+        f"missing verified year: {loss['unresolved_missing_year_count']}; "
+        f"metadata completion skipped by budget/circuit: "
+        f"{loss['metadata_completion_skipped_count']})",
+        "",
+        "Admitted DOI-less records lack exact DOI matching downstream but retain their "
+        "`source_id`, verified authors, and verified year, so `dedupe-records` keeps its "
+        "author/year collision guards. Unresolved sparse hits are intentionally withheld from "
+        "automatic deduplication to prevent title-only false merges; they need manual or "
+        "later bibliographic resolution (title/author/year reverse lookup) before screening.",
+    ]
+
+    method = record["method_disclosure"]
+    lines += ["", "## Method limits", ""]
+    if method["opaque_ranking_or_truncation"]:
+        lines.append(
+            "- OpenResearch enrichment applied opaque ranking/truncation for sub-source(s) "
+            + ", ".join(f"`{s}`" for s in method["affected_sub_sources"])
+            + f" (`--limit {method['orx_limit']}`, `--prioritize {method['orx_prioritize']}`). "
+            "This selection is a source-side method limit; it is **not** the review's "
+            "deduplication step."
+        )
+    else:
+        lines.append(
+            "- No successful OpenResearch enrichment contributed to this run, so no opaque "
+            "source-side ranking/truncation applies."
+        )
+    lines += [
         "- This workflow does not characterize recall against the review question.",
         "- Source coverage is not quantified by this log.",
         "",
@@ -649,13 +952,30 @@ def acquire(
     executable = None if config.keyless_only else detected_executable
     orx_version = version_reader(executable) if executable else None
     circuits = {source: False for source in SUPPORTED_LITHIT_SOURCES}
-    failure_wait = 0.0
+    budget = _FailureBudget()
+    completer = _BoundedMetadataCompleter(metadata_resolver, budget)
 
     for q_index, query in enumerate(config.queries, 1):
         query = query.strip()
-        keyless = keyless_search(query, config)
+        keyless_result = keyless_search(query, config)
+        if isinstance(keyless_result, KeylessSearchResult):
+            keyless = list(keyless_result.records)
+            keyless_complete = keyless_result.complete
+            keyless_failure = keyless_result.failure_reason
+        else:  # a plain record list means a completed search
+            keyless = list(keyless_result)
+            keyless_complete = True
+            keyless_failure = None
         candidates.extend(keyless)
         _write_jsonl(raw_dir / f"openalex-q{q_index:03d}.jsonl", keyless)
+        if keyless_complete:
+            keyless_outcome = "answered" if keyless else "empty"
+            keyless_failure = None
+        else:
+            # Neither a genuine zero-result search nor a fully answered one: the
+            # transport stopped before the source was exhausted (P1-3).
+            keyless_outcome = "incomplete"
+            keyless_failure = keyless_failure or "keyless-transport-failure"
         entries.append(
             _query_entry(
                 backend="keyless",
@@ -663,8 +983,9 @@ def acquire(
                 strategy="search",
                 query=query,
                 run_date=run_date,
-                outcome="answered" if keyless else "empty",
+                outcome=keyless_outcome,
                 returned_count=len(keyless),
+                failure_reason=keyless_failure,
             )
         )
 
@@ -673,7 +994,7 @@ def acquire(
 
         for strategy in config.orx_strategies:
             sub_source = STRATEGY_SUB_SOURCE[strategy]
-            if circuits[sub_source] or failure_wait >= ENRICHMENT_FAILURE_BUDGET_SECONDS:
+            if circuits[sub_source] or budget.exhausted:
                 reason = (
                     "sub-source-circuit-open"
                     if circuits[sub_source]
@@ -698,7 +1019,7 @@ def acquire(
                 raw, _elapsed = orx_runner(executable, strategy, query, config)
             except EnrichmentFailure as exc:
                 circuits[sub_source] = True
-                failure_wait += min(exc.elapsed, ORX_TIMEOUT_SECONDS)
+                budget.charge(exc.elapsed)
                 entries.append(
                     _query_entry(
                         backend="orx",
@@ -728,6 +1049,7 @@ def acquire(
                         run_date=run_date,
                         outcome="failed-and-fell-back",
                         returned_count=len(raw),
+                        drops=exc.drops,
                         circuit_open=True,
                         orx_version=orx_version,
                         failure_reason=exc.reason,
@@ -745,7 +1067,7 @@ def acquire(
             unresolved_reasons: Counter = Counter()
             for rec in normalized:
                 accepted, pending = admit_enriched_hit(
-                    rec, config, resolver=metadata_resolver
+                    rec, config, resolver=completer
                 )
                 if accepted is not None:
                     admitted.append(accepted)
@@ -800,6 +1122,8 @@ def acquire(
             "count": len(unresolved_records),
             "path": unresolved_path.as_posix(),
         },
+        "loss_summary": _loss_summary(candidates, unresolved_records),
+        "method_disclosure": _method_disclosure(entries, config),
     }
     _write_json(output_dir / "acquisition-record.json", record)
     (output_dir / "search-log.md").write_text(
@@ -849,7 +1173,16 @@ def _parse_args(argv=None) -> AcquisitionConfig:
 
 def main(argv=None) -> int:
     config = _parse_args(argv)
-    acquire(config)
+    record = acquire(config)
+    # Keep the pre-feature keyless diagnostic: say on stderr when a keyless search
+    # stopped early. Exit semantics are unchanged (FR-003); the canonical record
+    # already carries the outcome, so this is a courtesy, not the source of truth.
+    for q in record["queries"]:
+        if q["backend"] == "keyless" and q["outcome"] == "incomplete":
+            sys.stderr.write(
+                f"[search] stopped: {q['query']!r} {q['failure_reason']} "
+                f"(returned {q['returned_count']} before the failure)\n"
+            )
     return 0
 
 

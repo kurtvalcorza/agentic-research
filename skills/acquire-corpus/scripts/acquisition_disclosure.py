@@ -8,6 +8,10 @@ WHAT THIS CHECKS
   successful OpenResearch discovery calls carry an OpenResearch version and are
   represented in the reproducibility disclosure; and the disclosure does not claim
   OpenResearch is unnecessary when a successful enriched search was part of the run.
+  For schema 1.1 records it also reconciles the loss summary (admitted DOI-less,
+  unresolved missing authors/year) and the opaque-ranking method disclosure against
+  the query entries, requires a zero-normalizable fallback to account for every
+  dropped record, and requires an incomplete keyless search to carry its failure.
 
 WHAT THIS CANNOT CHECK
   Whether provenance values are truthful, whether the OpenResearch version string is
@@ -28,7 +32,7 @@ import json
 import math
 import sys
 
-SCHEMA_VERSIONS = {"1.0"}
+SCHEMA_VERSIONS = {"1.0", "1.1"}
 JSON_ENVELOPE_VERSION = "1.0"
 CHECK_NAME = "acquisition_disclosure"
 
@@ -46,9 +50,24 @@ REASON_KEYS = {"reason", "count"}
 DISCLOSURE_KEYS = {"requires_openresearch", "successful_enrichment"}
 DISCLOSURE_ITEM_KEYS = {"query", "strategy", "sub_source", "orx_version"}
 UNRESOLVED_KEYS = {"count", "path"}
+LOSS_SUMMARY_KEYS = {
+    "admitted_enriched_count", "admitted_doi_less_count", "unresolved_count",
+    "unresolved_missing_authors_count", "unresolved_missing_year_count",
+    "metadata_completion_skipped_count",
+}
+METHOD_DISCLOSURE_KEYS = {
+    "opaque_ranking_or_truncation", "affected_sub_sources", "orx_limit",
+    "orx_prioritize", "is_deduplication_step",
+}
+RECORD_KEYS_1_1 = RECORD_KEYS | {"loss_summary", "method_disclosure"}
 
 BACKENDS = {"keyless", "orx"}
 OUTCOMES = {"answered", "empty", "failed-and-fell-back", "skipped-circuit-open"}
+# 1.1 adds `incomplete`: a keyless search that stopped on a transport/malformed
+# response failure before the source was exhausted. It is neither `empty` (a
+# genuine zero-result search) nor `answered` (a complete one).
+OUTCOMES_1_1 = OUTCOMES | {"incomplete"}
+ZERO_NORMALIZABLE = "zero-normalizable-records"
 ENRICHMENT_MODES = {"auto", "keyless-only"}
 
 
@@ -124,7 +143,7 @@ def _parse_reasons(value, ctx: str) -> list[dict]:
     return out
 
 
-def _parse_query(value, index: int) -> dict:
+def _parse_query(value, index: int, outcomes: set[str] = OUTCOMES) -> dict:
     ctx = f"queries[{index}]"
     _obj(value, ctx)
     _no_unknown_keys(value, QUERY_KEYS, ctx)
@@ -133,8 +152,8 @@ def _parse_query(value, index: int) -> dict:
     if backend not in BACKENDS:
         raise InputError(f"{ctx}.backend: expected one of {sorted(BACKENDS)}, got {backend!r}")
     outcome = value.get("outcome")
-    if outcome not in OUTCOMES:
-        raise InputError(f"{ctx}.outcome: expected one of {sorted(OUTCOMES)}, got {outcome!r}")
+    if outcome not in outcomes:
+        raise InputError(f"{ctx}.outcome: expected one of {sorted(outcomes)}, got {outcome!r}")
 
     parsed = {
         "backend": backend,
@@ -168,12 +187,56 @@ def _parse_query(value, index: int) -> dict:
             )
         if parsed["orx_version"] is not None:
             raise InputError(f"{ctx}: keyless query must use null orx_version")
-    if outcome in {"failed-and-fell-back", "skipped-circuit-open"}:
+    if outcome == "incomplete" and backend != "keyless":
+        raise InputError(f"{ctx}: incomplete is a keyless outcome; orx failures fall back")
+    if outcome in {"failed-and-fell-back", "skipped-circuit-open", "incomplete"}:
         if not parsed["failure_reason"]:
             raise InputError(f"{ctx}: {outcome} requires failure_reason")
     elif parsed["failure_reason"] is not None:
         raise InputError(f"{ctx}: {outcome} must not carry failure_reason")
     return parsed
+
+
+def _parse_loss_summary(value) -> dict:
+    ctx = "loss_summary"
+    _obj(value, ctx)
+    _no_unknown_keys(value, LOSS_SUMMARY_KEYS, ctx)
+    parsed = {}
+    for key in sorted(LOSS_SUMMARY_KEYS):
+        if key not in value:
+            raise InputError(f"{ctx}.{key}: missing")
+        parsed[key] = _count(value.get(key), f"{ctx}.{key}")
+    return parsed
+
+
+def _parse_method_disclosure(value) -> dict:
+    ctx = "method_disclosure"
+    _obj(value, ctx)
+    _no_unknown_keys(value, METHOD_DISCLOSURE_KEYS, ctx)
+    for key in sorted(METHOD_DISCLOSURE_KEYS):
+        if key not in value:
+            raise InputError(f"{ctx}.{key}: missing")
+    sources = value.get("affected_sub_sources")
+    if not isinstance(sources, list) or any(
+        not isinstance(item, str) or not item.strip() for item in sources
+    ):
+        raise InputError(f"{ctx}.affected_sub_sources: expected a list of non-empty strings")
+    if len(set(sources)) != len(sources):
+        raise InputError(f"{ctx}.affected_sub_sources: duplicate sub-source")
+    limit = value.get("orx_limit")
+    if limit is not None:
+        limit = _count(limit, f"{ctx}.orx_limit")
+    return {
+        "opaque_ranking_or_truncation": _bool(
+            value.get("opaque_ranking_or_truncation"), f"{ctx}.opaque_ranking_or_truncation"
+        ),
+        "affected_sub_sources": [item.strip() for item in sources],
+        "orx_limit": limit,
+        "orx_prioritize": _nullable_text(value.get("orx_prioritize"), f"{ctx}.orx_prioritize"),
+        "is_deduplication_step": _bool(
+            value.get("is_deduplication_step"), f"{ctx}.is_deduplication_step"
+        ),
+    }
 
 
 def _parse_disclosure(value) -> dict:
@@ -200,14 +263,15 @@ def _parse_disclosure(value) -> dict:
 
 def parse(raw: dict) -> dict:
     _obj(raw, "record")
-    _no_unknown_keys(raw, RECORD_KEYS, "record")
-
     version = raw.get("schema_version")
     if not isinstance(version, str) or version not in SCHEMA_VERSIONS:
         raise InputError(
             f"record: unrecognised or missing schema_version {version!r} "
             f"(recognised: {', '.join(sorted(SCHEMA_VERSIONS))})"
         )
+    modern = version != "1.0"
+    _no_unknown_keys(raw, RECORD_KEYS_1_1 if modern else RECORD_KEYS, "record")
+    outcomes = OUTCOMES_1_1 if modern else OUTCOMES
     run_date = _text(raw.get("run_date"), "record.run_date")
     mode = raw.get("enrichment_mode")
     if mode not in ENRICHMENT_MODES:
@@ -221,7 +285,7 @@ def parse(raw: dict) -> dict:
         raise InputError("record.queries: expected a list")
     if not queries:
         raise InputError("record.queries: empty — there is nothing to check")
-    parsed_queries = [_parse_query(item, idx) for idx, item in enumerate(queries)]
+    parsed_queries = [_parse_query(item, idx, outcomes) for idx, item in enumerate(queries)]
 
     disclosure = _parse_disclosure(raw.get("reproducibility_disclosure"))
 
@@ -234,7 +298,7 @@ def parse(raw: dict) -> dict:
     if mode == "keyless-only" and any(q["backend"] == "orx" for q in parsed_queries):
         raise InputError("record: keyless-only mode cannot contain orx query entries")
 
-    return {
+    parsed = {
         "schema_version": version,
         "run_date": run_date,
         "enrichment_mode": mode,
@@ -243,6 +307,14 @@ def parse(raw: dict) -> dict:
         "reproducibility_disclosure": disclosure,
         "unresolved": {"count": unresolved_count, "path": unresolved_path},
     }
+    if modern:
+        if "loss_summary" not in raw:
+            raise InputError("record.loss_summary: missing (required from schema 1.1)")
+        if "method_disclosure" not in raw:
+            raise InputError("record.method_disclosure: missing (required from schema 1.1)")
+        parsed["loss_summary"] = _parse_loss_summary(raw.get("loss_summary"))
+        parsed["method_disclosure"] = _parse_method_disclosure(raw.get("method_disclosure"))
+    return parsed
 
 
 def _sig(query: dict) -> tuple[str, str, str, str | None]:
@@ -291,6 +363,16 @@ def check(record: dict) -> list[str]:
                     f"{q['query']!r}: admitted + unresolved + drops = {normalized_total}, "
                     f"but returned_count = {q['returned_count']}"
                 )
+        elif q["failure_reason"] == ZERO_NORMALIZABLE:
+            # FR-008 / SC-009: a non-empty response with zero normalizable records
+            # must still account for every record it dropped, by count and reason.
+            dropped = sum(item["count"] for item in q["normalization_drops"])
+            if dropped != q["returned_count"]:
+                issues.append(
+                    f"zero-normalizable fallback for {q['strategy']}/{q['sub_source']} "
+                    f"{q['query']!r} drops {dropped} record(s) but returned_count = "
+                    f"{q['returned_count']}; every returned record must be dropped with a reason"
+                )
 
     for q in successful:
         if not q["orx_version"]:
@@ -332,6 +414,72 @@ def check(record: dict) -> list[str]:
             f"unresolved count mismatch: query entries total {unresolved_sum}, but "
             f"record.unresolved.count = {record['unresolved']['count']}"
         )
+
+    if "loss_summary" in record:
+        issues.extend(_check_loss_summary(record, successful))
+    return issues
+
+
+def _check_loss_summary(record: dict, successful: list[dict]) -> list[str]:
+    issues: list[str] = []
+    loss = record["loss_summary"]
+    admitted_sum = sum(q["admitted_enriched_count"] for q in record["queries"])
+    unresolved_count = record["unresolved"]["count"]
+    if loss["admitted_enriched_count"] != admitted_sum:
+        issues.append(
+            f"loss summary admitted_enriched_count = {loss['admitted_enriched_count']}, but "
+            f"query entries admit {admitted_sum}"
+        )
+    if loss["admitted_doi_less_count"] > loss["admitted_enriched_count"]:
+        issues.append(
+            f"loss summary admitted_doi_less_count = {loss['admitted_doi_less_count']} exceeds "
+            f"admitted_enriched_count = {loss['admitted_enriched_count']}"
+        )
+    if loss["unresolved_count"] != unresolved_count:
+        issues.append(
+            f"loss summary unresolved_count = {loss['unresolved_count']}, but "
+            f"record.unresolved.count = {unresolved_count}"
+        )
+    for key in (
+        "unresolved_missing_authors_count",
+        "unresolved_missing_year_count",
+        "metadata_completion_skipped_count",
+    ):
+        if loss[key] > unresolved_count:
+            issues.append(
+                f"loss summary {key} = {loss[key]} exceeds unresolved count {unresolved_count}"
+            )
+    if (
+        loss["unresolved_missing_authors_count"] + loss["unresolved_missing_year_count"]
+        < unresolved_count
+    ):
+        issues.append(
+            "loss summary does not explain every unresolved hit: missing-authors + "
+            f"missing-year = {loss['unresolved_missing_authors_count'] + loss['unresolved_missing_year_count']}"
+            f" < unresolved count {unresolved_count}"
+        )
+
+    method = record["method_disclosure"]
+    successful_sources = sorted({q["sub_source"] for q in successful})
+    if method["is_deduplication_step"]:
+        issues.append("method disclosure labels source-side ranking/truncation as deduplication")
+    if successful and not method["opaque_ranking_or_truncation"]:
+        issues.append(
+            f"{len(successful)} successful enrichment search(es) are recorded, but "
+            "method_disclosure.opaque_ranking_or_truncation is false"
+        )
+    if not successful and method["opaque_ranking_or_truncation"]:
+        issues.append(
+            "method_disclosure.opaque_ranking_or_truncation is true, but no successful "
+            "enrichment search is recorded"
+        )
+    if sorted(method["affected_sub_sources"]) != successful_sources:
+        issues.append(
+            f"method disclosure names sub-sources {sorted(method['affected_sub_sources'])}, "
+            f"but successful enrichment used {successful_sources}"
+        )
+    if successful and method["orx_limit"] is None:
+        issues.append("method disclosure omits the orx --limit applied to successful enrichment")
     return issues
 
 
@@ -347,6 +495,17 @@ def render(record: dict, issues: list[str], source: str) -> str:
         f"- Enrichment mode: `{record['enrichment_mode']}`",
         f"- Successful enriched searches: **{successful}**",
         f"- Unresolved enriched hits: **{record['unresolved']['count']}**",
+    ]
+    if "loss_summary" in record:
+        loss = record["loss_summary"]
+        lines += [
+            f"- Admitted DOI-less enriched records: **{loss['admitted_doi_less_count']}**",
+            f"- Unresolved missing authors / year: **{loss['unresolved_missing_authors_count']}** / "
+            f"**{loss['unresolved_missing_year_count']}**",
+            "- Opaque enriched ranking/truncation disclosed: "
+            f"**{'yes' if record['method_disclosure']['opaque_ranking_or_truncation'] else 'no'}**",
+        ]
+    lines += [
         "",
         "## Acquisition disclosure check",
         "",

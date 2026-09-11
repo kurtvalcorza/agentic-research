@@ -65,6 +65,10 @@ python scripts/search_openalex.py snowball \
 
 If `enrichment-unresolved.jsonl` is non-empty, review it before treating acquisition as complete. Those records are **not** candidates and must not enter screening until bibliographic resolution provides a usable title, non-empty verified authors, and a verified year.
 
+Admitted enriched records without a DOI (`identifier_less: true`) cannot be resolved directly by DOI downstream; `dedupe-records` may use title/author/year reverse lookup on them because their authors and year were verified against a stable identifier (OpenAlex work id, DOI, or arXiv DOI). Unresolved sparse hits never get that treatment: title/year similarity alone is not identity, so they are withheld from automatic deduplication to prevent title-only false merges.
+
+The acquisition record (schema `1.1`) includes a `loss_summary` (admitted DOI-less count; unresolved hits missing authors/year; completion lookups skipped by budget/circuit) and a `method_disclosure` (opaque OpenResearch ranking/truncation, affected sub-sources, `--limit`/`--prioritize`). `search-log.md` renders both, plus per-query normalization-drop counts.
+
 ## Disclosure gate
 
 ```bash
@@ -82,7 +86,9 @@ The gate checks disclosure structure and internal consistency. It cannot verify 
 
 ## Safety and reproducibility behavior
 
-Unknown top-level `LitHit` fields fail closed for that enriched response. A hard failure opens that sub-source's circuit for the rest of the run, preventing repeated failed calls. Cumulative enrichment failure waiting is capped at 15 seconds per run.
+Unknown top-level `LitHit` fields fail closed for that enriched response. A hard failure opens that sub-source's circuit for the rest of the run, preventing repeated failed calls. Cumulative enrichment failure waiting is capped at 15 seconds per run — and that cap covers OpenAlex metadata-completion lookups too: one five-second deadline each, one transport failure opens the completion circuit, repeated identifiers are cached.
+
+A keyless OpenAlex search that stops on a transport or malformed-response failure keeps its exit code (acquisition still completes) but is recorded as `incomplete` with the failure reason and the partial returned count, never as `empty` or `answered`. A non-empty enriched response with zero normalizable records falls back keyless and still lists every dropped record by reason.
 
 A successful enriched search records the OpenResearch version and appears in the reproducibility disclosure. A degraded run is explicitly distinguishable in `search-log.md` from a reviewer-selected `--keyless-only` run.
 

@@ -83,6 +83,10 @@ A DOI is preferred but not mandatory. When no DOI resolves, retain the stable en
 
 Metadata completion may use the skill's keyless bibliographic sources. Do not substitute `authors: []`, year `0`, null placeholders, or invented values merely to satisfy downstream shape.
 
+Completion is addressed by a **stable identifier only**: an OpenAlex work id, a DOI, or the arXiv DOI (`10.48550/arXiv.<id>`) derived from an alphaXiv identifier. Title similarity plus a year window is not identity — two different studies can share both — so a title-only match never promotes missing authors to verified. A hit with no stable identifier, or one OpenAlex does not know, stays unresolved.
+
+DOI-less admitted records cannot be resolved directly by DOI downstream; they may use title/author/year reverse lookup because they carry verified authors and a verified year. Unresolved records are not verified candidates: they lack those guards and require manual or later bibliographic resolution before they can enter screening.
+
 If the minimum cannot be satisfied, write the hit to `corpus/enrichment-unresolved.jsonl` with its available discovery metadata and a machine-readable reason. Keep it out of `candidates.jsonl`.
 
 When the unresolved count is non-zero, surface the count and path to the reviewer. It is a triage handoff, not an alternate candidate stream. The record must not enter screening until later bibliographic resolution satisfies the safe-admission minimum.
@@ -93,6 +97,10 @@ Each `orx discover` call has a five-second deadline. Timeout, network/command fa
 
 Cumulative enrichment failure waiting may not exceed 15 seconds per run. Remaining work continues keyless.
 
+Metadata completion is under the same bound. Each OpenAlex completion lookup has the same five-second deadline, its failure wait is charged to the same 15-second run budget, the first transport failure opens the `openalex-metadata` circuit for the rest of the run, and repeated lookups for one identifier are served from a cache. Hits skipped by the budget or circuit are written to `enrichment-unresolved.jsonl` with a `metadata-completion-skipped:*` reason; they are never admitted.
+
+The keyless baseline is fail-soft in a different sense: a transport or malformed-response failure stops paging without changing the exit code, but the query is recorded as `incomplete` with its failure reason and partial returned count. `incomplete` is neither `empty` (a genuine zero-result search) nor `answered` (a complete one); re-run those queries before treating acquisition as complete.
+
 Do not print OpenResearch warnings, errors, installation prompts, or suggestions merely because optional enrichment is absent or unusable. Method-significant degradation is instead recorded in the acquisition artifacts.
 
 ### 6. Inspect canonical acquisition artifacts
@@ -102,10 +110,15 @@ Do not print OpenResearch warnings, errors, installation prompts, or suggestions
 - backend and sub-source;
 - strategy and submitted query;
 - run date;
-- outcome (`answered`, `empty`, `failed-and-fell-back`, `skipped-circuit-open`);
-- returned, admitted, unresolved, and normalization-drop counts;
-- circuit state; and
+- outcome (`answered`, `empty`, `incomplete`, `failed-and-fell-back`, `skipped-circuit-open`);
+- returned, admitted, unresolved, and normalization-drop counts (a zero-normalizable fallback still lists every dropped record by reason);
+- circuit state and failure reason; and
 - OpenResearch version when used.
+
+The record (schema `1.1`) also carries two run-level disclosures that the generated log renders and the gate reconciles against the query entries:
+
+- `loss_summary` — admitted enriched count, admitted DOI-less count, unresolved count, and how many unresolved hits are missing verified authors, missing a verified year, or were skipped by the completion budget/circuit;
+- `method_disclosure` — whether successful enrichment applied opaque source-side ranking/truncation, the affected sub-sources, the `--limit`/`--prioritize` used, and an explicit statement that this is not the review's deduplication step.
 
 If enrichment failed or a circuit prevented a later attempt, the generated log must say so at run level. It must be possible to distinguish that degraded run from a reviewer-selected `--keyless-only` run.
 
@@ -127,6 +140,7 @@ It checks only disclosure structure/internal consistency. It cannot establish th
 - backend/source attribution is correct;
 - candidate/raw artifact counts equal the files on disk;
 - metadata resolution is bibliographically correct;
+- the loss-summary counts match the records on disk;
 - source ranking is transparent;
 - recall is adequate; or
 - the search is PRISMA-S compliant.
