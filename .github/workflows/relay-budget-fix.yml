@@ -1,0 +1,153 @@
+name: Relay failure-budget remediation
+
+on:
+  push:
+    branches:
+      - claude/openresearch-agentic-research-diff-fq5xyi
+    paths:
+      - .relay-budget-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+      - name: Patch budget admission and add regression
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('skills/acquire-corpus/scripts/acquire_corpus.py')
+          text = source.read_text(encoding='utf-8')
+          old = '''class _FailureBudget:
+    """Cumulative enrichment failure wait for one run (SC-003: <= 15 s)."""
+
+    def __init__(self, limit: float = ENRICHMENT_FAILURE_BUDGET_SECONDS):
+        self.limit = limit
+        self.waited = 0.0
+
+    def charge(self, elapsed: float) -> None:
+        self.waited += min(max(0.0, float(elapsed)), ORX_TIMEOUT_SECONDS)
+
+    @property
+    def exhausted(self) -> bool:
+        return self.waited >= self.limit
+'''
+          new = '''class _FailureBudget:
+    """Cumulative enrichment failure wait for one run (SC-003: <= 15 s).
+
+    A new enrichment request is admitted only when its full worst-case timeout fits
+    inside the remaining budget. This reservation rule prevents a call that starts
+    with (for example) 4.9 seconds remaining from waiting another full 5 seconds and
+    overshooting the run-level cap.
+    """
+
+    def __init__(self, limit: float = ENRICHMENT_FAILURE_BUDGET_SECONDS):
+        self.limit = limit
+        self.waited = 0.0
+
+    def charge(self, elapsed: float) -> None:
+        self.waited += min(max(0.0, float(elapsed)), ORX_TIMEOUT_SECONDS)
+
+    def can_start(self, worst_case_wait: float = ORX_TIMEOUT_SECONDS) -> bool:
+        reserve = max(0.0, float(worst_case_wait))
+        return self.waited + reserve <= self.limit
+
+    @property
+    def exhausted(self) -> bool:
+        # "Exhausted" means no further standard enrichment call can be admitted
+        # without risking an overrun, even when some sub-timeout remainder exists.
+        return not self.can_start()
+'''
+          if text.count(old) != 1:
+              raise SystemExit('Expected exactly one _FailureBudget block; refusing ambiguous patch.')
+          source.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+
+          test = Path('tests/test_acquire_corpus_budget_reservation.py')
+          test.write_text('''"""Regression for PR #33 reviewer finding: failure-budget calls must not overshoot."""
+from __future__ import annotations
+
+from pathlib import Path
+import tempfile
+import unittest
+
+from _load import load
+
+acq = load("skills/acquire-corpus/scripts/acquire_corpus.py")
+
+
+class FailureBudgetReservationTests(unittest.TestCase):
+    def test_sub_timeout_remainder_is_not_treated_as_room_for_another_full_call(self):
+        budget = acq._FailureBudget(limit=15.0)
+        budget.charge(5.0)
+        budget.charge(5.0)
+        budget.charge(0.1)
+
+        self.assertLess(budget.waited, budget.limit)
+        self.assertFalse(budget.can_start())
+        self.assertTrue(budget.exhausted)
+        self.assertGreater(budget.waited + acq.ORX_TIMEOUT_SECONDS, budget.limit)
+
+    def test_metadata_completion_is_skipped_before_resolver_when_full_timeout_will_not_fit(self):
+        budget = acq._FailureBudget(limit=15.0)
+        budget.charge(5.0)
+        budget.charge(5.0)
+        budget.charge(0.1)
+        calls = []
+
+        def resolver(_rec, _config):
+            calls.append(True)
+            return {"authors": ["Ada Lovelace"], "year": 2025}
+
+        completer = acq._BoundedMetadataCompleter(resolver, budget)
+        with tempfile.TemporaryDirectory() as td:
+            config = acq.AcquisitionConfig(
+                queries=("widgets",), output_dir=Path(td), run_date="2026-09-11"
+            )
+            with self.assertRaises(acq.EnrichmentFailure) as ctx:
+                completer(
+                    {
+                        "source": "orx",
+                        "sub_source": "alphaxiv",
+                        "source_id": "2401.12345",
+                        "title": "Widgets",
+                        "year": 2025,
+                    },
+                    config,
+                )
+
+        self.assertEqual(ctx.exception.reason, "metadata-completion-skipped:run-failure-budget-exhausted")
+        self.assertEqual(calls, [])
+        self.assertEqual(completer.attempts, 0)
+
+    def test_exact_remaining_timeout_is_admissible(self):
+        budget = acq._FailureBudget(limit=15.0)
+        budget.charge(5.0)
+        budget.charge(5.0)
+        self.assertTrue(budget.can_start())
+        self.assertFalse(budget.exhausted)
+        budget.charge(5.0)
+        self.assertEqual(budget.waited, 15.0)
+        self.assertTrue(budget.exhausted)
+
+
+if __name__ == "__main__":
+    unittest.main()
+''', encoding='utf-8', newline='\n')
+
+          Path('.github/workflows/relay-budget-fix.yml').unlink()
+          Path('.relay-budget-trigger').unlink()
+          PY
+      - name: Commit remediation
+        run: |
+          git config user.name "agent-relay-builder"
+          git config user.email "102845719+kurtvalcorza@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(acquire-corpus): reserve failure budget before calls"
+          git push origin HEAD:${GITHUB_REF_NAME}
