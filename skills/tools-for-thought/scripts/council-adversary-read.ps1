@@ -151,8 +151,11 @@ of what works, no proposed fixes.
 # so we also scan output text for known failure signatures.
 # ---------------------------------------------------------------------------
 function Test-RunnerFailure {
-    param([string]$Text, [int]$ExitCode)
+    param([string]$Text, [Nullable[int]]$ExitCode)
 
+    if ($null -eq $ExitCode) {
+        return "runner did not report an exit code (not installed, killed, or crashed)"
+    }
     if ($ExitCode -ne 0) {
         return "runner exited $ExitCode"
     }
@@ -226,8 +229,9 @@ function Invoke-Persona {
     $raw = (Receive-Job -Job $job -ErrorAction SilentlyContinue) -join "`n"
     Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
 
-    # A missing sentinel means the job died before the runner returned.
-    $exitCode = -1
+    # A missing sentinel or empty code means no exit status was observed: the
+    # job died before the runner returned, or the runner was never found.
+    $exitCode = $null
     $m = [regex]::Match($raw, '__COUNCIL_EXIT__=(-?\d*)\s*$')
     if ($m.Success) {
         if ($m.Groups[1].Value -ne "") { $exitCode = [int]$m.Groups[1].Value }
@@ -263,6 +267,11 @@ function Exit-MalformedInput {
     exit 2
 }
 
+function Test-NonEmptyString {
+    param($Value)
+    return ($Value -is [string]) -and -not [string]::IsNullOrWhiteSpace($Value)
+}
+
 # Fail closed: reject the spec before dispatching anything.
 function Assert-JobSpec {
     param($Spec)
@@ -277,10 +286,13 @@ function Assert-JobSpec {
         if ($k -notin $topKeys) { Exit-MalformedInput "unknown key '$k'" }
     }
     foreach ($k in @("artifact", "coreClaim")) {
-        if ([string]::IsNullOrWhiteSpace($Spec.$k)) { Exit-MalformedInput "missing or empty '$k'" }
+        if (-not (Test-NonEmptyString $Spec.$k)) { Exit-MalformedInput "'$k' must be a non-empty string" }
     }
-    if ($null -ne $Spec.assumptions -and $Spec.assumptions -isnot [array]) {
-        Exit-MalformedInput "'assumptions' must be an array"
+    if ($null -ne $Spec.assumptions) {
+        if ($Spec.assumptions -isnot [array]) { Exit-MalformedInput "'assumptions' must be an array" }
+        foreach ($a in $Spec.assumptions) {
+            if (-not (Test-NonEmptyString $a)) { Exit-MalformedInput "'assumptions' entries must be non-empty strings" }
+        }
     }
     if ($Spec.personas -isnot [array] -or $Spec.personas.Count -eq 0) {
         Exit-MalformedInput "'personas' must be a non-empty array"
@@ -297,7 +309,10 @@ function Assert-JobSpec {
             if ($k -notin $personaKeys) { Exit-MalformedInput "persona ${n}: unknown key '$k'" }
         }
         foreach ($k in @("label", "runner", "brief", "voiceAsk")) {
-            if ([string]::IsNullOrWhiteSpace($p.$k)) { Exit-MalformedInput "persona ${n}: missing or empty '$k'" }
+            if (-not (Test-NonEmptyString $p.$k)) { Exit-MalformedInput "persona ${n}: '$k' must be a non-empty string" }
+        }
+        foreach ($k in @("lens", "model")) {
+            if ($null -ne $p.$k -and $p.$k -isnot [string]) { Exit-MalformedInput "persona ${n}: '$k' must be a string" }
         }
         if (-not $RunnerDefaults.ContainsKey($p.runner.ToLower())) {
             Exit-MalformedInput "persona ${n}: unknown runner '$($p.runner)' (expected gemini, codex or cursor)"

@@ -725,7 +725,7 @@ Claude: [Asks for a rough draft first]
 ```
 User: "Polish this: 'AI is good for education'"
 
-Claude: ❌ [Does NOT polish vague claims]
+Claude: [Asks for precision first]
 
         "This is too vague to polish.
 
@@ -760,7 +760,7 @@ Claude: "Good call. Now let's write that sentence together..."
 **Bad Collaboration:**
 ```
 User: "Write me a literature review on AI tutoring"
-Claude: ❌ "I don't write entire reviews. I help YOU write better reviews.
+Claude: "Before I draft anything, I need YOUR thinking - then we write it together.
 
          Start with:
          - Your research question (specific, not 'AI tutoring')
