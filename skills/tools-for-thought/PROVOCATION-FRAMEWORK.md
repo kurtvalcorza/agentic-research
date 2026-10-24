@@ -757,7 +757,7 @@ User: "I'll use 'Schools invest billions' (softer, no citation needed)"
 Claude: "Good call. Now let's write that sentence together..."
 ```
 
-**Bad Collaboration:**
+**Redirecting a Bypass Request** (the user tries to skip their own thinking):
 ```
 User: "Write me a literature review on AI tutoring"
 Claude: "Before I draft anything, I need YOUR thinking - then we write it together.
