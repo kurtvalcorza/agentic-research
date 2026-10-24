@@ -43,7 +43,9 @@ The user may remap conversationally:
 > *"council adversarial review with Gemini as a COA auditor and Codex as a methodological peer reviewer"*
 
 **Always echo the parsed mapping back before fanning out**, so a misparse can be corrected:
-> "Council mapping: A = COA auditor (Gemini), B = methodological peer reviewer (Codex), C = institutional/mandate (Claude, me). Firing A and B now — confirm or correct."
+> "Council mapping: A = COA auditor (Gemini), B = methodological peer reviewer (Codex), C = institutional/mandate (Claude, me). Confirm or correct before I fire A and B."
+
+**Wait for the user's reply before running any runner.** A misparse caught after the fan-out has already spent the model calls.
 
 ---
 
@@ -55,9 +57,9 @@ These quirks were learned by prototyping. Do not "simplify" them away.
 |--------|-----------|--------|
 | **Gemini** | `gemini -p "<prompt>"` | Emits noisy stderr (local Gemma router 500s, ripgrep/MCP warnings) that is **harmless** — capture stdout only (`2>$null`). Response follows the warnings. |
 | **Codex** | `$prompt \| codex exec --skip-git-repo-check` | Prompt **must** be piped via stdin. Passing it as an argument makes `codex exec` block waiting on stdin EOF (hangs forever in background). Has a usage cap surfacing as `"hit your usage limit"`. |
-| **Cursor** | `cursor-agent --print --output-format text --force --trust --model gpt-5.1-codex "<prompt>"` | **Long-form flags only** on the PowerShell shim (`--print`, not `-p`). Model name is `gpt-5.1-codex` (check `cursor-agent --list-models`), not `gpt-5`. **Requires `cursor-agent login`** — fails with "Authentication required" / "No models available" otherwise. |
+| **Cursor** | `cursor-agent --print --output-format text --trust --model gpt-5.1-codex "<prompt>"` | **Long-form flags only** on the PowerShell shim (`--print`, not `-p`). Model name is `gpt-5.1-codex` (check `cursor-agent --list-models`), not `gpt-5`. **Requires `cursor-agent login`** — fails with "Authentication required" / "No models available" otherwise. **Never add `--force`**: it auto-approves commands, and the prompt carries untrusted artifact text. |
 
-All runners exit 0 even on refusal/cap, so **also scan output text** for failure signatures (see the orchestrator script's `Test-RunnerFailure`).
+Runners often exit 0 even on refusal/cap, so the script checks the exit code **and** scans output text for failure signatures (see `Test-RunnerFailure`).
 
 ---
 
@@ -98,11 +100,11 @@ A 2-of-3 council is still useful. A 1-of-3 council is just standard Interrogatio
 1. Build a JSON job spec (see schema in `scripts/council-adversary-read.ps1`) with the artifact, core claim, assumptions, and persona/runner assignments for the **non-Claude** lenses.
 2. Run:
    ```powershell
-   .agent/skills/tools-for-thought/scripts/council-adversary-read.ps1 `
+   pwsh -File <path-to-this-skill>/scripts/council-adversary-read.ps1 `
        -JobSpec  ".agent/outputs/<date>_council-job.json" `
        -OutFile  ".agent/outputs/<date>_council-reads.md"
    ```
-3. The script writes the per-persona reads + a `.status.json` sidecar. Read both.
+3. The script writes the per-persona reads + a `.status.json` sidecar. Read both. Exit codes: `0` at least one usable read, `1` no usable read (or any UNAVAILABLE with `-Strict`), `2` malformed job spec (nothing was dispatched). Requires PowerShell 7 (`pwsh`).
 4. Write the **Claude/institutional** read yourself in-session.
 5. Synthesize convergence and the decision menu (orchestrator work — see below).
 
@@ -153,7 +155,7 @@ After Section 5, continue the standard report: Section 6 Decision Menu and the I
 
 - Council Mode is for genuinely high-stakes, going-public artifacts (keynotes, press releases, panel talking points, decision memos) — not routine interrogations.
 - Every fan-out triples model spend and adds minutes of latency. The explicit trigger is the cost gate; keep it.
-- For short artifacts where one external opinion suffices, prefer standard Interrogation Mode with one optional external read (Option B) over a full council.
+- When the user has triggered a council but one external opinion suffices (short artifact), suggest narrowing to a single external runner via Option B instead of the full fan-out. Never add an external read to a run the user did not trigger as a council.
 
 ---
 

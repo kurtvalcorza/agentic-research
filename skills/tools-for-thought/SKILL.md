@@ -154,7 +154,7 @@ This skill operates in four modes based on user intent and writing stage. See [[
 
 **Reference:** See `references/interrogation-mode.md` for the complete protocol, report template, content type adaptations, and post-report workflow.
 
-**Council Mode (opt-in):** On the explicit trigger "council adversarial review," the adversarial read (Step 7 / Report Section 5) is delegated to multiple AI models via their CLIs — institutional→Claude, public→Gemini, technical→Codex/Cursor — with conversational override and proceed-note failure handling. All other steps stay with the orchestrator. **Reference:** See `references/council-mode.md` for the mapping, runner invocation quirks, and the fan-out script (`scripts/council-adversary-read.ps1`).
+**Council Mode (opt-in):** On the explicit trigger "council adversarial review," the adversarial read (item 6 above; Step 7 in `references/interrogation-mode.md` / Report Section 5) is delegated to multiple AI models via their CLIs — institutional→Claude, public→Gemini, technical→Codex/Cursor — with conversational override and proceed-note failure handling. All other steps stay with the orchestrator. **Reference:** See `references/council-mode.md` for the mapping, runner invocation quirks, and the fan-out script (`scripts/council-adversary-read.ps1`).
 
 **Reference:** See `references/workflow-modes.md` for complete mode descriptions and selection guidance.
 
@@ -369,6 +369,10 @@ This skill exists to make you a better thinker, not just a faster writer.
 - `references/interaction-patterns.md` — Core engagement patterns
 - `references/metacognitive-checkpoints.md` — Strategic reflection prompts
 - `references/provocation-bank.md` — Comprehensive question catalog
+- `references/academic-writing.md` — Provocations for academic papers
+- `references/news-releases.md` — Provocations for news releases
+- `references/technical-reports.md` — Provocations for technical reports
+- `PROVOCATION-FRAMEWORK.md` — Phase-by-phase provocation design for research workflows (background; its orchestrator integration is a proposal, not implemented)
 
 ---
 
