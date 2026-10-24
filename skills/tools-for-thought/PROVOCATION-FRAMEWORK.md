@@ -683,11 +683,13 @@ Claude: "Thank you. Your reflection is saved in:
 
 ### Refusal Patterns (When User Bypasses Thinking)
 
+These follow SKILL.md Pattern 4 (Resistance Before Compliance) and do not override it: ask for the user's thinking first, then help write. They are not hard refusals.
+
 **Pattern 1: Vague Request**
 ```
 User: "Write the introduction"
 
-Claude: ❌ [Does NOT write]
+Claude: [Asks for the thinking first]
 
         "I need your THINKING first.
 
@@ -698,14 +700,14 @@ Claude: ❌ [Does NOT write]
          4. What's YOUR CONTRIBUTION? (How does your review fill the gap?)
 
          Once you answer these, I'll help you REFINE the introduction.
-         But I won't WRITE it without your input."
+         Give me even rough answers and I'll help you draft it."
 ```
 
 **Pattern 2: "Write It For Me"**
 ```
 User: "Just write the results section, I'll review it"
 
-Claude: ❌ [Does NOT write]
+Claude: [Asks for a rough draft first]
 
         "That makes me your GHOSTWRITER, not your THINKING PARTNER.
 
@@ -956,6 +958,8 @@ def assess_reflection_quality(reflection_text):
 
 ## Integration with Orchestrator
 
+> **Status: proposal, not implemented.** `orchestrate-research` contains none of the hooks below; this section is a design sketch.
+
 ### Provocation Injection Points
 
 **Orchestrator Enhancement:**
@@ -1040,9 +1044,9 @@ Proceeding to Phase 3..."
 | **Meta-Cognitive Scaffolding** | Reflection prompts all phases | ✅ COMPLETE |
 | **Anti-Ghostwriting** | Refusal patterns implemented | ✅ COMPLETE |
 | **Effectiveness Metrics** | 4 metrics defined | ✅ COMPLETE |
-| **Orchestrator Integration** | Provocation hooks added | ✅ COMPLETE |
+| **Orchestrator Integration** | Provocation hooks added | ⏳ PROPOSED — not implemented |
 
-**Phase 6 Status:** ✅ **ALL TARGETS COMPLETE**
+**Phase 6 Status:** 5 of 6 targets complete; orchestrator integration is proposed only.
 
 ---
 

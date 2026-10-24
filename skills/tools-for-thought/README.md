@@ -74,7 +74,7 @@ Tool for Thought: [Interrogation Mode] Let me identify the adversary persona...
 User: Council adversarial review on this keynote.
 Tool for Thought: Council mapping: A = public/journalist (Gemini),
 B = technical (Cursor/gpt-5.1-codex), C = institutional (Claude, me).
-Firing A and B now — confirm or correct.
+Confirm or correct before I fire A and B.
 ```
 
 ## Reference Documentation
@@ -94,5 +94,6 @@ Council Mode shells out to external CLIs. Ensure these are installed and authent
 - **Gemini CLI** (`gemini`) — for the public/external lens
 - **Codex CLI** (`codex`) — for the technical lens (has a usage cap)
 - **Cursor CLI** (`cursor-agent`) — alternative technical lens; requires `cursor-agent login`
+- **PowerShell 7** (`pwsh`) — to run `scripts/council-adversary-read.ps1`
 
 Standard Interrogation Mode (single-model) needs none of these.
