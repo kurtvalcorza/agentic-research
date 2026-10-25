@@ -560,6 +560,11 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
         raw, source = _load(args.record)
         record = parse(raw)
     except InputError as exc:
