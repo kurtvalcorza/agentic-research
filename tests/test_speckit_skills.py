@@ -42,6 +42,7 @@ class TestPowerShellInvocation(unittest.TestCase):
             "common.sh",
             "check-prerequisites.sh",
             "create-new-feature.sh",
+            "resolve-template.sh",
             "setup-plan.sh",
             "setup-tasks.sh",
         }

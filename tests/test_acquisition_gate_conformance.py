@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import os
 import pathlib
 import subprocess
 import sys
@@ -88,7 +89,7 @@ def undisclosed_enriched_record() -> dict:
     return rec
 
 
-def run_gate(record: dict, *flags: str):
+def run_gate(record: dict, *flags: str, env: dict | None = None):
     with tempfile.NamedTemporaryFile(
         "w", suffix=".json", encoding="utf-8", delete=False
     ) as handle:
@@ -103,6 +104,7 @@ def run_gate(record: dict, *flags: str):
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=env,
         )
         return proc.returncode, proc.stdout, proc.stderr
     finally:
@@ -160,6 +162,16 @@ class TestSharedCliContract(unittest.TestCase):
                 plain, _, _ = run_gate(record, "--strict")
                 as_json, _, _ = run_gate(record, "--strict", "--json")
                 self.assertEqual(plain, as_json)
+
+    def test_plain_report_survives_a_non_utf8_stdout(self):
+        """A crash must not exit 1 and pass for a strict method violation."""
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        for record in (keyless_record(), undisclosed_enriched_record()):
+            with self.subTest(enriched=len(record["queries"]) > 1):
+                code, _, err = run_gate(record, "--strict", env=env)
+                expected, _, _ = run_gate(record, "--strict", "--json")
+                self.assertNotIn("Traceback", err)
+                self.assertEqual(code, expected, msg=err)
 
     def test_method_violation_is_one_under_strict(self):
         code, out, err = run_gate(undisclosed_enriched_record(), "--strict", "--json")
